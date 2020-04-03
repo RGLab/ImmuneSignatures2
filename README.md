@@ -1,1 +1,4 @@
+ImmuneSignatures2
+=================
+
 This package provides the code needed to generate the expressionSet objects used in the ImmuneSignatures2 analysis by the Human Immunology Project Consortium.

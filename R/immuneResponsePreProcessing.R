@@ -6,7 +6,7 @@
 #' @export
 #'
 getImmuneResponseData <- function(assay, con, studies){
-  dt <- con$getDataset(assayname, original_view = TRUE)
+  dt <- con$getDataset(assay, original_view = TRUE)
   dt <- dt[ dt$study_accession %in% studies, ]
 }
 
@@ -16,11 +16,11 @@ getImmuneResponseData <- function(assay, con, studies){
 #' @param vaccineData vaccine data data.table
 #' @export
 #'
-addVaccineFields <- function(dt, vaccineData){
-  armOrder <- match(dt$arm_accession, vaccineData$arm_accession)
-  dt$vaccine <- vaccineData$vaccine[ armOrder ]
-  dt$vaccine_type <- vaccineData$vaccine_type[ armOrder ]
-  dt$pathogen <- vaccineData$pathogen[ armOrder ]
+addVaccineFields <- function(dt, vaccines){
+  armOrder <- match(dt$arm_accession, vaccines$arm_accession)
+  dt$vaccine <- vaccines$vaccine[ armOrder ]
+  dt$vaccine_type <- vaccines$vaccine_type[ armOrder ]
+  dt$pathogen <- vaccines$pathogen[ armOrder ]
   return(dt)
 }
 
@@ -46,20 +46,6 @@ addDemographicFields <- function(dt, demographicData){
   return(dt)
 }
 
-#' Add fields from immune exposure data to meta-data
-#'
-#' @param dt meta-data data.table
-#' @param immuneExposureData immune exposure data.table
-#' @export
-#'
-addImmuneExposureFields <- function(dt, immuneExposureData){
-  pidOrder <-  match(dt$participant_id, expo$participant_id)
-  dt$exposure_material <- immuneExposureData$`Exposure Material Reported`[ pidOrder ]
-  dt$exposure_process <- immuneExposureData$`Exposure Process Preferred`[ pidOrder ]
-  return(dt)
-}
-
-
 #' Impute age for those with missing age values or ranges given by ImmPort
 #'
 #' @param dt meta-data data.table
@@ -81,19 +67,37 @@ imputeAge <- function(dt){
     }
   }
 
-  dt[, age_imputed := fixAge(study_accession, age_reported) ]
+  dt[, age_imputed := mapply(fixAge, study_accession, age_reported) ]
 
-  impute.na <- function(x){ x[is.na(x)] <- mean(x, na.rm = TRUE); return(x) }
-
-  for(study in unique(dt$study_accession)){
-    allSmpls <- dt[ which(dt$study == study) ]
-    noAgeSmpls <- allSmpls[ which(is.na(allSmpls$age_reported)) ]
-    if ((length(noAgeSmpls) > 0) & (length(allSmpls) > length(noAgeSmpls))) {
-      uidOrder <- match(allSmpls, dt$uid)
-      dt$age_imputed[ uidOrder ] <- impute.na(dt$age_reported[uidOrder])
+  fixNas <- function(ages){
+    naLoc <- which(is.na(ages))
+    if ((length(naLoc) > 0) & (length(ages) > length(naLoc))) {
+      ages[naLoc] <- mean(ages, na.rm = TRUE)
     }
+    return(ages)
   }
+
+  dt[, age_imputed := fixNas(age_imputed), by = 'study_accession']
 
   return(dt)
 }
 
+#' Filter immdata list elements by age filter
+#'
+#' @param immdata list of assay data.table(s)
+#' @param ageCutoff integer value for cutting age_imputed
+#' @param isYoung boolean selecting young or older cohort
+#' @export
+#'
+filterImmdataByAge <- function(immdata, ageCutoff, isYoung){
+  if(isYoung){
+    filteredImmdata <- lapply(immdata, function(dt){
+      dt <- dt[dt$age_imputed < ageCutoff]
+    })
+  }else{
+    filteredImmdata <- lapply(immdata, function(dt){
+      dt <- dt[dt$age_imputed >= ageCutoff]
+    })
+  }
+  return(filteredImmdata)
+}

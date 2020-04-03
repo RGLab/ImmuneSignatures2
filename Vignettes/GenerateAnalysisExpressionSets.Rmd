@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = FALSE, include = FALSE)
 ```
 
 ```{r load-dependencies}
+library(ImmuneSignatures2)
 library(ImmuneSpaceR) 
 library(Rlabkey)
 library(Biobase)
@@ -28,39 +29,73 @@ saveIntermediateObjs <- FALSE
 ```{r global-variables}
 ageCutoff <- 60
 
-studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1364, SDY1368, SDY1370, SDY1373")
+studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1364, SDY1368, SDY1370, SDY1373")
 studies <- strsplit(studies, ", ")[[1]]
 
 con <- CreateConnection("", onTest = TRUE)
 ```
 
+```{r load-meta-data}
+vaccines <- data.table::fread("../data/vaccine_map_april_2020.csv", header = TRUE)
+
+demographics <- con$getDataset("demographics")
+
+immuneExposure <- getTable(con, "immport", "immune_exposure")
+```
 
 ```{r prepare-immune-response-data}
-IS2_immdata_all <- list()
+immdata_all <- list()
 
 for(assay in c("hai", "neut_ab_titer", "elisa", "elispot")){
-  IS2_immdata_all[[assay]] <- getImmuneResponseData(assay, con, studies)
+  immdata_all[[assay]] <- getImmuneResponseData(assay, con, studies)
 }
 
-vaccineData <- data.table::fread("../data/VaccineMap.csv")
-
-demographicData <- con$getDataset("demographics")
-
-immuneExposureData <- labkey.selectRows(
-  baseUrl = con$config$labkey.url.base,
-  folderPath = con$config$labkey.url.path,
-  schemaName = "immport",
-  queryName = "immune_exposure"
-)
-
-IS2_immdata_all <- lapply(IS2_immdata_all, function(dt){
+immdata_all <- lapply(immdata_all, function(dt){
   dt <- correctHrs(dt)
   dt <- createUniqueIdColumn(dt)
-  dt <- addVaccineFields(dt, vaccineData)
+  dt <- addVaccineFields(dt, vaccines)
   dt <- filterOutNoVaccineSamples(dt)
-  dt <- addDemographicFields(dt, demographicData)
-  dt <- addImmuneExposureFields(dt, immuneExposureData)
+  dt <- addDemographicFields(dt, demographics)
   dt <- imputeAge(dt)
 })
 ```
+
+
+```{r split-immune-response-data-into-age-cohorts}
+immdata <- list()
+immdata$young <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = TRUE)
+immdata$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FALSE)
+```
+
+
+```{r generate-response-calls}
+postVaxDayRanges <- list(
+  hai = c(20,46),
+  neut_ab_titer = c(28,90),
+  elisa = NA,
+  elispot = NA
+)
+
+discretizationValues <- list(
+    "RBA" = c(0.3, 0.4, 0.5),
+    "MFC" = c(0.3, 0.4)
+)
+
+immdata <- lapply(immdata, function(immdata_age_group){
+  assayNames <- names(immdata_age_group)
+  immdata_age_group <- lapply(assayNames, function(assay){
+    data <- immdata_age_group[[assay]]
+    postVaxDayRange <- postVaxDayRanges[[assay]]
+    dataWithResponses <- generateResponseCall(
+      assay = assay,
+      data = data,
+      postVaxDayRange = postVaxDayRange,
+      discretizationValues = discretizationValues
+    )
+  })
+  names(immdata_age_group) <- assayNames
+})
+```
+
+
 
