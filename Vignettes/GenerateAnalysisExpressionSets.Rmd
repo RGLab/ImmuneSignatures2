@@ -41,7 +41,29 @@ vaccines <- data.table::fread("../data/vaccine_map_april_2020.csv", header = TRU
 demographics <- con$getDataset("demographics")
 
 immuneExposure <- getTable(con, "immport", "immune_exposure")
+
+inputSmpls <- getTable(con, "assay.ExpressionMatrix.matrix", "inputSamples")
+colnames(inputSmpls) <- gsub("^biosample_", "", colnames(inputSmpls))
+
+runs <- labkey.selectRows(baseUrl = con$config$labkey.url.base,
+                          folderPath = con$config$labkey.url.path,
+                          schemaName = "assay.ExpressionMatrix.matrix",
+                          queryName = "Runs",
+                          colNameOpt = "fieldname",
+                          showHidden = T)
+
+gef <- con$getDataset("gene_expression_files", original_view = T)
 ```
+
+
+```{r map-meta-data}
+sharedMetaData <- addVaccineFields(demographics, vaccines)
+sharedMetaData <- filterOutNoVaccineSamples(sharedMetaData)
+sharedMetaData <- imputeAge(sharedMetaData)
+sharedMetaData <- addImmuneExposureFields(sharedMetaData, immuneExposure)
+```
+
+# IMMUNE RESPONSE
 
 ```{r prepare-immune-response-data}
 immdata_all <- list()
@@ -53,10 +75,9 @@ for(assay in c("hai", "neut_ab_titer", "elisa", "elispot")){
 immdata_all <- lapply(immdata_all, function(dt){
   dt <- correctHrs(dt)
   dt <- createUniqueIdColumn(dt)
-  dt <- addVaccineFields(dt, vaccines)
-  dt <- filterOutNoVaccineSamples(dt)
-  dt <- addDemographicFields(dt, demographics)
-  dt <- imputeAge(dt)
+  dt <- merge(dt, sharedMetaData,
+              by.x = "participant_id",
+              by.y = "participantId")
 })
 ```
 
@@ -94,8 +115,153 @@ immdata <- lapply(immdata, function(immdata_age_group){
     )
   })
   names(immdata_age_group) <- assayNames
+  return(immdata_age_group)
 })
 ```
 
 
+```{r test-immune-response-data}
+results <- testImmuneResponseData(immdata)
 
+if(!all(unlist(results))){
+  stop("Immune Response Data is Invalid. Correct and re-run.")
+}
+```
+# GENE EXPRESSION
+
+```{r extra-within-study-normalized-gene-expression-data}
+# gene expression matrices in ImmuneSpace are done on a cohort*cell_type basis
+# and each matrix is normalized separately.  With a global CreateConnection object
+# we start with all available matrices.
+geMatrices <- con$cache$GE_matrices
+geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
+
+# Removing cohorts:
+# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
+# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
+# SDY1364 - intraDermal, different vaccination method
+# SDY180 - Saline cohorts did not receive stimulation
+rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
+geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = T), ] 
+
+# Normalized expressionSet objects
+esets <- lapply(
+  geMatrices$name,
+  con$getGEMatrix,
+  outputType = "normalized",
+  annotation = "latest")
+names(esets) <- geMatrices$name
+```
+
+```{r check-extracted-ge-data}
+results <- testExtractedGEdata(esets)
+
+if( length(results) > 0 ){
+    stop("Normalized matrices do not meet dim and NA value expectations")
+}
+```
+
+```{r prepare-gene-expression-data}
+# SDY1325 - Day 35, 7 days post booster
+esets <- removeTimepointFromEset(esets, "SDY1325", 35)
+
+# SDY1293 - Day 0, using last vaccination on Day 60 as new Day 0
+esets <- removeTimepointFromEset(esets, "SDY1293", 0)
+
+# SDY180 - Hourly data appears to be from a different part of the study and 
+# generates non-matching duplicates for early timepoints
+esets <- removeTimepointFromEset(esets, "SDY180", "Hours")
+```
+
+```{r summarize-gene-expression-data-by-gene-symbol}
+summarizedEsets <- summarizeByGeneSymbol(esets)
+
+allGE <- Reduce(f = function(x, y){ merge(x, y, by = "gs", all = TRUE)}, summarizedEsets)
+rownames(allGE) <- allGE$gs
+allGE<- allGE[ , colnames(allGE) != "gs" ]
+```
+
+```{r prepare-gene-expression-meta-data}
+inputSmpls <- inputSmpls[ inputSmpls$biosample_accession %in% colnames(allGE), ]
+
+geMetaData <- merge(sharedMetaData, inputSmpls, 
+                    by.x = "participant_id", 
+                    by.y = "participantid",
+                    fill = TRUE)
+
+geMetaData$matrix <- runs$Name[ match(geMetaData$run, runs$RowId)]
+geMetaData <- geMetaData[ !duplicated(geMetaData)] 
+geMetaData <- correctHrs(geMetaData)
+geMetaData <- createUniqueIdColumn(geMetaData)
+
+gef <- gef[ !is.na(gef$geo_accession), ]
+geMetaData$gsm <- gef$geo_accession[ match(geMetaData$biosample_accession, gef$biosample_accession)]
+
+# Subset to only needed columns
+keepCols <- c("uid",
+              "participant_id",
+              "biosample_accession",
+              "study_time_collected",
+              "study_time_collected_unit",
+              "age_reported",
+              "age_imputed",
+              "gender",
+              "race",
+              "ethnicity",
+              "exposure_material",
+              "exposure_process",
+              "matrix",
+              "gsm",
+              "study")
+
+geMetaData <- geMetaData[ , ..keepCols ]
+```
+
+```{r fix-yale-studies-study-time-collected}
+geMetaData$study_time_collected <- as.numeric(geMetaData$study_time_collected)
+
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520", "SDY63"), 24, 28)
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 3, 2)
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 8, 7)
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 9, 7)
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY63"), 5, 4)
+```
+
+```{r create-post-vax-time-to-accomodate-SDY1293}
+# Align SDY1293 study_time_collected to use last (day 60) vaccination as baseline
+geMetaData$time_post_last_vax <- ifelse(geMetaData$study == "SDY1293",
+                                                 case_when(
+                                                         geMetaData$study_time_collected == 60 ~ 0,
+                                                         geMetaData$study_time_collected == 61 ~ 1,
+                                                         geMetaData$study_time_collected == 63 ~ 3,
+                                                         geMetaData$study_time_collected == 74 ~ 14
+                                                     ),
+                                                 geMetaData$study_time_collected)
+geMetaData$unit_post_last_vax <- geMetaData$study_time_collected_unit
+```
+
+
+```{r subset-ge-and-metadata}
+# Remove duplicate biosample from SDY212 that Stanford cannot explain
+geMetaData <- geMetaData[ geMetaData$biosample_accession != "BS694717",]
+
+# Remove subjects without baseline timepoints
+allPids <- unique(geMetaData$participant_id)
+pidsWithBaseline <- unique(geMetaData$participant_id[ geMetaData$study_time_collected >= -7 || geMetaData$study_time_collected <= 0 ])
+pidsToRm <- setdiff(allPids, pidsWithBaseline)
+if(length(pidsToRm) > 0){
+  geMetaData <- geMetaData[ !geMetaData$participant_id %in% pidsToRm, ]
+}
+
+# Subset the GE and metaData to shared biosamples 
+intersection <- intersect(colnames(allGE), geMetaData$biosample_accession)
+allGE <- allGE[, colnames(allGE) %in% intersection]
+geMetaData <- geMetaData[ geMetaData$biosample_accession %in% intersection, ]
+
+# Make colnames == geMetaData$uid after sanity check
+geMetaData <- geMetaData[ order(match(geMetaData$biosample_accession, colnames(allGE))), ]
+if (!all.equal(geMetaData$biosample_accession, colnames(allGE))){
+    stop("biosample accessions do NOT match!")
+}
+colnames(allGE) <- geMetaData$uid
+```

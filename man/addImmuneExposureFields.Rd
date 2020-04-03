@@ -4,7 +4,7 @@
 \alias{addImmuneExposureFields}
 \title{Add fields from immune exposure data to meta-data}
 \usage{
-addImmuneExposureFields(dt, immuneExposureData)
+addImmuneExposureFields(dt, immuneExposure)
 }
 \arguments{
 \item{dt}{meta-data data.table}
