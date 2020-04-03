@@ -1,0 +1,66 @@
+---
+title: "ImmuneSignatures 2 Project - Data Preprocessing for Analysis"
+author: "Evan Henrich"
+date: "April 1, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+```
+
+```{r load-dependencies}
+library(ImmuneSpaceR) 
+library(Rlabkey)
+library(Biobase)
+library(data.table)
+library(dplyr)
+library(titer) # devtools::install_github("stefanavey/titer")
+```
+
+```{r output-variables}
+outputDir <- "/home/ehenrich/"
+timeStamp <- "2020_04_01_"
+prefix <- paste0(outputDir, timeStamp)
+saveIntermediateObjs <- FALSE
+```
+
+```{r global-variables}
+ageCutoff <- 60
+
+studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1364, SDY1368, SDY1370, SDY1373")
+studies <- strsplit(studies, ", ")[[1]]
+
+con <- CreateConnection("", onTest = TRUE)
+```
+
+
+```{r prepare-immune-response-data}
+IS2_immdata_all <- list()
+
+for(assay in c("hai", "neut_ab_titer", "elisa", "elispot")){
+  IS2_immdata_all[[assay]] <- getImmuneResponseData(assay, con, studies)
+}
+
+vaccineData <- data.table::fread("../data/VaccineMap.csv")
+
+demographicData <- con$getDataset("demographics")
+
+immuneExposureData <- labkey.selectRows(
+  baseUrl = con$config$labkey.url.base,
+  folderPath = con$config$labkey.url.path,
+  schemaName = "immport",
+  queryName = "immune_exposure"
+)
+
+IS2_immdata_all <- lapply(IS2_immdata_all, function(dt){
+  dt <- correctHrs(dt)
+  dt <- createUniqueIdColumn(dt)
+  dt <- addVaccineFields(dt, vaccineData)
+  dt <- filterOutNoVaccineSamples(dt)
+  dt <- addDemographicFields(dt, demographicData)
+  dt <- addImmuneExposureFields(dt, immuneExposureData)
+  dt <- imputeAge(dt)
+})
+```
+
