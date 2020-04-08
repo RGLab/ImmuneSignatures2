@@ -69,9 +69,9 @@ immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
 
 
 ```{r split-immune-response-data-into-age-cohorts}
-immdata <- list()
-immdata$young <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = TRUE)
-immdata$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FALSE)
+immdataFiltered <- list()
+immdataFiltered$young <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = TRUE)
+immdataFiltered$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FALSE)
 ```
 
 
@@ -79,7 +79,7 @@ immdata$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FALSE)
 postVaxDayRanges <- list(
   hai = c(20,46),
   neut_ab_titer = c(28,90),
-  elisa = NA,
+  elisa = c(30,30),
   elispot = NA
 )
 
@@ -88,20 +88,21 @@ discretizationValues <- list(
     "MFC" = c(0.3, 0.4)
 )
 
-immdata <- lapply(immdata, function(immdata_age_group){
+immdataWithResponses <- lapply(immdataFiltered, function(immdata_age_group){
   immdata_age_group <- sapply(names(immdata_age_group), USE.NAMES = TRUE, function(assay){
     dataWithResponses <- generateResponseCall(
       assay = assay,
       data = immdata_age_group[[assay]],
       postVaxDayRange = postVaxDayRanges[[assay]],
-      discretizationValues = discretizationValues
+      discretizationValues = discretizationValues,
+      ageCutoff = ageCutoff
     )
   })
 })
 ```
 
 ```{r select-response-to-use-per-subject}
-selectedImmdata <- lapply(immdata, function(immdata_age_group){
+selectedImmdata <- lapply(immdataWithResponses, function(immdata_age_group){
   dt <- selectResponsesToUse(immdata_age_group)
 })
 ```
@@ -116,7 +117,7 @@ if(!all(unlist(results))){
 
 # GENE EXPRESSION
 
-```{r extra-within-study-normalized-gene-expression-data}
+```{r extract-within-study-normalized-gene-expression-data}
 # gene expression matrices in ImmuneSpace are done on a cohort*cell_type basis
 # and each matrix is normalized separately.  With a global CreateConnection object
 # we start with all available matrices.
@@ -143,7 +144,7 @@ names(esets) <- geMatrices$name
 ```{r check-extracted-ge-data}
 results <- testExtractedGEData(esets)
 
-if( !results$hasNames || length(results$NAvalues > 0) || length(results$badDims > 0) ){
+if( !all(unlist(results)) ){
     stop("Normalized matrices do not meet dim and NA value expectations")
 }
 ```

@@ -31,6 +31,7 @@ addVaccineFields <- function(dt, vaccines){
   dt$vaccine <- vaccines$vaccine[ armOrder ]
   dt$vaccine_type <- vaccines$vaccine_type[ armOrder ]
   dt$pathogen <- vaccines$pathogen[ armOrder ]
+  dt$adjuvant <- vaccines$adjuvant[ armOrder ]
   return(dt)
 }
 
@@ -40,7 +41,7 @@ addVaccineFields <- function(dt, vaccines){
 #' @export
 #'
 filterOutNoVaccineSamples <- function(dt){
-  dt <- dt[ !is.na(dt$vaccine), ]
+  dt <- dt[ !is.na(dt$vaccine) & dt$vaccine_type != '', ]
 }
 
 #' Add fields from demographic data to meta-data

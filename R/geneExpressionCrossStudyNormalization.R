@@ -46,8 +46,9 @@ crossStudyNormalize <- function(eset, vendorToUse, studiesToExclude){
 #' @export
 #'
 addCoalescedFeatureSetName <- function(eset){
-  eset$featureSetName[ grepl('ustom', eset$featureSetName) ] <- 'RNA-seq'
-  eset$featureSetName[ grepl('HT-12', eset$featureSetName) ] <- 'HumanHT-12_2018'
+  eset$featureSetName2 <- eset$featureSetName
+  eset$featureSetName2[ grepl('ustom', eset$featureSetName) ] <- 'RNA-seq'
+  eset$featureSetName2[ grepl('HT-12', eset$featureSetName) ] <- 'HumanHT-12_2018'
   return(eset)
 }
 

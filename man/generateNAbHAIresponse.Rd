@@ -5,7 +5,13 @@
 \title{Generate immune response calls for HAI or NAb using pipeline originally
 developed by Daniel Chawla at Yale University}
 \usage{
-generateNAbHAIresponse(assay, df, postVaxDayRange, discretizationValues)
+generateNAbHAIresponse(
+  assay,
+  df,
+  postVaxDayRange,
+  discretizationValues,
+  ageCutoff
+)
 }
 \arguments{
 \item{assay}{assay name}

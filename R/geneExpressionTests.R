@@ -6,14 +6,15 @@
 #'
 testExtractedGEData <- function(esets){
 
-  hasNames <- all(!is.null(names(esets)))
+  chks <- list()
+  chks$hasNames <- all(!is.null(names(esets)))
 
   naChk <- sapply(esets, function(x){
     em <- Biobase::exprs(x)
     return(any(is.na(em)))
   })
 
-  esetsWithNAvalues <- names(esets)[ naChk == TRUE ]
+  chks$esetsWithNAvalues <- length(names(esets)[ naChk == TRUE ]) == 0
 
   dims <- lapply(esets, function(x){ dim(Biobase::exprs(x)) })
 
@@ -24,13 +25,9 @@ testExtractedGEData <- function(esets){
     return( genes & subs )
   }))
 
-  esetsWithBadDims <- names(esets)[ !dimChk ]
+  chks$esetsWithBadDims <- length(names(esets)[ !dimChk ]) == 0
 
-  results <- list(hasNames = hasNames,
-                  NAvalues = esetsWithNAvalues,
-                  badDims = esetsWithBadDims)
-
-  return(results)
+  return(chks)
 }
 
 #' Test gene expression meta-data prior to summarization by gene symbol

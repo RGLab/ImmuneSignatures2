@@ -299,11 +299,11 @@ summarizeByGeneSymbol <- function(esets){
 #' @export
 #'
 imputeGender <- function(eset){
-  mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
-  ychrom <- getBM(attributes = c("chromosome_name", "entrezgene_id", "hgnc_symbol"),
-                  filters = "chromosome_name",
-                  values = "Y",
-                  mart = mart)
+  # mart <- useMart(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+  # ychrom <- getBM(attributes = c("chromosome_name", "entrezgene_id", "hgnc_symbol"),
+  #                 filters = "chromosome_name",
+  #                 values = "Y",
+  #                 mart = mart)
 
   # Create subset eset with only one sample per participantId.
   # By using !duplicated, we are taking the earliest timepoint
@@ -312,12 +312,12 @@ imputeGender <- function(eset){
   PD0[, gender_imputed := NA]
 
   # use only yChromosome gene symbols found in current features and that have complete cases
-  #  "AMELY"   "BCORP1"  "BPY2"    "CDY1"    "DDX3Y"   "EIF1AY"  "KDM5D"   "NLGN4Y"
-  # "PRKY"    "RBMY3AP" "RPS4Y1"  "SRY"     "TBL1Y"   "TGIF2LY" "TMSB4Y"  "TSPY1"
-  # "TTTY10"  "TTTY11"  "TTTY12"  "TTTY13" "TTTY14"  "TTTY5"   "TTTY7"   "USP9Y"
-  # "UTY"     "ZFY"
-  yChromGenes <- intersect(featureNames(e0), as.character(ychrom$hgnc_symbol))
-  yChromGenes <- yChromGenes[ which(rowSums(is.na(exprs(e0)[yChromGenes,])) == 0) ]
+  yChromGenes <- c("AMELY", "BCORP1", "BPY2", "CDY1", "DDX3Y", "EIF1AY", "KDM5D", "NLGN4Y",
+                   "PRKY", "RBMY3AP", "RPS4Y1", "SRY", "TBL1Y", "TGIF2LY", "TMSB4Y", "TSPY1",
+                   "TTTY10", "TTTY11", "TTTY12", "TTTY13", "TTTY14", "TTTY5", "TTTY7", "USP9Y",
+                   "UTY", "ZFY")
+  # yChromGenes <- intersect(featureNames(e0), as.character(ychrom$hgnc_symbol))
+  # yChromGenes <- yChromGenes[ which(rowSums(is.na(exprs(e0)[yChromGenes,])) == 0) ]
 
   studies <- unique(as.character(e0$study_accession2))
   for(study in studies){

@@ -41,8 +41,8 @@ selectResponsesToUse <- function(immdata_age_group){
 
   colsToUse <- c(
     "participant_id", "study_accession", "arm_accession", "cohort",
-    "race", "ethnicity", "gender",
-    "age_imputed", "vaccine", "vaccine_type", "pathogen", "assay",
+    "race", "ethnicity", "gender", "age_imputed",
+    "vaccine", "vaccine_type", "pathogen", "assay", "adjuvant",
     "MFC", "maxRBA",
     "maxStrain_MFC", "maxStrain_RBA",
     "ImmResp_baseline_value_MFC", "ImmResp_baseline_timepoint_MFC",
