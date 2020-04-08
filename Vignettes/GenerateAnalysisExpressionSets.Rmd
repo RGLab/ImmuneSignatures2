@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = FALSE, include = FALSE)
 ```
 
 ```{r load-dependencies}
-library(ImmuneSignatures2)
+library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
 library(ImmuneSpaceR) 
 library(Rlabkey)
 library(Biobase)
@@ -41,7 +41,6 @@ con <- CreateConnection("", onTest = TRUE)
 ```{r load-meta-data}
 demographics <- con$getDataset("demographics")
 geneExpressionFiles <- con$getDataset("gene_expression_files", original_view = TRUE)
-vaccines <- data.table::fread("../data/vaccine_map_april_2020.csv", header = TRUE)
 featureAnnotationMap <- getTable(con, "microarray", "fasMap", showHidden = TRUE)
 featureAnnotation <- getTable(con, "microarray", "FeatureAnnotationSet", showHidden = TRUE)
 ```
