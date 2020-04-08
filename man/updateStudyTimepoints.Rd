@@ -2,7 +2,19 @@
 % Please edit documentation in R/geneExpressionPreProcessing.R
 \name{updateStudyTimepoints}
 \alias{updateStudyTimepoints}
-\title{Update study_time_collected for known issues}
+\title{#' Add fields from immune exposure data to meta-data
+#'
+#' @param dt meta-data data.table
+#' @param immuneExposureData immune exposure data.table
+#' @export
+#'
+addImmuneExposureFields <- function(dt, immuneExposure){
+  pidOrder <-  match(dt$participant_id, expo$participant_id)
+  dt$exposure_material <- immuneExposure$`Exposure Material Reported`[ pidOrder ]
+  dt$exposure_process <- immuneExposure$`Exposure Process Preferred`[ pidOrder ]
+  return(dt)
+}
+Update study_time_collected for known issues}
 \usage{
 updateStudyTimepoints(geMetaData, studies, originalTp, newTp)
 }
@@ -16,5 +28,17 @@ updateStudyTimepoints(geMetaData, studies, originalTp, newTp)
 \item{newTp}{new timepoint value}
 }
 \description{
+#' Add fields from immune exposure data to meta-data
+#'
+#' @param dt meta-data data.table
+#' @param immuneExposureData immune exposure data.table
+#' @export
+#'
+addImmuneExposureFields <- function(dt, immuneExposure){
+  pidOrder <-  match(dt$participant_id, expo$participant_id)
+  dt$exposure_material <- immuneExposure$`Exposure Material Reported`[ pidOrder ]
+  dt$exposure_process <- immuneExposure$`Exposure Process Preferred`[ pidOrder ]
+  return(dt)
+}
 Update study_time_collected for known issues
 }

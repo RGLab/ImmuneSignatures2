@@ -4,7 +4,7 @@
 \alias{generateELISAResponse}
 \title{Generate immune response callELISA}
 \usage{
-generateELISAResponse(dt)
+generateELISAResponse(dt, discretizationValues)
 }
 \arguments{
 \item{dt}{immdata df}

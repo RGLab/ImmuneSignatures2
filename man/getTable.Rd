@@ -4,7 +4,7 @@
 \alias{getTable}
 \title{Get a backend table not easily accessible through ImmuneSpaceR}
 \usage{
-getTable(con, schemaName, queryName, biosamples = NULL)
+getTable(con, schemaName, queryName, ...)
 }
 \arguments{
 \item{con}{ImmuneSpaceR connection object}

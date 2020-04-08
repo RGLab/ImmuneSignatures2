@@ -325,16 +325,13 @@ generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationVal
 #' @param dt immdata df
 #' @export
 #'
-generateELISAResponse <- function(dt){
-  dt <- data.table(dt)
+generateELISAResponse <- function(dt, discretizationValues){
+
   dt <- dt[ grep("IgG", dt$analyte) ]
 
   # Filter data down to samples with selected post-baseline or baseline timepoints
   dt$study_time_collected <- as.numeric(dt$study_time_collected)
   dt <- dt[ study_time_collected %in% c(0,30) ]
-  dt[, value_reported := NULL ]
-  dt[, expsample_accession := NULL ]
-
   dt$value_preferred <- as.numeric(dt$value_preferred)
 
   # SDY1260 Corrections
@@ -356,43 +353,46 @@ generateELISAResponse <- function(dt){
   pre <- dt[ sample_type == "pre"]
 
   # Filter columns to only those needed and rename as necessary
-  pre <- pre[, list(
-    ImmResp_baseline_value_MFC = value_preferred,
-    ImmResp_baseline_timepoint_MFC = study_time_collected,
-    maxStrain_MFC = analyte,
-    age_imputed,
-    participant_id,
-    study_accession,
-    vaccine_type,
-    vaccine,
-    pathogen
-  )]
+  pre <- pre[, c("ImmResp_baseline_value_MFC",
+                 "ImmResp_baseline_timepoint_MFC",
+                 "maxStrain_MFC")
+                :=
+               list(value_preferred,
+                    study_time_collected,
+                    analyte)
+  ]
 
   # Filter the post-baseline samples down to those that have the max value_preferred
   post <- dt[ sample_type == "post"]
 
   # Filter columns to only those needed and rename as necessary
-  post <- post[, list(
-    ImmResp_postVax_value_MFC = value_preferred,
-    ImmResp_postVax_timepoint_MFC = study_time_collected,
-    maxStrain_MFC = analyte,
-    age_imputed,
-    participant_id,
-    study_accession,
-    vaccine_type,
-    vaccine,
-    pathogen
-  )]
+  post <- post[, c("ImmResp_postVax_value_MFC",
+                 "ImmResp_postVax_timepoint_MFC",
+                 "maxStrain_MFC")
+             :=
+               list(value_preferred,
+                    study_time_collected,
+                    analyte)
+             ]
+
+  colsToRm <- c("expsample_accession",
+                "biosample_accession",
+                "study_time_collected",
+                "value_reported",
+                "value_preferred",
+                "uid",
+                "sample_type",
+                "comments",
+                "description",
+                "phenotype",
+                "unit_preferred")
+
+  pre <- pre[, c(colsToRm) := NULL ]
+  post <- post[, c(colsToRm) := NULL ]
 
   # Put baseline and post back together - reduces to only those with both pre and post
-  full <- merge(pre, post, by = c('participant_id',
-                                  'maxStrain_MFC',
-                                  'study_accession',
-                                  'age_imputed',
-                                  'vaccine',
-                                  'vaccine_type',
-                                  'pathogen'),
-                all = TRUE)
+  sharedCols <- intersect(colnames(post), colnames(pre))
+  full <- merge(pre, post, by = sharedCols, all = TRUE)
 
   # only those with both pre and post
   full <- full[ !is.na(full$ImmResp_postVax_value_MFC) & !is.na(full$ImmResp_baseline_value_MFC) ]
@@ -401,8 +401,8 @@ generateELISAResponse <- function(dt){
   full$MFC <- as.numeric(full$ImmResp_postVax_value_MFC) - as.numeric(full$ImmResp_baseline_value_MFC)
 
   # discretize within study
-  discretize <- function(values){
-    x <- quantile(values, c(0.3,0.7))
+  discretize <- function(values, cutPoint){
+    x <- quantile(values, c(cutPoint, 1 - cutPoint))
     res <- sapply(values, function(y){
       if(y < x[[1]]){
         return("lowResponder")
@@ -414,7 +414,13 @@ generateELISAResponse <- function(dt){
     })
   }
 
-  full[ , MFC_p30 := discretize(MFC), by = "study_accession"]
+  for(point in discretizationValues){
+    colName <- paste0("MFC_p", gsub("0\\.", "", point), "0")
+    full[ , c(colName) := discretize(MFC, point), by = "study_accession"]
+  }
+
+  full[, analyte := NULL ]
+
   return(full)
 }
 
@@ -435,7 +441,7 @@ generateResponseCall <- function(assay, data, postVaxDayRange, discretizationVal
       discretizationValues = discretizationValues
     )
   }else if(assay == "elisa"){
-    res <- generateELISAResponse(data)
+    res <- generateELISAResponse(data, discretizationValues$MFC)
   }else{
     res <- data
   }

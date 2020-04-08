@@ -4,7 +4,7 @@
 \alias{testImmuneResponseData}
 \title{Ensure necessary columns are present in each applicable assay}
 \usage{
-testImmuneResponseData(immdata)
+testImmuneResponseData(selectedImmdata)
 }
 \arguments{
 \item{immdata}{nested assay data frame lists}

@@ -41,23 +41,12 @@ createUniqueIdColumn <- function(dt){
 #' @import Rlabkey
 #' @export
 #'
-getTable <- function(con, schemaName, queryName, biosamples = NULL){
-  if(!is.null(biosamples)){
-    bsFilter <- Rlabkey::makeFilter('biosample_accession',
-                                    'IN',
-                                    paste(biosamples, collapse = ";"))
+getTable <- function(con, schemaName, queryName, ...){
     dt <- labkey.selectRows(baseUrl = con$config$labkey.url.base,
                             folderPath = con$config$labkey.url.path,
                             schemaName = schemaName,
                             queryName = queryName,
                             colNameOpt = "rname",
-                            colFilterOpt = bsFilter)
-  }else{
-    dt <- labkey.selectRows(baseUrl = con$config$labkey.url.base,
-                            folderPath = con$config$labkey.url.path,
-                            schemaName = schemaName,
-                            queryName = queryName,
-                            colNameOpt = "rname")
-  }
+                            ...)
   return(dt)
 }
