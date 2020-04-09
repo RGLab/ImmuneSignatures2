@@ -112,7 +112,7 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
 
   chks$noHourlyData <- !any(geMetaData$unit_post_last_vax == "Hours")
 
-  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 55
+  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 54
 
   chks$allAgesImputed <- all(geMetaData$age_imputed > 0 & !is.na(geMetaData$age_imputed))
 

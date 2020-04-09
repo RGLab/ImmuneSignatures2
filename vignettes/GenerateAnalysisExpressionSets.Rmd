@@ -25,7 +25,6 @@ library(limma)
 outputDir <- "/home/ehenrich/"
 timeStamp <- "2020_04_01_"
 prefix <- paste0(outputDir, timeStamp)
-generateTestPlots <- FALSE
 ```
 
 ```{r global-variables}
@@ -33,6 +32,27 @@ ageCutoff <- 60
 
 studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1364, SDY1368, SDY1370, SDY1373")
 studies <- strsplit(studies, ", ")[[1]]
+
+# Removing cohorts from gene expression data:
+# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
+# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
+# SDY1364 - intraDermal, different vaccination method
+# SDY180 - Saline cohorts did not receive stimulation
+rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
+
+assays <- c("hai", "neut_ab_titer", "elisa")
+
+postVaxDayRanges <- list(
+  hai = c(20,46),
+  neut_ab_titer = c(28,90),
+  elisa = c(30,30),
+  elispot = NA
+)
+
+discretizationValues <- list(
+    "RBA" = c(0.3, 0.4, 0.5),
+    "MFC" = c(0.3, 0.4)
+)
 
 con <- CreateConnection("", onTest = TRUE)
 ```
@@ -55,7 +75,6 @@ sharedMetaData <- imputeAge(sharedMetaData)
 # IMMUNE RESPONSE
 
 ```{r prepare-immune-response-data}
-assays <- c("hai", "neut_ab_titer", "elisa")
 immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- getImmuneResponseData(assay, con, studies)
   dt$assay <- assay
@@ -74,18 +93,6 @@ immdataFiltered$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FA
 
 
 ```{r generate-response-calls}
-postVaxDayRanges <- list(
-  hai = c(20,46),
-  neut_ab_titer = c(28,90),
-  elisa = c(30,30),
-  elispot = NA
-)
-
-discretizationValues <- list(
-    "RBA" = c(0.3, 0.4, 0.5),
-    "MFC" = c(0.3, 0.4)
-)
-
 immdataWithResponses <- lapply(immdataFiltered, function(immdata_age_group){
   immdata_age_group <- sapply(names(immdata_age_group), USE.NAMES = TRUE, function(assay){
     dataWithResponses <- generateResponseCall(
@@ -111,6 +118,9 @@ results <- testImmuneResponseData(selectedImmdata)
 if(!all(unlist(results))){
   stop("Immune Response Data is Invalid. Correct and re-run.")
 }
+
+# Reduce memory usage
+rm(immdataWithResponses, immdataFiltered)
 ```
 
 # GENE EXPRESSION
@@ -121,13 +131,6 @@ if(!all(unlist(results))){
 # we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
 geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
-
-# Removing cohorts:
-# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
-# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
-# SDY1364 - intraDermal, different vaccination method
-# SDY180 - Saline cohorts did not receive stimulation
-rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = TRUE), ] 
 
 esets <- lapply(
@@ -216,7 +219,7 @@ if (!all.equal(geMetaData$biosample_accession, colnames(allGE))) {
     stop("biosample accessions do NOT match for expression data and meta-data!")
 }
 colnames(allGE) <- c(geMetaData$uid)
-allGE[, rn := gs]
+allGE[, rn := gs ]
 ```
 
 ```{r pre-norm-gene-expression-tests}
@@ -237,7 +240,9 @@ noNormEset <- new("ExpressionSet",
 noNormEset <- imputeGender(noNormEset)
 
 # Reduce memory usage
-rm(allGE, summarizedEsets, esets, geMetaData)
+rm(allGE, summarizedEsets, esets, geMetaData, sharedMetaData, 
+   phenoDataSets, demographics, gs, geneExpressionFiles)
+gc()
 ```
 
 ```{r split-gene-expression-data-into-age-cohorts}
@@ -248,14 +253,19 @@ esets$noResponse$noNorm$older <- noNormEset[ , noNormEset$age_imputed >= ageCuto
 ```
 
 ```{r cross-study-normalization-and-batch-correction}
-esets$noResponse$norm <- lapply(esets$noResponse$noNorm, function(eset){
-  eset <- crossStudyNormalize(eset, vendorToUse = "Affymetrix", studiesToExclude = "SDY1293")
+# check object sizes and remove other large?
+# Cannot use lapply - maxes out memory
+for(ageCohort in names(esets$noResponse$noNorm)){
+  eset <- esets$noResponse$noNorm[[ageCohort]]
+  eset <- crossStudyNormalize(eset, 
+                              vendorToUse = "Affymetrix", 
+                              studiesToExclude = "SDY1293")
   eset <- addCoalescedFeatureSetName(eset)
   eset <- batchCorrectBaselineData(eset)
-  if(generateTestPlots){
-    generateSampleMDSplot(eset, numberOfSamples = 8)
-  }
-})
+  esets$noResponse$norm[[ageCohort]] <- eset
+  rm(eset)
+  gc()
+}
 ```
 
 ```{r add-response-data}
@@ -284,6 +294,8 @@ for(responseStatus in names(esets)){
                                      responseStatus,
                                      ageCohort,
                                      ageCutoff)
+      rm(eset)
+      gc()
     }
   }
 }
@@ -294,7 +306,7 @@ if(!all(unlist(results))){
 ```
 
 ```{r output}
-save(immdata, file = paste0(prefix, "IS2_immdata.rda"))
+save(immdata_all, file = paste0(prefix, "IS2_immdata.rda"))
 save(esets, file = paste0(prefix, "IS2_esets.rda"))
 
 IS2_session_info <- sessionInfo()
