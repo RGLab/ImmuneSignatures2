@@ -27,6 +27,6 @@ inputSmpls <- data.table(inputSmpls)
 res <- inputSmpls[, list(count = .N), by = c("age_bracket", "study")]
 
 # stacked bar plot
-library(ggplot2)
-ggplot(res, aes(fill=study, y=count, x=age_bracket)) +
-  geom_bar(position="stack", stat="identity")
+# library(ggplot2)
+# ggplot(res, aes(fill=study, y=count, x=age_bracket)) +
+#   geom_bar(position="stack", stat="identity")
