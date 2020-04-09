@@ -182,8 +182,7 @@ geMetaData <- rbindlist(phenoDataSets)
 
 # Adds vaccine and age_imputed
 geMetaData <- merge(geMetaData, sharedMetaData, 
-                    by = c("participant_id", "cohort", "study_accession"),
-                    fill = TRUE)
+                    by = c("participant_id", "cohort", "study_accession"))
 
 geMetaData <- addFeatureAnnotationSetName(geMetaData, featureAnnotationMap)
 geMetaData <- addFeatureAnnotationSetVendor(geMetaData, featureAnnotation)
@@ -205,18 +204,20 @@ geMetaData <- updateStudyTimepoints(geMetaData, c("SDY63"), 5, 4)
 ```{r summarize-gene-expression-data-by-gene-symbol}
 summarizedEsets <- summarizeByGeneSymbol(esets)
 
-allGE <- Reduce(f = function(x, y){ merge(x, y, by = "gs", all = TRUE)}, summarizedEsets)
-allGE[ , rn := gs ]
+allGE <- Reduce(f = function(x, y){ merge(x, y, by = "gs", all = TRUE)},
+                summarizedEsets)
+gs <- allGE$gs
 allGE[, gs := NULL ]
 ```
 
 
 ```{r match-ge-and-metadata}
 geMetaData <- geMetaData[ order(match(geMetaData$biosample_accession, colnames(allGE))), ]
-if (!all.equal(geMetaData$biosample_accession, colnames(allGE)[-length(colnames(allGE))])) {
+if (!all.equal(geMetaData$biosample_accession, colnames(allGE))) {
     stop("biosample accessions do NOT match for expression data and meta-data!")
 }
-colnames(allGE) <- c(geMetaData$uid, "rn")
+colnames(allGE) <- c(geMetaData$uid)
+allGE[, rn := gs]
 ```
 
 ```{r pre-norm-gene-expression-tests}

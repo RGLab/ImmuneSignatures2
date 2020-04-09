@@ -10,3 +10,10 @@ NULL
 #'   \code{vaccine_type}, \code{pathogen}, \code{adjuvant}, \code{study}
 #'   and \code{arm_accesion}
 "vaccines"
+
+#' Y-Chromosome Associated Genes
+#'
+#' Y-Chromosome genes from the ensembl database using the `biomaRt` library
+#'
+#' @format string vector containing all gene names
+"yChromGenes"

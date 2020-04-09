@@ -76,10 +76,13 @@ testGEMetaDataPreSummarization <- function(geMetaData){
 #' @export
 #'
 testAllGEMatrixPreNorm <- function(allGE){
-  expectedNumberOfSubjects <- dim(allGE)[[2]] == 4464
-  expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
-  return(list(expectedNumberOfSubjects = expectedNumberOfSubjects,
-              expectedNumberOfGenes = expectedNumberOfGenes))
+  chks <- list()
+
+  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4464
+  chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
+  chks$completeCases <- sum(complete.cases(allGE)) > 10000
+
+  return(chks)
 }
 
 #' Test gene expression meta-data of all samples prior to cross-study normalization
