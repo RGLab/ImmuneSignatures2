@@ -1,3 +1,10 @@
+#' Add selected immune response data to final expressionSets
+#'
+#' @param ageCohort name of age cohort
+#' @param noResponseEsets expressionSets without response data
+#' @param selectedImmdata selected immune response data
+#' @export
+#'
 addResponseData <- function(ageCohort, noResponseEsets, selectedImmdata){
 
     eset <- noResponseEsets[[ageCohort]]

@@ -11,10 +11,13 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
                exprs = list())
 
   # expected number of subjects
-  expectedSamples <- list(withResponse = list(young = 111,
-                                           older = 111),
-                       noResponse = list(young = 111,
-                                         older = 111))
+  expectedSamples <- list(withResponse = list(young = 2474,
+                                           older = 787),
+                       noResponse = list(young = 3380,
+                                         older = 973))
+
+  expectedGenes <- list(older = 15018,
+                        young = 10056)
 
   noResponseCols <- c(
     'participant_id', 'study_accession', 'arm_accession', 'uid', 'cohort',
@@ -35,6 +38,9 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
   expectedCols <- ifelse(responseStatus == "noResponse",
                          noResponseCols,
                          c(noResponseCols, staticResponseCols))
+
+  expectedLevels <- paste0(c("low", "moderate", "high"), "Responder")
+
   # pData
   pd <- pData(eset)
 
@@ -49,19 +55,21 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
 
   if(responseStatus == "withResponse"){
     chks$pdata$dynamicColsPresent <- any(grepl("^(MFC|maxRBA)_p\\d", colnames(pd)))
+
     mfcDiscretizedCols <- grep("^MFC_p\\d", colnames(pd))
     chks$pdata$noNAsInDiscretizedMFC <- all(is.na(pd[[mfcDiscretizedCols[[1]] ]]))
-    expectedLevels <- paste0(c("low", "moderate", "high"), "Responder")
-    chks$pdata$expectedMFCLevels <- levels(pd[[mfcDiscretizedCols[[1]]]]) == expectedLevels
+
+    chks$pdata$expectedMFCLevels <- all(levels(pd[[mfcDiscretizedCols[[1]]]]) == expectedLevels)
   }
 
   # exprs
   em <- Biobase::exprs(eset)
-  completeEm <- em[ complete.cases(em) ]
 
-  chks$exprs$genesWithCompleteCases <- dim(completeEm)[[1]] > 19500
+  chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) == expectedGenes[[ageCohort]]
   chks$exprs$noMissingGeneNames <- all(!is.na(rownames(em)) & rownames(em) != "")
-  chks$exprs$noIncompleteRows <- all(apply(em, 1, function(x){ all(!is.na(x)) }))
+
+  incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
+  chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
 
   return(chks)
 }

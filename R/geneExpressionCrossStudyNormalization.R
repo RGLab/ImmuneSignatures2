@@ -14,28 +14,37 @@ crossStudyNormalize <- function(eset, vendorToUse, studiesToExclude){
   # Find features that are present in samples with good coverage of gene expression
   tmp <- exprs(eset[, samplesToUse])
   featuresToUse <- rownames(tmp)[ complete.cases(tmp) ]
+  rm(tmp)
 
   # Use only Affymetrix samples to generate target distribution as this ensures
   # a reasonable range of values for all studies to use as it removes cross-platform
   # technical variation in range of expression values which causes the distribution
   # to be too wide.  SDY1293 also generated a flattened distribution and was excluded.
   exprs.not.norm <- exprs(eset)
-  excludedSmpls <- which(eset$vendor != vendorToUse | eset$study_accession %in% studiesToExclude)
+  excludedSmpls <- which(eset$featureSetVendor != vendorToUse | eset$study_accession %in% studiesToExclude)
+  targetExprs <- exprs.not.norm[ featuresToUse, -excludedSmpls]
 
   # perform normalization on selected features (12127) and samples (1654)
-  x <- preprocessCore::normalize.quantiles.robust(exprs.not.norm[ featuresToUse, -excludedSmpls])
+  normTargetExprs <- preprocessCore::normalize.quantiles.robust(targetExprs)
 
   # Create target distribution based on normalized version of selected features and samples
-  target.dist <- preprocessCore::normalize.quantiles.determine.target(x)
+  target.dist <- preprocessCore::normalize.quantiles.determine.target(normTargetExprs)
+
+  # Clean up as we go
+  rm(normTargetExprs, targetExprs)
 
   # Normalize all features and samples based on subset target distribution
   # Even though selected features are only 12127 and the number of features per sample may be more or less.
   # It is unclear how this problem is handled.
-  x.all <- preprocessCore::normalize.quantiles.use.target(exprs.not.norm, target = target.dist)
+  normAllExprs <- preprocessCore::normalize.quantiles.use.target(exprs.not.norm, target = target.dist)
 
   # replace expression values in expressionSet and create copy with clear name
-  dimnames(x.all) <- dimnames(exprs.not.norm)
-  exprs(eset) <- x.all
+  dimnames(normAllExprs) <- dimnames(exprs.not.norm)
+  exprs(eset) <- normAllExprs
+
+  # Clean up as we go
+  rm(normAllExprs)
+  gc()
 
   return(eset)
 }
@@ -72,7 +81,7 @@ batchCorrectBaselineData <- function(eset){
   mm.est <- mm[, !colnames(mm) %in% notEstimable]
 
   # Create a linear model based on the model matrix with all estimable vars for day 0
-  fit <- lmFit(exprs(e0), design = mm.est)
+  fit <- lmFit(object = exprs(day0), design = mm.est)
 
   # Select only study, featureAnnotationSet, and cell type as variables to use
   # (do not use gender)
@@ -123,4 +132,15 @@ generateSampleMDSPlot <- function(eset, numberOfSamples){
   colors <- RColorBrewer::brewer.pal(10, "Spectral")
   colors <- colorRampPalette(colors)(length(unique(groups)))
   tmp <- plotMDS(dset, col = colors[factor(groups)], labels = groups)
+}
+
+#' Remove incomplete rows
+#'
+#' @param eset expressionSet
+#' @export
+#'
+removeAllNArows <- function(eset){
+  em <- Biobase::exprs(eset)
+  allNARows <- apply(em, 1, function(x){ all(is.na(x))})
+  eset <- eset[ !allNARows, ]
 }

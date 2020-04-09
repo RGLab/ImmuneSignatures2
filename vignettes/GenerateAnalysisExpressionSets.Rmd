@@ -250,11 +250,15 @@ gc()
 esets <- list(noResponse = list(noNorm = list()))
 esets$noResponse$noNorm$young <- noNormEset[ , noNormEset$age_imputed < ageCutoff ]
 esets$noResponse$noNorm$older <- noNormEset[ , noNormEset$age_imputed >= ageCutoff ]
+
+# Clean-up
+rm(noNormEset)
 ```
 
 ```{r cross-study-normalization-and-batch-correction}
-# check object sizes and remove other large?
-# Cannot use lapply - maxes out memory
+# Use 'For' to minimize memory usage with cross-study norm work
+# and batch correction requiring lmFit
+esets$noResponse$norm <- list()
 for(ageCohort in names(esets$noResponse$noNorm)){
   eset <- esets$noResponse$noNorm[[ageCohort]]
   eset <- crossStudyNormalize(eset, 
@@ -262,9 +266,8 @@ for(ageCohort in names(esets$noResponse$noNorm)){
                               studiesToExclude = "SDY1293")
   eset <- addCoalescedFeatureSetName(eset)
   eset <- batchCorrectBaselineData(eset)
+  eset <- removeAllNArows(eset)
   esets$noResponse$norm[[ageCohort]] <- eset
-  rm(eset)
-  gc()
 }
 ```
 
@@ -294,8 +297,6 @@ for(responseStatus in names(esets)){
                                      responseStatus,
                                      ageCohort,
                                      ageCutoff)
-      rm(eset)
-      gc()
     }
   }
 }
@@ -306,9 +307,19 @@ if(!all(unlist(results))){
 ```
 
 ```{r output}
-save(immdata_all, file = paste0(prefix, "IS2_immdata.rda"))
-save(esets, file = paste0(prefix, "IS2_esets.rda"))
+saveRDS(immdata_all, file = paste0(prefix, "IS2_immdata.rds"))
+saveRDS(selectedImmdata, file = paste0(prefix, "IS2_immdata_selected.rds"))
+
+for(responseStatus in names(esets)){
+  for(normStatus in names(esets[[responseStatus]])){
+    for(ageCohort in names(esets[[responseStatus]][[normStatus]])){
+      eset <- esets[[responseStatus]][[normStatus]][[ageCohort]]
+      name <- paste("IS2_eset", responseStatus, normStatus, ageCohort, sep = "_")
+      saveRDS(eset, file = paste0(prefix, name, ".rds"))
+    }
+  }
+}
 
 IS2_session_info <- sessionInfo()
-save(IS2_session_info, file = paste0(prefix, "IS2_session_info.rda"))d
+saveRDS(IS2_session_info, file = paste0(prefix, "IS2_session_info.rds"))
 ```
