@@ -25,7 +25,6 @@ library(limma)
 outputDir <- "/home/ehenrich/"
 timeStamp <- "2020_04_01_"
 prefix <- paste0(outputDir, timeStamp)
-saveIntermediateObjs <- FALSE
 generateTestPlots <- FALSE
 ```
 
