@@ -24,7 +24,8 @@ inputSmpls$age_imputed <- demographics$age_imputed[ match(inputSmpls$participant
 inputSmpls$age_bracket <- ceiling(inputSmpls$age_imputed/10) * 10
 
 inputSmpls <- data.table(inputSmpls)
-res <- inputSmpls[, list(count = .N), by = c("age_bracket", "study")]
+ageGroups <- inputSmpls[, list(count = .N), by = c("age_bracket", "study")]
+usethis::use_data(ageGroups, overwrite = TRUE)
 
 # stacked bar plot
 # library(ggplot2)
