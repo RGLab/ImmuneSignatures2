@@ -17,3 +17,12 @@ NULL
 #'
 #' @format string vector containing all gene names
 "yChromGenes"
+
+#' Age groups for determining age cohorts
+#'
+#' Data created from inputSamples query in ImmuneSpace. Age_bracket variable
+#' is the ceiling of that decile.
+#'
+#' @format A data frame with three variables: \code{count}, \code{study},
+#'   and \code{age_bracket}
+"ageGroups"
