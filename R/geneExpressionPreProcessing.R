@@ -276,14 +276,16 @@ summarizeByGeneSymbol <- function(esets){
     # Check and remove summary level NA values
     maxPrb <- maxPrb[ !is.na(maxPrb$gs) ]
 
-    # handle cases where duplicated gs, but slightly diff vals
+    # handle cases where duplicated gs due to same average value,
+    # but slightly different sample values
     # e.g. SDY1289 - Lausanne Adult Cohort
     if( any(duplicated(maxPrb$gs)) ){
-      dupGs <- maxPrb$gs[ duplicated(maxPrb$gs)]
-      for(dup in dupGs){
+      dupGs <- maxPrb$gs[ duplicated(maxPrb$gs) ]
+      for(dup in unique(dupGs)){
         rows <- grep(dup, maxPrb$gs)
-        rmRows <- rows[1:length(rows) - 1]
-        maxPrb <- maxPrb[ -rmRows, ]
+        print(rows)
+        rmRows <- rows[ 1:length(rows) - 1 ]
+        maxPrb <- maxPrb[ -rmRows ]
       }
     }
 

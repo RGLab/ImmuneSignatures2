@@ -14,10 +14,10 @@ library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
 library(ImmuneSpaceR) 
 library(Rlabkey)
 library(Biobase)
+library(dplyr)
 library(data.table)
 library(titer) # devtools::install_github("stefanavey/titer")
 library(massiR)
-library(biomaRt)
 library(limma)
 ```
 
@@ -120,7 +120,6 @@ if(!all(unlist(results))){
 # and each matrix is normalized separately.  With a global CreateConnection object
 # we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
-studies <- studies[1:3]
 geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
 
 # Removing cohorts:
