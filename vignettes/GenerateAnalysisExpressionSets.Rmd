@@ -235,6 +235,9 @@ noNormEset <- new("ExpressionSet",
                    phenoData = new('AnnotatedDataFrame', 
                                geMetaData))
 noNormEset <- imputeGender(noNormEset)
+
+# Reduce memory usage
+rm(allGE, summarizedEsets, esets, geMetaData)
 ```
 
 ```{r split-gene-expression-data-into-age-cohorts}

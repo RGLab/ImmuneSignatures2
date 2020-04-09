@@ -78,7 +78,7 @@ testGEMetaDataPreSummarization <- function(geMetaData){
 testAllGEMatrixPreNorm <- function(allGE){
   chks <- list()
 
-  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4464
+  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4354
   chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
   chks$completeCases <- sum(complete.cases(allGE)) > 10000
 
