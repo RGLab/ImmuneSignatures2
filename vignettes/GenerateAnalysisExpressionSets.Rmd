@@ -23,7 +23,7 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/ehenrich/"
-timeStamp <- "2020_04_01_"
+timeStamp <- "2020_04_09_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 

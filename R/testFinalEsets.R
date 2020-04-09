@@ -57,7 +57,7 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
     chks$pdata$dynamicColsPresent <- any(grepl("^(MFC|maxRBA)_p\\d", colnames(pd)))
 
     mfcDiscretizedCols <- grep("^MFC_p\\d", colnames(pd))
-    chks$pdata$noNAsInDiscretizedMFC <- all(is.na(pd[[mfcDiscretizedCols[[1]] ]]))
+    chks$pdata$noNAsInDiscretizedMFC <- !any(is.na(pd[[mfcDiscretizedCols[[1]] ]]))
 
     chks$pdata$expectedMFCLevels <- all(levels(pd[[mfcDiscretizedCols[[1]]]]) == expectedLevels)
   }
