@@ -185,41 +185,36 @@ addAnalysisVariables <- function(geMetaData){
                             ]
 }
 
+#' Create new featureSetName field that coalesces similar platforms for analysis
+#'
+#' @param dt data table
+#' @export
+#'
+addCoalescedFeatureSetName <- function(dt){
+  dt$featureSetName2 <- dt$featureSetName
+  dt$featureSetName2[ grepl('ustom', dt$featureSetName) ] <- 'RNA-seq'
+  dt$featureSetName2[ grepl('HT-12', dt$featureSetName) ] <- 'HumanHT-12_2018'
+  return(dt)
+}
+
+#' Remove incomplete rows
+#'
+#' @param eset expressionSet
+#' @export
+#'
+removeAllNArows <- function(eset){
+  em <- Biobase::exprs(eset)
+  allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
+  eset <- eset[ !allNARows, ]
+}
+
 #' Subset to just columns needed for cross-study normalization and batch-correction
 #'
 #' @param geMetaData single data.table containing all gene expression meta-data
 #' @export
 #'
 subsetToOnlyNeededColumns <- function(geMetaData){
-  expectedCols <- c("uid",
-                    "participant_id",
-                    "biosample_accession",
-                    "study_time_collected",
-                    "study_time_collected_unit",
-                    "time_post_last_vax",
-                    "unit_post_last_vax",
-                    "age_reported",
-                    "age_imputed",
-                    "gender",
-                    "race",
-                    "ethnicity",
-                    "exposure_material_reported",
-                    "exposure_process_preferred",
-                    "matrix",
-                    "gsm",
-                    "study_accession",
-                    "study_accession2",
-                    "Hispanic",
-                    "White",
-                    "Asian",
-                    "Black",
-                    "cell_type",
-                    "cohort",
-                    "featureSetName",
-                    "featureSetVendor"
-  )
-
-  geMetaData <- geMetaData[ , ..expectedCols ]
+  geMetaData <- geMetaData[ , ..expectedGeMetaDataColumns ]
 }
 
 #' Summarize probe-level gene expression data by gene symbol selecting the probe
@@ -283,7 +278,6 @@ summarizeByGeneSymbol <- function(esets){
       dupGs <- maxPrb$gs[ duplicated(maxPrb$gs) ]
       for(dup in unique(dupGs)){
         rows <- grep(dup, maxPrb$gs)
-        print(rows)
         rmRows <- rows[ 1:length(rows) - 1 ]
         maxPrb <- maxPrb[ -rmRows ]
       }

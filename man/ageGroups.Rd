@@ -4,8 +4,10 @@
 \name{ageGroups}
 \alias{ageGroups}
 \title{Age groups for determining age cohorts}
-\format{A data frame with three variables: \code{count}, \code{study},
-  and \code{age_bracket}}
+\format{
+A data frame with three variables: \code{count}, \code{study},
+  and \code{age_bracket}
+}
 \usage{
 ageGroups
 }

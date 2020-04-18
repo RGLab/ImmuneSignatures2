@@ -1,7 +1,6 @@
 ---
 title: "ImmuneSignatures 2 Project - Data Preprocessing for Analysis"
 author: "Evan Henrich"
-date: "April 1, 2020"
 output: html_document
 ---
 
@@ -22,8 +21,8 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/ehenrich/"
-timeStamp <- "2020_04_09_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
+timeStamp <- "2020_04_13_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -188,6 +187,7 @@ geMetaData <- merge(geMetaData, sharedMetaData,
 
 geMetaData <- addFeatureAnnotationSetName(geMetaData, featureAnnotationMap)
 geMetaData <- addFeatureAnnotationSetVendor(geMetaData, featureAnnotation)
+geMetaData <- addCoalescedFeatureSetName(geMetaData)
 geMetaData <- addGSMAccessions(geMetaData, geneExpressionFiles)
 geMetaData <- createUniqueIdColumn(geMetaData)
 geMetaData <- addAnalysisVariables(geMetaData)
@@ -201,6 +201,13 @@ geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"),
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 8, 7)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 9, 7)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY63"), 5, 4)
+```
+
+```{r test-ge-metadata-pre-summarization}
+metaDataResults <- testGEMetaDataPreSummarization(geMetaData)
+if(!metaDataResults){
+  stop("Not all pre-summarization checks are passing!")
+}
 ```
 
 ```{r summarize-gene-expression-data-by-gene-symbol}
@@ -251,6 +258,11 @@ esets <- list(noResponse = list(noNorm = list()))
 esets$noResponse$noNorm$young <- noNormEset[ , noNormEset$age_imputed < ageCutoff ]
 esets$noResponse$noNorm$older <- noNormEset[ , noNormEset$age_imputed >= ageCutoff ]
 
+# Because of allGE merge, cohorts may have allNArows pre-norm
+esets$noResponse$noNorm <- lapply(esets$noResponse$noNorm, function(eset){
+  eset <- removeAllNArows(eset)
+})
+
 # Clean-up
 rm(noNormEset)
 ```
@@ -264,7 +276,6 @@ for(ageCohort in names(esets$noResponse$noNorm)){
   eset <- crossStudyNormalize(eset, 
                               vendorToUse = "Affymetrix", 
                               studiesToExclude = "SDY1293")
-  eset <- addCoalescedFeatureSetName(eset)
   eset <- batchCorrectBaselineData(eset)
   eset <- removeAllNArows(eset)
   esets$noResponse$norm[[ageCohort]] <- eset
@@ -293,10 +304,10 @@ for(responseStatus in names(esets)){
     for(ageCohort in names(esets[[responseStatus]][[normStatus]])){
       eset <- esets[[responseStatus]][[normStatus]][[ageCohort]]
       name <- paste(responseStatus, normStatus, ageCohort, sep = "_")
-      results[name] <- testFinalEset(eset,
-                                     responseStatus,
-                                     ageCohort,
-                                     ageCutoff)
+      results[[name]] <- testFinalEset(eset,
+                                       responseStatus,
+                                       ageCohort,
+                                       ageCutoff)
     }
   }
 }

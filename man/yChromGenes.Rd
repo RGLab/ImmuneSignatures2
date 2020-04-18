@@ -4,7 +4,9 @@
 \name{yChromGenes}
 \alias{yChromGenes}
 \title{Y-Chromosome Associated Genes}
-\format{string vector containing all gene names}
+\format{
+string vector containing all gene names
+}
 \usage{
 yChromGenes
 }

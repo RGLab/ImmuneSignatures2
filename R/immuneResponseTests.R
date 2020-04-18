@@ -5,8 +5,16 @@
 #'
 testImmuneResponseData <- function(selectedImmdata){
 
-      results <- lapply(selectedImmdata, function(dt){
+      expectedStudies <- list(young = c("SDY269, SDY61, SDY270, SDY63, SDY224, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY180, SDY1289, SDY1276, SDY1294, SDY1264, SDY1325, SDY984, SDY1260, SDY67"),
+                              older = c("SDY63, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY984, SDY67"))
+
+      results <- lapply(names(selectedImmdata), function(ageCohort){
+
         chks <- list()
+
+        dt <- selectedImmdata[[ageCohort]]
+        studies <- strsplit(expectedStudies[[ageCohort]], ", ")[[1]]
+
         staticCols <- c('participant_id', 'study_accession', 'arm_accession',
                         'vaccine','pathogen','vaccine_type', 'adjuvant',
                         'ImmResp_baseline_value_MFC','ImmResp_baseline_timepoint_MFC',
@@ -22,6 +30,8 @@ testImmuneResponseData <- function(selectedImmdata){
         chks$noMissingMFC <- all(!is.na(dt$MFC))
 
         chks$noBlankOrNAVaxType <- all(!is.na(dt$vaccine_type) & dt$vaccine_type != '')
+
+        chks$hasExpectedStudies <- all(studies %in% unique(dt$study_accession))
 
         return(chks)
       })

@@ -11,21 +11,20 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
                exprs = list())
 
   # expected number of subjects
-  expectedSamples <- list(withResponse = list(young = 2474,
-                                           older = 787),
-                       noResponse = list(young = 3380,
-                                         older = 973))
+  expectedSamples <- list(withResponse = list(young = 2763,
+                                              older = 796),
+                          noResponse = list(young = 3380,
+                                            older = 973))
 
-  expectedGenes <- list(older = 15018,
-                        young = 10056)
+  expectedStudies <- list(withResponse = list(young = c("SDY269, SDY61, SDY270, SDY63, SDY224, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY180, SDY1289, SDY1276, SDY1294, SDY1264, SDY1325, SDY984, SDY1260, SDY67"),
+                                              older = c("SDY63, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY984, SDY67")
+                                              ),
+                          noResponse = list(young = c("SDY520, SDY640, SDY80, SDY180, SDY1294, SDY1119, SDY1289, SDY1370, SDY1368, SDY67, SDY224, SDY212, SDY270, SDY1373, SDY1364, SDY1325, SDY1291, SDY1293, SDY1276, SDY1264, SDY1260, SDY984, SDY61, SDY56, SDY63, SDY404, SDY400, SDY269"),
+                                            older = c("SDY520, SDY640, SDY80, SDY1119, SDY1368, SDY67, SDY212, SDY984, SDY56, SDY63, SDY404, SDY400")
+                                            )
+                          )
 
-  noResponseCols <- c(
-    'participant_id', 'study_accession', 'arm_accession', 'uid', 'cohort',
-    'biosample_accession', 'time_post_last_vax', 'unit_post_last_vax',
-    'age_imputed', 'race', 'gender_imputer', 'ethnicity',
-    'matrix', 'gsm', 'cell_type', 'featureSetName', 'featureSetVendor',
-    'vaccine','pathogen','vaccine_type','adjuvant'
-  )
+  noResponseCols <- c(expectedGeMetaDataColumns, "gender_imputed")
 
   staticResponseCols <- c(
     'ImmResp_baseline_value_MFC','ImmResp_baseline_timepoint_MFC',
@@ -65,11 +64,13 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
   # exprs
   em <- Biobase::exprs(eset)
 
-  chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) == expectedGenes[[ageCohort]]
+  chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) > 10000
   chks$exprs$noMissingGeneNames <- all(!is.na(rownames(em)) & rownames(em) != "")
 
   incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
   chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
+
+  chks$namesMatch <- all.equal(colnames(em), pd$uid)
 
   return(chks)
 }

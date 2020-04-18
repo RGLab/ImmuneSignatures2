@@ -18,6 +18,13 @@ NULL
 #' @format string vector containing all gene names
 "yChromGenes"
 
+#' Expected Gene Expression Meta-Data columns
+#'
+#' After pre-processing, a vector of column names expected to be found in geMetaData
+#'
+#' @format string vector containing all column names
+"expectedGeMetaDataColumns"
+
 #' Age groups for determining age cohorts
 #'
 #' Data created from inputSamples query in ImmuneSpace. Age_bracket variable

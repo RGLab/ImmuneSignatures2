@@ -11,10 +11,13 @@ addResponseData <- function(ageCohort, noResponseEsets, selectedImmdata){
     immdata <- selectedImmdata[[ageCohort]]
 
     eset <- eset[ , eset$participant_id %in% immdata$participant_id ]
+    eset <- removeAllNArows(eset)
 
     pd <- pData(eset)
     sharedCols <- intersect(colnames(pd), colnames(immdata))
-    pData(eset) <- merge(pd, immdata, by = sharedCols)
+    pd <- merge(pd, immdata, by = sharedCols)
+
+    pData(eset) <- pd[ order(match(pd$uid, colnames(exprs(eset)))), ]
 
     return(eset)
 }

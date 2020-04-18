@@ -295,7 +295,7 @@ runAllAnalyses <- function(titer_list, df, discretizationValues){
               by.x = "participant_id", by.y = 'SubjectID')
 
   sharedCols <- intersect(colnames(rba_df), colnames(mfc_df))
-  all <- merge(mfc_df, rba_df, by = sharedCols)
+  all <- merge(mfc_df, rba_df, by = sharedCols, all = TRUE) # ensure those with MFC, not RBA stick around
   all <- all[ !duplicated(all) ]
 }
 

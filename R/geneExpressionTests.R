@@ -36,38 +36,7 @@ testExtractedGEData <- function(esets){
 #' @export
 #'
 testGEMetaDataPreSummarization <- function(geMetaData){
-
-  expectedCols <- c("uid",
-                    "participant_id",
-                    "biosample_accession",
-                    "study_time_collected",
-                    "study_time_collected_unit",
-                    "time_post_last_vax",
-                    "unit_post_last_vax",
-                    "age_reported",
-                    "age_imputed",
-                    "gender",
-                    "race",
-                    "ethnicity",
-                    "exposure_material",
-                    "exposure_process",
-                    "matrix",
-                    "gsm",
-                    "study",
-                    "study2",
-                    "Hispanic",
-                    "White",
-                    "Asian",
-                    "Black",
-                    "cell_type",
-                    "cohort",
-                    "fas_name",
-                    "vendor"
-  )
-
-  results <- all(expectedCols %in% colnames(geMetaData))
-
-  return(results)
+  results <- all(expectedGeMetaDataColumns %in% colnames(geMetaData))
 }
 
 #' Test gene expression matrix of all samples prior to cross-study normalization
@@ -81,6 +50,8 @@ testAllGEMatrixPreNorm <- function(allGE){
   chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4354
   chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
   chks$completeCases <- sum(complete.cases(allGE)) > 10000
+
+  chks$importantGenesPresent <- all(c("MMVP1","POTEF") %in% allGE$rn)
 
   return(chks)
 }

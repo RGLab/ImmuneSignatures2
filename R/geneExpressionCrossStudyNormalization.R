@@ -49,18 +49,6 @@ crossStudyNormalize <- function(eset, vendorToUse, studiesToExclude){
   return(eset)
 }
 
-#' Create new featureSetName field that coalesces similar platforms for analysis
-#'
-#' @param eset expressionSet
-#' @export
-#'
-addCoalescedFeatureSetName <- function(eset){
-  eset$featureSetName2 <- eset$featureSetName
-  eset$featureSetName2[ grepl('ustom', eset$featureSetName) ] <- 'RNA-seq'
-  eset$featureSetName2[ grepl('HT-12', eset$featureSetName) ] <- 'HumanHT-12_2018'
-  return(eset)
-}
-
 #' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
 #'
 #' @param eset expressionSet
@@ -132,15 +120,4 @@ generateSampleMDSPlot <- function(eset, numberOfSamples){
   colors <- RColorBrewer::brewer.pal(10, "Spectral")
   colors <- colorRampPalette(colors)(length(unique(groups)))
   tmp <- plotMDS(dset, col = colors[factor(groups)], labels = groups)
-}
-
-#' Remove incomplete rows
-#'
-#' @param eset expressionSet
-#' @export
-#'
-removeAllNArows <- function(eset){
-  em <- Biobase::exprs(eset)
-  allNARows <- apply(em, 1, function(x){ all(is.na(x))})
-  eset <- eset[ !allNARows, ]
 }

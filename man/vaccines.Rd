@@ -4,9 +4,11 @@
 \name{vaccines}
 \alias{vaccines}
 \title{Vaccine Mapping Data.}
-\format{A data frame with seven variables: \code{matrix}, \code{vaccine},
+\format{
+A data frame with seven variables: \code{matrix}, \code{vaccine},
   \code{vaccine_type}, \code{pathogen}, \code{adjuvant}, \code{study}
-  and \code{arm_accesion}}
+  and \code{arm_accesion}
+}
 \usage{
 vaccines
 }
