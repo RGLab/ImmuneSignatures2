@@ -342,23 +342,36 @@ elisaResponseCall <- function(dt, discretizationValues, ageCutoff, postVaxDayRan
     dt <- dt[ dt$age_imputed >= ageCutoff ]
   }
 
-
-  dt <- dt[ grep("IgG", dt$analyte) ]
+  dt <- dt[ grep("IgG|^Hepatitis", dt$analyte) ]
 
   # Filter data down to samples with selected post-baseline or baseline timepoints
   dt$study_time_collected <- as.numeric(dt$study_time_collected)
+
+  # Correct SDY1328 dates
+  datesToChange <- dt$study_accession == "SDY1328" & dt$study_time_collected == 7
+  dt$study_time_collected[ datesToChange] <- 30
+
+  # Subset
   postVaxTp <- seq(postVaxDayRange[[1]], postVaxDayRange[[2]])
   dt <- dt[ study_time_collected %in% c(0, postVaxTp) ]
   dt$value_preferred <- as.numeric(dt$value_preferred)
 
   # SDY1260 Corrections
-  dt <- dt[ grep("IgG\\d{1}", dt$analyte, invert = TRUE)]
-  dt$analyte <- "IgG"
+  dt$analyte[ grep("IgG(\\d|)_serotype", dt$analyte)] <- "IgG"
   dt$value_preferred[dt$study_accession == "SDY1260"] <- `^`(2, dt$value_preferred[dt$study_accession == "SDY1260"])
+
+  # SDY1328 corrections to ensure day 0 are considered "naive" as well as then standardize
+  # the FC for naive subjects that show no change to be 0
+  samplesToUpdate <- dt$study_accession == "SDY1328" &
+    ( dt$value_preferred == 2.5 | dt$study_time_collected == 0)
+  dt$value_preferred[ samplesToUpdate ] <- 1
 
   # Only applies to SDY1260 - sum Serotype A and Serotype C
   dt <- dt[, value_preferred := sum(value_preferred),
            by = c("participant_id", "study_time_collected", "vaccine", "vaccine_type", "pathogen")]
+
+  colsCreatingDupes <- c("expsample_accession", "value_reported", "unit_reported")
+  dt <- dt[, c(colsCreatingDupes) := NULL ]
 
   # De-dupe for SDY1260
   dt <- dt[!duplicated(dt)]
@@ -392,10 +405,8 @@ elisaResponseCall <- function(dt, discretizationValues, ageCutoff, postVaxDayRan
                       analyte)
                ]
 
-  colsToRm <- c("expsample_accession",
-                "biosample_accession",
+  colsToRm <- c("biosample_accession",
                 "study_time_collected",
-                "value_reported",
                 "value_preferred",
                 "uid",
                 "sample_type",
