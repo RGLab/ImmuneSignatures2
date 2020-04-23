@@ -22,14 +22,14 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_04_13_"
+timeStamp <- "2020_04_23_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
 ```{r global-variables}
 ageCutoff <- 60
 
-studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1364, SDY1368, SDY1370, SDY1373")
+studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373")
 studies <- strsplit(studies, ", ")[[1]]
 
 # Removing cohorts from gene expression data:
@@ -39,13 +39,13 @@ studies <- strsplit(studies, ", ")[[1]]
 # SDY180 - Saline cohorts did not receive stimulation
 rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
-assays <- c("hai", "neut_ab_titer", "elisa")
+assays <- c("hai", "neut_ab_titer", "elisa", "mbaa")
 
 postVaxDayRanges <- list(
   hai = c(20,46),
   neut_ab_titer = c(28,90),
-  elisa = c(30,30),
-  elispot = NA
+  elisa = c(28,30),
+  mbaa = c(21, 21)
 )
 
 discretizationValues <- list(
