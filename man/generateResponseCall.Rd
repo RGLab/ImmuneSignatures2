@@ -9,7 +9,7 @@ generateResponseCall(
   data,
   postVaxDayRange,
   discretizationValues,
-  ageCutoff
+  ageCutoffs
 )
 }
 \arguments{

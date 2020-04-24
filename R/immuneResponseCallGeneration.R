@@ -54,7 +54,7 @@ customProcessing <- function(assay, df){
 #' @param postVaxDayRange range of integer values for study_time_collected cutpoints
 #' @export
 #'
-preProcessImmData <- function(dt, postVaxDayRange, ageCutoff){
+preProcessImmData <- function(dt, postVaxDayRange, ageCutoffs){
 
   # remove dupes - coming from ImmuneSpace, not generated
   dt <- dt[ !duplicated(dt) ]
@@ -105,7 +105,7 @@ preProcessImmData <- function(dt, postVaxDayRange, ageCutoff){
 
   # Update Strain to add study and age_cohort for identifiability
   full[, study_accession := paste(study_accession,
-                                  ifelse(full$age_imputed > ageCutoff, "old", "young"),
+                                  ifelse(full$age_imputed > ageCutoffs[[1]], "old", "young"),
                                   sep = "_")]
   full[, virus := paste(study_accession, virus, sep = "_")]
 
@@ -308,13 +308,13 @@ runAllAnalyses <- function(titer_list, df, discretizationValues){
 #' @param discretizationValues cut points to use for discretizing response call groups
 #' @export
 #'
-generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationValues, ageCutoff){
+generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationValues, ageCutoffs){
   dt <- customProcessing(assay = assay,
                          df = df)
 
   titer_list_study <- preProcessImmData(dt = dt,
                                         postVaxDayRange = postVaxDayRange,
-                                        ageCutoff = ageCutoff)
+                                        ageCutoffs = ageCutoffs)
 
   titer_list <- suppressMessages(lapply(X = titer_list_study,
                                         FUN = FormatTiters,
@@ -330,24 +330,17 @@ generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationVal
 #'
 #' @param dt immdata df
 #' @param discretizationValues points to use for cutting of low, mid, high responders
-#' @param ageCutoff age at which young and older are defined
-#' @param isYoung boolean
+#' @param postVaxDayRange range of allowable study_time_collected
 #' @export
 #'
-elisaResponseCall <- function(dt, discretizationValues, ageCutoff, postVaxDayRange, isYoung){
-
-  if(isYoung){
-    dt <- dt[ dt$age_imputed < ageCutoff ]
-  }else{
-    dt <- dt[ dt$age_imputed >= ageCutoff ]
-  }
+generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
 
   dt <- dt[ grep("IgG|^Hepatitis", dt$analyte) ]
 
   # Filter data down to samples with selected post-baseline or baseline timepoints
   dt$study_time_collected <- as.numeric(dt$study_time_collected)
 
-  # Correct SDY1328 dates
+  # Correct SDY1328 dates per comments of S. Fourati - post-vax in month 2
   datesToChange <- dt$study_accession == "SDY1328" & dt$study_time_collected == 7
   dt$study_time_collected[ datesToChange] <- 30
 
@@ -360,8 +353,8 @@ elisaResponseCall <- function(dt, discretizationValues, ageCutoff, postVaxDayRan
   dt$analyte[ grep("IgG(\\d|)_serotype", dt$analyte)] <- "IgG"
   dt$value_preferred[dt$study_accession == "SDY1260"] <- `^`(2, dt$value_preferred[dt$study_accession == "SDY1260"])
 
-  # SDY1328 corrections to ensure day 0 are considered "naive" as well as then standardize
-  # the FC for naive subjects that show no change to be 0
+  # SDY1328 - ensure day 0 are considered "naive"
+  # Standardize the FC for naive subjects that show no change to be 0
   samplesToUpdate <- dt$study_accession == "SDY1328" &
     ( dt$value_preferred == 2.5 | dt$study_time_collected == 0)
   dt$value_preferred[ samplesToUpdate ] <- 1
@@ -452,26 +445,6 @@ elisaResponseCall <- function(dt, discretizationValues, ageCutoff, postVaxDayRan
   return(full)
 }
 
-#' Generate immune response call for all elisa data
-#'
-#' @param dt immdata df
-#' @param discretizationValues points to use for cutting of low, mid, high responders
-#' @param ageCutoff age at which young and older are defined
-#' @export
-#'
-generateELISAResponse <- function(dt, discretizationValues, ageCutoff, postVaxDayRange){
-
-  isYoungVals <- c(TRUE, FALSE)
-  res <- lapply(isYoungVals, function(isYoung){
-    tmp <- elisaResponseCall(dt, discretizationValues, ageCutoff, postVaxDayRange, isYoung)
-  })
-  resRows <- sapply(res, nrow)
-  res <- res[ resRows > 0 ]
-  res <- rbindlist(res)
-
-  return(res)
-}
-
 #' Generate immune response calls for HAI, NAb or ELISA
 #'
 #' @param assay assay name
@@ -480,24 +453,21 @@ generateELISAResponse <- function(dt, discretizationValues, ageCutoff, postVaxDa
 #' @param discretizationValues cut points to use for discretizing response call groups
 #' @export
 #'
-generateResponseCall <- function(assay, data, postVaxDayRange, discretizationValues, ageCutoff){
+generateResponseCall <- function(assay, data, postVaxDayRange, discretizationValues, ageCutoffs){
   if(assay %in% c("hai","neut_ab_titer")){
     res <- generateNAbHAIresponse(
       assay = assay,
       df = data,
       postVaxDayRange = postVaxDayRange,
       discretizationValues = discretizationValues,
-      ageCutoff = ageCutoff
+      ageCutoffs = ageCutoffs
     )
   }else if(assay == "elisa"){
     res <- generateELISAResponse(
       dt = data,
       discretizationValues = discretizationValues$MFC,
-      ageCutoff = ageCutoff,
       postVaxDayRange = postVaxDayRange
     )
-  }else{
-    res <- data
   }
   return(res)
 }

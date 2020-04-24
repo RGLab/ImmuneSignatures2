@@ -17,14 +17,14 @@ getImmuneResponseData <- function(assay, con, studies){
 #' @param isYoung boolean selecting young or older cohort
 #' @export
 #'
-filterImmdataByAge <- function(immdata, ageCutoff, isYoung){
+filterImmdataByAge <- function(immdata, ageCutoffs, isYoung){
   if(isYoung){
     filteredImmdata <- lapply(immdata, function(dt){
-      dt <- dt[dt$age_imputed < ageCutoff]
+      dt <- dt[dt$age_imputed < ageCutoffs[[1]]]
     })
   }else{
     filteredImmdata <- lapply(immdata, function(dt){
-      dt <- dt[dt$age_imputed >= ageCutoff]
+      dt <- dt[dt$age_imputed >= ageCutoffs[[2]]]
     })
   }
   return(filteredImmdata)

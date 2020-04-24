@@ -2,17 +2,17 @@
 % Please edit documentation in R/immuneResponseCallGeneration.R
 \name{generateELISAResponse}
 \alias{generateELISAResponse}
-\title{Generate immune response call for all elisa data}
+\title{Generate immune response call for age specific ELISA cohort}
 \usage{
-generateELISAResponse(dt, discretizationValues, ageCutoff, postVaxDayRange)
+generateELISAResponse(dt, discretizationValues, postVaxDayRange)
 }
 \arguments{
 \item{dt}{immdata df}
 
 \item{discretizationValues}{points to use for cutting of low, mid, high responders}
 
-\item{ageCutoff}{age at which young and older are defined}
+\item{postVaxDayRange}{range of allowable study_time_collected}
 }
 \description{
-Generate immune response call for all elisa data
+Generate immune response call for age specific ELISA cohort
 }

@@ -22,12 +22,12 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_04_23_"
+timeStamp <- "2020_04_24_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
 ```{r global-variables}
-ageCutoff <- 60
+ageCutoffs <- c(50,60)
 
 studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373")
 studies <- strsplit(studies, ", ")[[1]]
@@ -39,13 +39,12 @@ studies <- strsplit(studies, ", ")[[1]]
 # SDY180 - Saline cohorts did not receive stimulation
 rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
-assays <- c("hai", "neut_ab_titer", "elisa", "mbaa")
+assays <- c("hai", "neut_ab_titer", "elisa")
 
 postVaxDayRanges <- list(
   hai = c(20,46),
   neut_ab_titer = c(28,90),
-  elisa = c(28,30),
-  mbaa = c(21, 21)
+  elisa = c(21,30)
 )
 
 discretizationValues <- list(
@@ -76,6 +75,9 @@ sharedMetaData <- imputeAge(sharedMetaData)
 ```{r prepare-immune-response-data}
 immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- getImmuneResponseData(assay, con, studies)
+  if(assay == "elisa"){
+    dt <- rbind(dt, sdy1370_elisa)
+  }
   dt$assay <- assay
   dt <- correctHrs(dt)
   dt <- createUniqueIdColumn(dt)
@@ -86,12 +88,13 @@ immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
 
 ```{r split-immune-response-data-into-age-cohorts}
 immdataFiltered <- list()
-immdataFiltered$young <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = TRUE)
-immdataFiltered$older <- filterImmdataByAge(immdata_all, ageCutoff, isYoung = FALSE)
+immdataFiltered$young <- filterImmdataByAge(immdata_all, ageCutoffs, isYoung = TRUE)
+immdataFiltered$older <- filterImmdataByAge(immdata_all, ageCutoffs, isYoung = FALSE)
 ```
 
 
 ```{r generate-response-calls}
+# Need age-cutoffs here for HAI and Nab to assign names to sub-study
 immdataWithResponses <- lapply(immdataFiltered, function(immdata_age_group){
   immdata_age_group <- sapply(names(immdata_age_group), USE.NAMES = TRUE, function(assay){
     dataWithResponses <- generateResponseCall(
@@ -99,7 +102,7 @@ immdataWithResponses <- lapply(immdataFiltered, function(immdata_age_group){
       data = immdata_age_group[[assay]],
       postVaxDayRange = postVaxDayRanges[[assay]],
       discretizationValues = discretizationValues,
-      ageCutoff = ageCutoff
+      ageCutoffs = ageCutoffs
     )
   })
 })
@@ -255,8 +258,8 @@ gc()
 ```{r split-gene-expression-data-into-age-cohorts}
 # Wait until after summarization so that we know that both age cohorts are using same probes
 esets <- list(noResponse = list(noNorm = list()))
-esets$noResponse$noNorm$young <- noNormEset[ , noNormEset$age_imputed < ageCutoff ]
-esets$noResponse$noNorm$older <- noNormEset[ , noNormEset$age_imputed >= ageCutoff ]
+esets$noResponse$noNorm$young <- noNormEset[ , noNormEset$age_imputed < ageCutoffs[[1]] ]
+esets$noResponse$noNorm$older <- noNormEset[ , noNormEset$age_imputed >= ageCutoffs[[2]] ]
 
 # Because of allGE merge, cohorts may have allNArows pre-norm
 esets$noResponse$noNorm <- lapply(esets$noResponse$noNorm, function(eset){
@@ -307,7 +310,7 @@ for(responseStatus in names(esets)){
       results[[name]] <- testFinalEset(eset,
                                        responseStatus,
                                        ageCohort,
-                                       ageCutoff)
+                                       ageCutoffs)
     }
   }
 }

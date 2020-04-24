@@ -2,19 +2,19 @@
 #'
 #' @param eset expressionSet object
 #' @param hasResponse whether the eset has response call data
-#' @param isYoung whether the eset is for younger cohort
-#' @param ageCutff the age cutoff point for the cohorts
+#' @param ageCohort  whether the eset is for younger cohort
+#' @param ageCutoffs the age cutoff point for the cohorts
 #' @export
 #'
-testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
+testFinalEset <- function(eset, hasResponse, ageCohort, ageCutoffs){
   chks <- list(pdata = list(),
                exprs = list())
 
   # expected number of subjects
-  expectedSamples <- list(withResponse = list(young = 2763,
-                                              older = 796),
-                          noResponse = list(young = 3380,
-                                            older = 973))
+  expectedSamples <- list(withResponse = list(young = 2533,
+                                              older = 931),
+                          noResponse = list(young = 2760,
+                                            older = 1097))
 
   expectedStudies <- list(withResponse = list(young = c("SDY269, SDY61, SDY270, SDY63, SDY224, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY180, SDY1289, SDY1276, SDY1294, SDY1264, SDY1325, SDY984, SDY1260, SDY67"),
                                               older = c("SDY63, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY984, SDY67")
@@ -52,6 +52,11 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
 
   chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] == expectedSamples[[responseStatus]][[ageCohort]]
 
+  chks$agesOk <- ifelse(ageCohort == "young",
+                        all( pd$age_imputed < ageCutoffs[[1]] ),
+                        all( pd$age_imputed >= ageCutoffs[[2]] )
+                        )
+
   if(responseStatus == "withResponse"){
     chks$pdata$dynamicColsPresent <- any(grepl("^(MFC|maxRBA)_p\\d", colnames(pd)))
 
@@ -70,6 +75,9 @@ testFinalEset <- function(eset, responseStatus, ageCohort, ageCutoff){
   incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
   chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
 
+  chks$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
+
+  # Integration
   chks$namesMatch <- all.equal(colnames(em), pd$uid)
 
   return(chks)

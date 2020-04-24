@@ -11,6 +11,13 @@ NULL
 #'   and \code{arm_accesion}
 "vaccines"
 
+#' SDY1370 ELISA data
+#'
+#' SDY1370 author provided ELISA results formatted to work with ImmuneSpace-derived data
+#'
+#' @format A data frame that mimics ImmuneSpace `con$getDataset("elisa", original_view=TRUE)` results
+"sdy1370_elisa"
+
 #' Y-Chromosome Associated Genes
 #'
 #' Y-Chromosome genes from the ensembl database using the `biomaRt` library

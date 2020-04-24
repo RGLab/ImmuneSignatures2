@@ -10,7 +10,7 @@ generateNAbHAIresponse(
   df,
   postVaxDayRange,
   discretizationValues,
-  ageCutoff
+  ageCutoffs
 )
 }
 \arguments{

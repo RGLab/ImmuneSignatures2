@@ -47,11 +47,11 @@ testGEMetaDataPreSummarization <- function(geMetaData){
 testAllGEMatrixPreNorm <- function(allGE){
   chks <- list()
 
-  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4354
+  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4197
   chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
   chks$completeCases <- sum(complete.cases(allGE)) > 10000
 
-  chks$importantGenesPresent <- all(c("MMVP1","POTEF") %in% allGE$rn)
+  chks$importantGenesPresent <- all(c("MVP","ACTB") %in% allGE$rn)
 
   return(chks)
 }
@@ -83,7 +83,7 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
 
   chks$noHourlyData <- !any(geMetaData$unit_post_last_vax == "Hours")
 
-  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 54
+  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 48
 
   chks$allAgesImputed <- all(geMetaData$age_imputed > 0 & !is.na(geMetaData$age_imputed))
 

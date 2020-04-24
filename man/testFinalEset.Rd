@@ -4,16 +4,16 @@
 \alias{testFinalEset}
 \title{Ensure eset is as expected}
 \usage{
-testFinalEset(eset, responseStatus, ageCohort, ageCutoff)
+testFinalEset(eset, hasResponse, ageCohort, ageCutoffs)
 }
 \arguments{
 \item{eset}{expressionSet object}
 
 \item{hasResponse}{whether the eset has response call data}
 
-\item{isYoung}{whether the eset is for younger cohort}
+\item{ageCohort}{whether the eset is for younger cohort}
 
-\item{ageCutff}{the age cutoff point for the cohorts}
+\item{ageCutoffs}{the age cutoff point for the cohorts}
 }
 \description{
 Ensure eset is as expected

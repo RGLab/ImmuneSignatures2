@@ -4,7 +4,7 @@
 \alias{preProcessImmData}
 \title{Pre-processing for 'titer::Calculate' functions}
 \usage{
-preProcessImmData(dt, postVaxDayRange, ageCutoff)
+preProcessImmData(dt, postVaxDayRange, ageCutoffs)
 }
 \arguments{
 \item{dt}{data.table with HAI or NAb data}
