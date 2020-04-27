@@ -4,38 +4,27 @@ dt <- data.table::fread("data-raw/SDY1370_ELISA.csv", header = TRUE, skip = 1)
 colsToKeep <- c("Case #", "Day post", "IgM OD-COV", "IgG OD-COV")
 dt <- dt[, ..colsToKeep]
 
-# Create map of author-given subject IDs to ImmuneSpace via GEO
-library(ImmuneSpaceR)
-library(GEOquery)
-con <- CreateConnection("SDY1370", onTest = TRUE)
-ge <- con$getDataset("gene_expression_files", original_view = TRUE)
-ge <- ge[ ge$type == "PBMC" & ge$study_time_collected == 0, ]
-
-sub2cohort <- apply(ge, 1, function(x){
-  subject <- x[['participant_id']]
-  gsm <- x[['geo_accession']]
-  tmp <- getGEO(gsm)
-  title <- tmp@header$title
-  authorId <- gsub(" Day \\d{1,2}", "", gsub("PBMC ", "", title))
-  return(c(subject, authorId))
-})
-s2c <- data.frame(t(sub2cohort))
-colnames(s2c) <- c("subjectId", "authorId")
+s2c <- data.table::fread("data-raw/SDY1370_subjectIdMap.csv")
+s2c$arm_accession <- gsub("\\((ARM\\d{4}),.*", "\\1", s2c$Arm2Subject)
 
 # Map original ids to ImmuneSpace ids
-dt$participant_id <- s2c$subjectId[ match(dt$`Case #`, s2c$authorId)]
+pidOrder <- match(dt$`Case #`, s2c$`User Defined ID`)
+dt$participant_id <- paste0(s2c$Accession[ pidOrder ], ".1370")
+dt[, c("participant_id",
+       "arm_accession")
+   :=
+     list(paste0(s2c$Accession[ pidOrder ], ".1370"),
+          s2c$arm_accession[ pidOrder])
+   ]
 dt[ , `Case #` := NULL ]
-
-# Missing people - 3020-6 and 3014-4
-dt <- dt[ !is.na(participant_id)]
 
 # update study_time_collected colname
 setnames(dt, c("Day post", "IgG OD-COV", "IgM OD-COV"), c("study_time_collected", "IgG", "IgM"))
 
 # dcast IgM and IgG to analyte col with value_reported as value
 dt <- melt(dt,
-           id.vars=c("participant_id", "study_time_collected"),
-            measure.vars = c("IgG", "IgM"))
+           id.vars = c("participant_id", "study_time_collected"),
+           measure.vars = c("IgG", "IgM"))
 setnames(dt, c("variable", "value"), c("analyte", "value_reported"))
 
 # Add necessary Columns
@@ -54,10 +43,6 @@ dt <- dt[, c("value_preferred",
                 "Days",
                 NA,
                 NA)]
-
-
-# Add arm_accession mapped from GE
-dt$arm_accession <- ge$arm_accession[ match(dt$participant_id, ge$participant_id) ]
 
 # Need to generate biosample and expsample accesions to be valid
 tmp <- unique(paste(dt$participant_id, dt$study_time_collected))
