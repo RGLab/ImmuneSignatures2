@@ -23,7 +23,7 @@ setnames(dt, c("Day post", "IgG OD-COV", "IgM OD-COV"), c("study_time_collected"
 
 # dcast IgM and IgG to analyte col with value_reported as value
 dt <- melt(dt,
-           id.vars = c("participant_id", "study_time_collected"),
+           id.vars = c("participant_id", "study_time_collected", "arm_accession"),
            measure.vars = c("IgG", "IgM"))
 setnames(dt, c("variable", "value"), c("analyte", "value_reported"))
 
