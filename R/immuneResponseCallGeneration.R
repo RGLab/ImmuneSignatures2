@@ -425,7 +425,7 @@ generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
   discretize <- function(values, cutPoint){
     x <- quantile(values, c(cutPoint, 1 - cutPoint))
     res <- sapply(values, function(y){
-      if(y < x[[1]]){
+      if(y <= x[[1]]){
         return("lowResponder")
       }else if(y > x[[2]]){
         return("highResponder")
