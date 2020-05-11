@@ -22,11 +22,11 @@
 updateStudyTimepoints <- function(geMetaData, studies, originalTp, newTp){
   inTargetStudies <- geMetaData$study_accession %in% studies
   if(originalTp != 24){
-    badTimepoint <- geMetaData$time_post_last_vax == originalTp
+    badTimepoints <- geMetaData$time_post_last_vax == originalTp
   }else{
-    badTimepoint <- geMetaData$time_post_last_vax == originalTp
+    badTimepoints <- geMetaData$time_post_last_vax >= originalTp
   }
-  geMetaData$time_post_last_vax[ inTargetStudies & badTimepoint ] <- newTp
+  geMetaData$time_post_last_vax[ inTargetStudies & badTimepoints ] <- newTp
 
   return(geMetaData)
 }

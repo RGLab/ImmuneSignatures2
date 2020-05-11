@@ -47,7 +47,7 @@ testGEMetaDataPreSummarization <- function(geMetaData){
 testAllGEMatrixPreNorm <- function(allGE){
   chks <- list()
 
-  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4197
+  chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4353
   chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
   chks$completeCases <- sum(complete.cases(allGE)) > 10000
 
@@ -74,7 +74,7 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
 
   yaleStudies <- c("SDY63", "SDY404", "SDY400", "SDY520", "SDY640")
   yaleTimepoints <- unique(geMetaData$time_post_last_vax[ geMetaData$study_accession %in% yaleStudies ])
-  badTimepoints <- c(3, 5, 8, 9, 24)
+  badTimepoints <- c(3, 5, 8, 9, 24, 35)
   chks$yaleTimepoints <- !any(badTimepoints %in% as.numeric(yaleTimepoints))
 
   chks$sdy212biosampleRemoved <- !any(geMetaData$biosample_accession == "BS694717")
@@ -83,7 +83,7 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
 
   chks$noHourlyData <- !any(geMetaData$unit_post_last_vax == "Hours")
 
-  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 48
+  chks$allMatricesPresent <- length(unique(geMetaData$matrix)) == 55
 
   chks$allAgesImputed <- all(geMetaData$age_imputed > 0 & !is.na(geMetaData$age_imputed))
 

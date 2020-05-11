@@ -13,8 +13,8 @@ testFinalEset <- function(eset, hasResponse, ageCohort, ageCutoffs){
   # expected number of subjects
   expectedSamples <- list(withResponse = list(young = 2533,
                                               older = 931),
-                          noResponse = list(young = 2760,
-                                            older = 1097))
+                          noResponse = list(young = 3045,
+                                            older = 1111))
 
   expectedStudies <- list(withResponse = list(young = c("SDY269, SDY61, SDY270, SDY63, SDY224, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY180, SDY1289, SDY1276, SDY1294, SDY1264, SDY1325, SDY984, SDY1260, SDY67"),
                                               older = c("SDY63, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY984, SDY67")
