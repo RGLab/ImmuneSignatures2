@@ -22,14 +22,14 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_04_24_"
+timeStamp <- "2020_05_28_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
 ```{r global-variables}
 ageCutoffs <- c(50,60)
 
-studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373")
+studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373, SDY1529")
 studies <- strsplit(studies, ", ")[[1]]
 
 # Removing cohorts from gene expression data:
@@ -141,6 +141,7 @@ esets <- lapply(
   outputType = "normalized",
   annotation = "latest")
 names(esets) <- geMatrices$name
+saveRDS(esets, file = paste0(prefix, "IS2_esets.rds"))
 ```
 
 ```{r check-extracted-ge-data}
@@ -309,6 +310,7 @@ for(responseStatus in names(esets)){
       name <- paste(responseStatus, normStatus, ageCohort, sep = "_")
       results[[name]] <- testFinalEset(eset,
                                        responseStatus,
+                                       normStatus,
                                        ageCohort,
                                        ageCutoffs)
     }

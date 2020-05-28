@@ -1,26 +1,28 @@
 #' Ensure eset is as expected
 #'
 #' @param eset expressionSet object
-#' @param hasResponse whether the eset has response call data
+#' @param responseStatus whether the eset has response call data
+#' @param normStatus has the eset been normalized
 #' @param ageCohort  whether the eset is for younger cohort
 #' @param ageCutoffs the age cutoff point for the cohorts
 #' @export
 #'
-testFinalEset <- function(eset, hasResponse, ageCohort, ageCutoffs){
+testFinalEset <- function(eset, responseStatus, normStatus, ageCohort, ageCutoffs){
   chks <- list(pdata = list(),
                exprs = list())
 
   # expected number of subjects
-  expectedSamples <- list(withResponse = list(young = 2533,
-                                              older = 931),
-                          noResponse = list(young = 3045,
-                                            older = 1111))
+  expectedSamples <- list(withResponse = list(young = 2738,
+                                              older = 1066),
+                          noResponse = list(young = 3254,
+                                            older = 1253))
 
-  expectedStudies <- list(withResponse = list(young = c("SDY269, SDY61, SDY270, SDY63, SDY224, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY180, SDY1289, SDY1276, SDY1294, SDY1264, SDY1325, SDY984, SDY1260, SDY67"),
-                                              older = c("SDY63, SDY404, SDY400, SDY212, SDY56, SDY520, SDY640, SDY1119, SDY80, SDY984, SDY67")
+  # Only for noNorm
+  expectedStudies <- list(withResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
+                                              older = c("SDY1119, SDY1328, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
                                               ),
-                          noResponse = list(young = c("SDY520, SDY640, SDY80, SDY180, SDY1294, SDY1119, SDY1289, SDY1370, SDY1368, SDY67, SDY224, SDY212, SDY270, SDY1373, SDY1364, SDY1325, SDY1291, SDY1293, SDY1276, SDY1264, SDY1260, SDY984, SDY61, SDY56, SDY63, SDY404, SDY400, SDY269"),
-                                            older = c("SDY520, SDY640, SDY80, SDY1119, SDY1368, SDY67, SDY212, SDY984, SDY56, SDY63, SDY404, SDY400")
+                          noResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1373, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
+                                            older = c("SDY1119, SDY1328, SDY1368, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
                                             )
                           )
 
@@ -52,6 +54,12 @@ testFinalEset <- function(eset, hasResponse, ageCohort, ageCutoffs){
 
   chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] == expectedSamples[[responseStatus]][[ageCohort]]
 
+  if(normStatus == "noNorm"){
+    uniqueStudies <- unique(pd$study_accession)
+    expectedStudiesSubset <- strsplit(expectedStudies[[responseStatus]][[ageCohort]], ", ")[[1]]
+    chks$pdata$expectedStudies <- all.equal(sort(uniqueStudies), sort(expectedStudiesSubset))
+  }
+
   chks$agesOk <- ifelse(ageCohort == "young",
                         all( pd$age_imputed < ageCutoffs[[1]] ),
                         all( pd$age_imputed >= ageCutoffs[[2]] )
@@ -75,7 +83,10 @@ testFinalEset <- function(eset, hasResponse, ageCohort, ageCutoffs){
   incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
   chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
 
-  chks$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
+  # IS1 genes not expected in cross-study normalized esets
+  if(normStatus == "noNorm"){
+    chks$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
+  }
 
   # Integration
   chks$namesMatch <- all.equal(colnames(em), pd$uid)

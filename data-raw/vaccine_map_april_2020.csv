@@ -58,4 +58,6 @@
 57,SDY520_WholeBlood_Older_Geo,TIV (2013),Inactivated,Influenza,None,SDY520,ARM2620
 58,SDY640_WholeBlood_Young_GEO,TIV (2014),Inactivated,Influenza,None,SDY640,ARM2862
 59,SDY640_WholeBlood_Older_GEO,TIV (2014),Inactivated,Influenza,None,SDY640,ARM2863
-60,SDY1328_WholeBlood_HealthyAdults_geo,Hepatitis B,Inactivated,Hepatitis B,None,SDY1328,ARM4537
+60,SDY1328_WholeBlood_HealthyAldults_Geo,Hepatitis B,Inactivated,Hepatitis B,None,SDY1328,ARM4537
+61,SDY1529_WholeBlood_HealthyAdults_PreVax_Geo,YF17D,Live attenuated,Yellow Fever,YF17D,SDY1529,ARM5007
+62,SDY1529_WholeBlood_HealthyAdults_PreVax_Geo,YF17D,Live attenuated,Yellow Fever,YF17D,SDY1529,ARM5007
