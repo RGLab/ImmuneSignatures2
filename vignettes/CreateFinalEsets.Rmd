@@ -1,0 +1,118 @@
+---
+title: "ImmuneSignatures 2 Project - Create base dataset"
+author: "Evan Henrich"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+```
+
+```{r load-dependencies}
+library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
+library(ImmuneSpaceR) 
+library(Rlabkey)
+library(Biobase)
+library(dplyr)
+library(data.table)
+library(titer) # devtools::install_github("stefanavey/titer")
+library(massiR)
+library(limma)
+```
+
+```{r output-variables}
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
+filenamePrefix <- "2020_06_15_"
+
+postVaxDayRanges <- list(
+  hai = c(20,46),
+  neut_ab_titer = c(28,90),
+  elisa = c(21,30)
+)
+
+discretizationValues <- list(
+    "RBA" = c(0.3, 0.4, 0.5),
+    "MFC" = c(0.3, 0.4)
+)
+
+young <- seq(18,49)
+  old <- seq(60,90)
+ageGroups <- list(
+  young = young,
+  old = old,
+  youngAndOld = c(young, old),
+  all = seq(min(young), max(old))
+)
+
+targetDistributionVendor <- "AffyMetrix"
+targetDistributionExcludedStudies <- "SDY1293"
+```
+
+```{r load-base-data}
+immdata_all <- readRDS(paste0(prefix, "immdata_all.rds"))
+noNormEset <- readRDS(paste0(prefix, "noNormEset.rds"))
+```
+
+```{r create-final-esets}
+createFinalEset <- function(noNormEset, immdata_all, ages, 
+                            crossStudyNormalize, vendorToUse, studiesToExclude,
+                            addResponseCall, postVaxDayRanges, discretizationValues,
+                            outputDir, filenamePrefix){
+  
+  eset <- noNormEset[ noNormEset$age_imputed %in% ages]
+  eset <- eset <- removeAllNArows(eset)
+  
+  if(crossStudyNormalize){
+    eset <- crossStudyNormalize(eset, vendorToUse, studiesToExclude)
+    eset <- batchCorrectBaselineData(eset)
+    eset <- removeAllNArows(eset)
+    normSuffix <- "norm"
+  }else{
+    normSuffix <- "noNorm"
+  }
+  
+  if(addResponseCall){
+    filteredImmdata <- filterImmdataByAge(immdata_all, ages)
+    immdataWithResponses <- lapply(names(filteredImmdata), function(assay){
+      dataWithResponses <- generateResponseCall(
+        assay = assay,
+        data = filteredImmdata,
+        postVaxDayRange = postVaxDayRanges[[assay]],
+        discretizationValues = discretizationValues,
+        ageCutoffs = ageCutoffs
+      )
+    })
+    selectedImmdata <- selectResponsesToUse(immdataWithResponses)
+    eset <- addResponseData(ages, eset, selectedImmdata)
+    responseSuffix <- "withResponse"
+  }else{
+    responseSuffix <- "noResponse"
+  }
+  
+  testFinalEset(eset, responseStatus = addResponseCall, normStatus = crossStudyNormalize, ages)
+  
+  fullSuffix <- paste("_", normSuffix, "_", responseSuffix, "_eset.rds")
+  filename <- paste0(filenamePrefix, suffix)
+  outputFile <- file.path(outputDir, filename)
+  
+  saveRDS(eset, outputFile)
+}
+
+for(ages in ageGroups){
+  for(crossStudyNormalize in c(TRUE, FALSE)){
+    for(addResponseCall in c(TRUE, FALSE)){
+      createFinalEset(noNormEset = noNormEset,
+                      immdata_all = immdata_all,
+                      ages = ages,
+                      crossStudyNormalize = crossStudyNormalize,
+                      addResponseCall = addResponseCall,
+                      vendorToUse = targetDistributionVendor,
+                      studiesToExclude = targetDistributionExcludedStudies,
+                      postVaxDayRanges = postVaxDayRanges,
+                      discretizationValues = discretizationValues,
+                      outputDir = outputDir,
+                      filenamePrefix = filenamePrefix)
+    }
+  }
+}
+```

@@ -30,16 +30,16 @@
 29,SDY56_PBMC_Older,TIV (2010),Inactivated,Influenza,None,SDY56,ARM443
 30,SDY56_PBMC_Young,TIV (2010),Inactivated,Influenza,None,SDY56,ARM442
 31,SDY269_PBMC_LAIV_Geo,LAIV (2008),Live attenuated,Influenza,LAIV,SDY269,ARM1888
-32,SDY269_PBMC_TIV_Geo,TIV (2008),Inactivated,Influenza,LAIV,SDY269,ARM1889
-33,SDY1291_PBMC_HealthyHIVUninfected_Geo,Ad5/HIV,Recombinant Viral Vector,HIV,AdV vector,SDY1291,ARM4459
+32,SDY269_PBMC_TIV_Geo,TIV (2008),Inactivated,Influenza,None,SDY269,ARM1889
+33,SDY1291_PBMC_HealthyHIVUninfected_Geo,Ad5/HIV,Recombinant Viral Vector,HIV,AdV,SDY1291,ARM4459
 34,SDY1325_WholeBlood_IntramuscularCRM_Geo,Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate,Conjugate,Meningococcus,None,SDY1325,ARM4525
 35,SDY1325_WholeBlood_IntramuscularPS_Geo,Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate,Polysaccharide,Meningococcus,None,SDY1325,ARM4526
 36,SDY1325_WholeBlood_LowIntraMuscularPS_geo,Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate,Polysaccharide,Meningococcus,None,SDY1325,ARM4528
 37,SDY1325_WholeBlood_SubcutaneousPS_Geo,Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate,Polysaccharide,Meningococcus,None,SDY1325,ARM4527
 38,SDY1364_PBMC_IntraDermal_Geo,MVA85A,Recombinant Viral Vector,Tuberculosis,Vaccinia,SDY1364,ARM4623
 39,SDY1364_PBMC_IntraMuscular_Geo,MVA85A,Recombinant Viral Vector,Tuberculosis,Vaccinia,SDY1364,ARM4624
-40,SDY1373_WholeBlood_highDose_Geo,UKE Phase I rVSV ZEBOV,Recombinant Viral Vector,Ebola,VZV,SDY1373,ARM4645
-41,SDY1373_WholeBlood_lowDose_Geo,UKE Phase I rVSV ZEBOV,Recombinant Viral Vector,Ebola,VZV,SDY1373,ARM4646
+40,SDY1373_WholeBlood_highDose_Geo,UKE Phase I rVSV ZEBOV,Recombinant Viral Vector,Ebola,VSV,SDY1373,ARM4645
+41,SDY1373_WholeBlood_lowDose_Geo,UKE Phase I rVSV ZEBOV,Recombinant Viral Vector,Ebola,VSV,SDY1373,ARM4646
 42,SDY270_PBMC_TIVGroup_Geo,TIV (2009),Inactivated,Influenza,None,SDY270,ARM1891
 43,SDY212_WholeBlood_Young_Geo,TIV (2008),Inactivated,Influenza,None,SDY212,ARM894
 44,SDY212_PBMC_Young_geo,TIV (2008),Inactivated,Influenza,None,SDY212,ARM894
@@ -53,7 +53,7 @@
 52,SDY1119_PBMC_youngT2D_Geo,TIV (2011),Inactivated,Influenza,None,SDY1119,ARM3953
 53,SDY1119_PBMC_oldT2D_Geo,TIV (2011),Inactivated,Influenza,None,SDY1119,ARM3951
 54,SDY1119_PBMC_oldHealthy_Geo,TIV (2011),Inactivated,Influenza,None,SDY1119,ARM3950
-55,SDY1294_PBMC_ChineseCohort_Geo,YF17D,Live attenuated,Yellow Fever,None,SDY1294,ARM4462
+55,SDY1294_PBMC_ChineseCohort_Geo,YF17D,Live attenuated,Yellow Fever,YF17D,SDY1294,ARM4462
 56,SDY520_WholeBlood_Young_geo,TIV (2013),Inactivated,Influenza,None,SDY520,ARM2619
 57,SDY520_WholeBlood_Older_Geo,TIV (2013),Inactivated,Influenza,None,SDY520,ARM2620
 58,SDY640_WholeBlood_Young_GEO,TIV (2014),Inactivated,Influenza,None,SDY640,ARM2862
