@@ -54,7 +54,7 @@ customProcessing <- function(assay, df){
 #' @param postVaxDayRange range of integer values for study_time_collected cutpoints
 #' @export
 #'
-preProcessImmData <- function(dt, postVaxDayRange, ageCutoffs){
+preProcessImmData <- function(dt, postVaxDayRange){
 
   # remove dupes - coming from ImmuneSpace, not generated
   dt <- dt[ !duplicated(dt) ]
@@ -104,9 +104,9 @@ preProcessImmData <- function(dt, postVaxDayRange, ageCutoffs){
   full <- merge(pre, post, by = c('participant_id', 'virus', 'study_accession', 'age_imputed'))
 
   # Update Strain to add study and age_cohort for identifiability
-  full[, study_accession := paste(study_accession,
-                                  ifelse(full$age_imputed > ageCutoffs[[1]], "old", "young"),
-                                  sep = "_")]
+  # full[, study_accession := paste(study_accession,
+  #                                 ifelse(full$age_imputed > ageCutoffs[[1]], "old", "young"),
+  #                                 sep = "_")]
   full[, virus := paste(study_accession, virus, sep = "_")]
 
   # Ensure that every study * age_cohort * strain has matching numbers of Subjects
@@ -262,7 +262,7 @@ performTiterAnalysis <- function(titer_list, analysis, discretize){
       resultsList[[postVaxValue]][[i]] <- strainInfoDF$Post[ rowId ]
     }
 
-    resultsList[[maxStrainTitle]] <- gsub("SDY\\d{2,4}.*(old|young)_", "", resultsList[[maxStrainTitle]])
+    resultsList[[maxStrainTitle]] <- gsub("SDY\\d{2,4}.*_", "", resultsList[[maxStrainTitle]])
 
     ret <- data.frame(resultsList, stringsAsFactors = FALSE)
   })
@@ -308,13 +308,12 @@ runAllAnalyses <- function(titer_list, df, discretizationValues){
 #' @param discretizationValues cut points to use for discretizing response call groups
 #' @export
 #'
-generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationValues, ageCutoffs){
+generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationValues){
   dt <- customProcessing(assay = assay,
                          df = df)
 
   titer_list_study <- preProcessImmData(dt = dt,
-                                        postVaxDayRange = postVaxDayRange,
-                                        ageCutoffs = ageCutoffs)
+                                        postVaxDayRange = postVaxDayRange)
 
   titer_list <- suppressMessages(lapply(X = titer_list_study,
                                         FUN = FormatTiters,
@@ -453,14 +452,13 @@ generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
 #' @param discretizationValues cut points to use for discretizing response call groups
 #' @export
 #'
-generateResponseCall <- function(assay, data, postVaxDayRange, discretizationValues, ageCutoffs){
+generateResponseCall <- function(assay, data, postVaxDayRange, discretizationValues){
   if(assay %in% c("hai","neut_ab_titer")){
     res <- generateNAbHAIresponse(
       assay = assay,
       df = data,
       postVaxDayRange = postVaxDayRange,
-      discretizationValues = discretizationValues,
-      ageCutoffs = ageCutoffs
+      discretizationValues = discretizationValues
     )
   }else if(assay == "elisa"){
     res <- generateELISAResponse(

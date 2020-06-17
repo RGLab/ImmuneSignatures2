@@ -2,11 +2,11 @@
 #' vendor's subset of expression data to define the target distribution
 #'
 #' @param eset expressionSet
-#' @param vendorToUse Microarray or RNAseq vendor to use for generating target distribution
-#' @param studiesToExclude studies to exclude when generating the target distribution
+#' @param targetDistributionVendor Microarray or RNAseq vendor to use for generating target distribution
+#' @param targetDistributionExcludedStudies studies to exclude when generating the target distribution
 #' @export
 #'
-crossStudyNormalize <- function(eset, vendorToUse, studiesToExclude){
+crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributionExcludedStudies){
   # Find samples having at least 60% of genes with non-NA value
   geneSymbolMeans <- colMeans(is.na(exprs(eset)))
   samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.6]
@@ -21,7 +21,8 @@ crossStudyNormalize <- function(eset, vendorToUse, studiesToExclude){
   # technical variation in range of expression values which causes the distribution
   # to be too wide.  SDY1293 also generated a flattened distribution and was excluded.
   exprs.not.norm <- exprs(eset)
-  excludedSmpls <- which(eset$featureSetVendor != vendorToUse | eset$study_accession %in% studiesToExclude)
+  excludedSmpls <- which(eset$featureSetVendor != targetDistributionVendor |
+                         eset$study_accession %in% targetDistributionExcludedStudies)
   targetExprs <- exprs.not.norm[ featuresToUse, -excludedSmpls]
 
   # perform normalization on selected features (12127) and samples (1654)

@@ -15,9 +15,6 @@ library(Rlabkey)
 library(Biobase)
 library(dplyr)
 library(data.table)
-library(titer) # devtools::install_github("stefanavey/titer")
-library(massiR)
-library(limma)
 ```
 
 ```{r output-variables}
@@ -27,8 +24,6 @@ prefix <- paste0(outputDir, timeStamp)
 ```
 
 ```{r global-variables}
-# ageCutoffs <- c(50,60)
-
 studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373, SDY1529")
 studies <- strsplit(studies, ", ")[[1]]
 
@@ -40,17 +35,6 @@ studies <- strsplit(studies, ", ")[[1]]
 rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
 assays <- c("hai", "neut_ab_titer", "elisa")
-
-# postVaxDayRanges <- list(
-#   hai = c(20,46),
-#   neut_ab_titer = c(28,90),
-#   elisa = c(21,30)
-# )
-# 
-# discretizationValues <- list(
-#     "RBA" = c(0.3, 0.4, 0.5),
-#     "MFC" = c(0.3, 0.4)
-# )
 
 con <- CreateConnection("", onTest = TRUE)
 ```

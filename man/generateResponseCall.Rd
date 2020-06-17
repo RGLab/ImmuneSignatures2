@@ -4,13 +4,7 @@
 \alias{generateResponseCall}
 \title{Generate immune response calls for HAI, NAb or ELISA}
 \usage{
-generateResponseCall(
-  assay,
-  data,
-  postVaxDayRange,
-  discretizationValues,
-  ageCutoffs
-)
+generateResponseCall(assay, data, postVaxDayRange, discretizationValues)
 }
 \arguments{
 \item{assay}{assay name}

@@ -4,14 +4,12 @@
 \alias{filterImmdataByAge}
 \title{Filter immdata list elements by age filter}
 \usage{
-filterImmdataByAge(immdata, ageCutoffs, isYoung)
+filterImmdataByAge(immdata, ages)
 }
 \arguments{
 \item{immdata}{list of assay data.table(s)}
 
-\item{isYoung}{boolean selecting young or older cohort}
-
-\item{ageCutoff}{integer value for cutting age_imputed}
+\item{ages}{age cutoffs, either one or two sets}
 }
 \description{
 Filter immdata list elements by age filter

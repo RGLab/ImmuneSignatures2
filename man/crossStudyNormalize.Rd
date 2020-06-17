@@ -5,14 +5,18 @@
 \title{Cross-Study normalize an expressionSet object based on a single
 vendor's subset of expression data to define the target distribution}
 \usage{
-crossStudyNormalize(eset, vendorToUse, studiesToExclude)
+crossStudyNormalize(
+  eset,
+  targetDistributionVendor,
+  targetDistributionExcludedStudies
+)
 }
 \arguments{
 \item{eset}{expressionSet}
 
-\item{vendorToUse}{Microarray or RNAseq vendor to use for generating target distribution}
+\item{targetDistributionVendor}{Microarray or RNAseq vendor to use for generating target distribution}
 
-\item{studiesToExclude}{studies to exclude when generating the target distribution}
+\item{targetDistributionExcludedStudies}{studies to exclude when generating the target distribution}
 }
 \description{
 Cross-Study normalize an expressionSet object based on a single

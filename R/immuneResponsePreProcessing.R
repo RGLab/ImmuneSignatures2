@@ -13,21 +13,22 @@ getImmuneResponseData <- function(assay, con, studies){
 #' Filter immdata list elements by age filter
 #'
 #' @param immdata list of assay data.table(s)
-#' @param ageCutoff integer value for cutting age_imputed
-#' @param isYoung boolean selecting young or older cohort
+#' @param ages age cutoffs, either one or two sets
 #' @export
 #'
-filterImmdataByAge <- function(immdata, ageCutoffs, isYoung){
-  if(isYoung){
+filterImmdataByAge <- function(immdata, ages){
     filteredImmdata <- lapply(immdata, function(dt){
-      dt <- dt[dt$age_imputed < ageCutoffs[[1]]]
+      if(length(ages) == 2){
+        dt <- dt[ dt$age_imputed >= ages[[1]] &
+                  dt$age_imputed < ages[[2]] ]
+      }else{
+        dt <- dt[ (dt$age_imputed >= ages[[1]] &
+                   dt$age_imputed < ages[[2]]) |
+                  (dt$age_imputed >= ages[[3]] &
+                   dt$age_imputed < ages[[4]]) ]
+      }
+      return(dt)
     })
-  }else{
-    filteredImmdata <- lapply(immdata, function(dt){
-      dt <- dt[dt$age_imputed >= ageCutoffs[[2]]]
-    })
-  }
-  return(filteredImmdata)
 }
 
 #' Generate a single response call data.table from multiple assays

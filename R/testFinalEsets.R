@@ -1,30 +1,29 @@
 #' Ensure eset is as expected
 #'
 #' @param eset expressionSet object
-#' @param responseStatus whether the eset has response call data
-#' @param normStatus has the eset been normalized
-#' @param ageCohort  whether the eset is for younger cohort
-#' @param ageCutoffs the age cutoff point for the cohorts
+#' @param expectResponse whether the eset has response call data
+#' @param expectNormalization has the eset been normalized
+#' @param ages integer vector of expected ages
 #' @export
 #'
-testFinalEset <- function(eset, responseStatus, normStatus, ageCohort, ageCutoffs){
+testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   chks <- list(pdata = list(),
                exprs = list())
 
-  # expected number of subjects
-  expectedSamples <- list(withResponse = list(young = 2738,
-                                              older = 1066),
-                          noResponse = list(young = 3254,
-                                            older = 1253))
-
-  # Only for noNorm
-  expectedStudies <- list(withResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
-                                              older = c("SDY1119, SDY1328, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
-                                              ),
-                          noResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1373, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
-                                            older = c("SDY1119, SDY1328, SDY1368, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
-                                            )
-                          )
+  # # expected number of subjects
+  # expectedSamples <- list(withResponse = list(young = 2738,
+  #                                             older = 1066),
+  #                         noResponse = list(young = 3254,
+  #                                           older = 1253))
+  #
+  # # Only for noNorm
+  # expectedStudies <- list(withResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
+  #                                             older = c("SDY1119, SDY1328, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
+  #                                             ),
+  #                         noResponse = list(young = c("SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1370, SDY1373, SDY1529, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY56, SDY61, SDY63, SDY640, SDY80, SDY984"),
+  #                                           older = c("SDY1119, SDY1328, SDY1368, SDY212, SDY400, SDY404, SDY520, SDY56, SDY63, SDY640, SDY67, SDY80, SDY984")
+  #                                           )
+  #                         )
 
   noResponseCols <- c(expectedGeMetaDataColumns, "gender_imputed")
 
@@ -36,9 +35,9 @@ testFinalEset <- function(eset, responseStatus, normStatus, ageCohort, ageCutoff
     'ImmResp_postVax_value_RBA','ImmResp_postVax_timepoint_RBA'
   )
 
-  expectedCols <- ifelse(responseStatus == "noResponse",
-                         noResponseCols,
-                         c(noResponseCols, staticResponseCols))
+  expectedCols <- ifelse(expectResponse,
+                         c(noResponseCols, staticResponseCols),
+                         noResponseCols)
 
   expectedLevels <- paste0(c("low", "moderate", "high"), "Responder")
 
@@ -52,20 +51,14 @@ testFinalEset <- function(eset, responseStatus, normStatus, ageCohort, ageCutoff
   pidsWithBaseline <- pd$participant_id[ pd$time_post_last_vax <= 0 | pd$time_post_last_vax >= -7 ]
   chks$pdata$allPidsHaveBaseline <- all(uniquePids %in% pidsWithBaseline)
 
-  chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] == expectedSamples[[responseStatus]][[ageCohort]]
+  chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] > 1000
 
-  if(normStatus == "noNorm"){
-    uniqueStudies <- unique(pd$study_accession)
-    expectedStudiesSubset <- strsplit(expectedStudies[[responseStatus]][[ageCohort]], ", ")[[1]]
-    chks$pdata$expectedStudies <- all.equal(sort(uniqueStudies), sort(expectedStudiesSubset))
-  }
+  chks$pdata$agesOk <- ifelse(length(ages) == 2,
+                              all(pd$age_imputed >= ages[[1]] & pd$age_imputed < ages[[2]]),
+                              all((pd$age_imputed >= ages[[1]] & pd$age_imputed < ages[[2]]) |
+                                   pd$age_imputed >= ages[[3]] & pd$age_imputed < ages[[4]]))
 
-  chks$agesOk <- ifelse(ageCohort == "young",
-                        all( pd$age_imputed < ageCutoffs[[1]] ),
-                        all( pd$age_imputed >= ageCutoffs[[2]] )
-                        )
-
-  if(responseStatus == "withResponse"){
+  if(isTRUE(expectResponse)){
     chks$pdata$dynamicColsPresent <- any(grepl("^(MFC|maxRBA)_p\\d", colnames(pd)))
 
     mfcDiscretizedCols <- grep("^MFC_p\\d", colnames(pd))
@@ -84,8 +77,8 @@ testFinalEset <- function(eset, responseStatus, normStatus, ageCohort, ageCutoff
   chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
 
   # IS1 genes not expected in cross-study normalized esets
-  if(normStatus == "noNorm"){
-    chks$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
+  if(!isTRUE(expectNormalization)){
+    chks$exprs$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
   }
 
   # Integration

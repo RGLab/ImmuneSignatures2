@@ -1,5 +1,5 @@
 ---
-title: "ImmuneSignatures 2 Project - Create base dataset"
+title: "ImmuneSignatures 2 Project - Create Final ExpressionSets"
 author: "Evan Henrich"
 output: html_document
 ---
@@ -10,8 +10,6 @@ knitr::opts_chunk$set(echo = FALSE, include = FALSE)
 
 ```{r load-dependencies}
 library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
-library(ImmuneSpaceR) 
-library(Rlabkey)
 library(Biobase)
 library(dplyr)
 library(data.table)
@@ -35,35 +33,36 @@ discretizationValues <- list(
     "MFC" = c(0.3, 0.4)
 )
 
-young <- seq(18,49)
-  old <- seq(60,90)
+young <- c(18,50)
+  old <- c(60,91)
 ageGroups <- list(
   young = young,
   old = old,
   youngAndOld = c(young, old),
-  all = seq(min(young), max(old))
+  all = c(min(young), max(old))
 )
 
-targetDistributionVendor <- "AffyMetrix"
+targetDistributionVendor <- "Affymetrix"
 targetDistributionExcludedStudies <- "SDY1293"
 ```
 
 ```{r load-base-data}
-immdata_all <- readRDS(paste0(prefix, "immdata_all.rds"))
-noNormEset <- readRDS(paste0(prefix, "noNormEset.rds"))
+immdata_all <- readRDS(paste0(outputDir, "/", filenamePrefix, "immdata_all.rds"))
+noNormEset <- readRDS(paste0(outputDir, "/", filenamePrefix, "noNormEset.rds"))
 ```
 
-```{r create-final-esets}
-createFinalEset <- function(noNormEset, immdata_all, ages, 
-                            crossStudyNormalize, vendorToUse, studiesToExclude,
+```{r create-final-esets-function}
+createFinalEset <- function(noNormEset, immdata_all, ages, ageGroupName,
+                            crossStudyNormalize, targetDistributionVendor,
+                            targetDistributionExcludedStudies,
                             addResponseCall, postVaxDayRanges, discretizationValues,
                             outputDir, filenamePrefix){
   
-  eset <- noNormEset[ noNormEset$age_imputed %in% ages]
-  eset <- eset <- removeAllNArows(eset)
+  eset <- filterEsetByAge(noNormEset, ages)
+  eset <- removeAllNArows(eset)
   
   if(crossStudyNormalize){
-    eset <- crossStudyNormalize(eset, vendorToUse, studiesToExclude)
+    eset <- crossStudyNormalize(eset, targetDistributionVendor, targetDistributionExcludedStudies)
     eset <- batchCorrectBaselineData(eset)
     eset <- removeAllNArows(eset)
     normSuffix <- "norm"
@@ -76,38 +75,50 @@ createFinalEset <- function(noNormEset, immdata_all, ages,
     immdataWithResponses <- lapply(names(filteredImmdata), function(assay){
       dataWithResponses <- generateResponseCall(
         assay = assay,
-        data = filteredImmdata,
+        data = filteredImmdata[[assay]],
         postVaxDayRange = postVaxDayRanges[[assay]],
-        discretizationValues = discretizationValues,
-        ageCutoffs = ageCutoffs
+        discretizationValues = discretizationValues
       )
     })
     selectedImmdata <- selectResponsesToUse(immdataWithResponses)
-    eset <- addResponseData(ages, eset, selectedImmdata)
+    eset <- addResponseData(eset, selectedImmdata)
     responseSuffix <- "withResponse"
   }else{
     responseSuffix <- "noResponse"
   }
   
-  testFinalEset(eset, responseStatus = addResponseCall, normStatus = crossStudyNormalize, ages)
+  res <- testFinalEset(eset, 
+                       expectResponse = addResponseCall, 
+                       expectNormalization = crossStudyNormalize, 
+                       ages)
   
-  fullSuffix <- paste("_", normSuffix, "_", responseSuffix, "_eset.rds")
-  filename <- paste0(filenamePrefix, suffix)
-  outputFile <- file.path(outputDir, filename)
+  if(!all(unlist(res))){
+    esetName <- paste(normSuffix, responseSuffix)
+    msg <- paste0("eset failed: ", esetName, "\n", 
+                  "For Ages: ", paste(ages, collapse = " "), "\n")
+    stop(msg)
+  }
+  
+  fullSuffix <- paste0(ageGroupName, "_", normSuffix, "_", responseSuffix, "_eset.rds")
+  filename <- paste0(filenamePrefix, fullSuffix)
+  outputFile <- paste0(outputDir, filename)
   
   saveRDS(eset, outputFile)
 }
+```
 
-for(ages in ageGroups){
+```{r create-variants-of-final-eset}
+for(ageGroupName in names(ageGroups)){
   for(crossStudyNormalize in c(TRUE, FALSE)){
     for(addResponseCall in c(TRUE, FALSE)){
       createFinalEset(noNormEset = noNormEset,
                       immdata_all = immdata_all,
-                      ages = ages,
+                      ages = ageGroups[[ageGroupName]],
+                      ageGroupName = ageGroupName,
                       crossStudyNormalize = crossStudyNormalize,
                       addResponseCall = addResponseCall,
-                      vendorToUse = targetDistributionVendor,
-                      studiesToExclude = targetDistributionExcludedStudies,
+                      targetDistributionVendor = targetDistributionVendor,
+                      targetDistributionExcludedStudies = targetDistributionExcludedStudies,
                       postVaxDayRanges = postVaxDayRanges,
                       discretizationValues = discretizationValues,
                       outputDir = outputDir,
