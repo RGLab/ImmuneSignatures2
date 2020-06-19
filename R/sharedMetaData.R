@@ -19,6 +19,33 @@ addArmAccession <- function(dt, gef){
   return(dt)
 }
 
+#' Add Arm Accession to meta-data
+#'
+#' @param dt meta-data data.table
+#' @export
+#'
+addBatchName <- function(dt){
+  byCohort <- c("ARM4428", "ARM4431", "ARM4368", "ARM4369")
+  # SDY1276 - Discovery/Male (ARM4428), Validation/Female (ARM4431)
+  # SDY1264 - Trial1 (ARM4368), Trial2 (ARM4369)
+
+  byVaccine <- c("ARM774", "ARM777", "ARM773", "ARM776", "ARM1888", "ARM1889")
+  # SDY180 - PneunoVax (ARM774, ARM777), Fluzone (ARM773, ARM776)
+  # SDY269 - (LAIV) ARM1888, (TIV) ARM1889
+
+  dt$batchName <- apply(dt, 1, function(x){
+    if(x[['arm_accession']] %in% byCohort){
+      return(paste(x[['study_accession']], x[['cohort']], sep = "_"))
+    }else if(x[['arm_accession']] %in% byVaccine){
+      return(paste(x[['study_accession']], x[['vaccine']], sep = "_"))
+    }else{
+      return(x[['study_accession']])
+    }
+  })
+
+  return(dt)
+}
+
 
 #' Add fields from vaccine data to meta-data
 #'

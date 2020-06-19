@@ -59,7 +59,7 @@ batchCorrectBaselineData <- function(eset){
   day0 <- eset[, eset$time_post_last_vax == 0]
 
   # Create model matrix for selected variables in baseline data eset
-  model.vars <- c('cell_type','gender_imputed','featureSetName2','study_accession2')
+  model.vars <- c('cell_type','gender_imputed','featureSetName2','batchName')
   mm <- model.matrix(as.formula(paste0('~',paste0(model.vars, collapse='+'))),
                      data = pData(day0))
 
@@ -74,7 +74,7 @@ batchCorrectBaselineData <- function(eset){
 
   # Select only study, featureAnnotationSet, and cell type as variables to use
   # (do not use gender)
-  coefs2adjust <- grep('study|featureSetName|cell_type', colnames(mm.est), value = TRUE)
+  coefs2adjust <- grep('batch|featureSetName|cell_type', colnames(mm.est), value = TRUE)
 
   # create another model matrix with all estimable vars for all timepoints
   mm.all <- model.matrix(as.formula(paste0('~',paste0(model.vars, collapse='+'))),

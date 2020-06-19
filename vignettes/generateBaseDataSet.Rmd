@@ -51,6 +51,7 @@ sharedMetaData <- addStudy(demographics)
 sharedMetaData <- addArmAccession(sharedMetaData, geneExpressionFiles)
 sharedMetaData <- addVaccineFields(sharedMetaData, vaccines)
 sharedMetaData <- filterOutNoVaccineSamples(sharedMetaData)
+sharedMetaData <- addBatchName(sharedMetaData)
 sharedMetaData <- imputeAge(sharedMetaData)
 ```
 

@@ -2,6 +2,7 @@
 
 export(addAnalysisVariables)
 export(addArmAccession)
+export(addBatchName)
 export(addCoalescedFeatureSetName)
 export(addDemographicFields)
 export(addFeatureAnnotationSetName)
