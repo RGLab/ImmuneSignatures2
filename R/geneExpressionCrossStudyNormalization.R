@@ -56,12 +56,12 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 #' @export
 #'
 batchCorrectBaselineData <- function(eset){
-  day0 <- eset[, eset$time_post_last_vax == 0]
+  baseline <- eset[, eset$time_post_last_vax <= 0]
 
   # Create model matrix for selected variables in baseline data eset
-  model.vars <- c('cell_type','gender_imputed','featureSetName2','batchName')
+  model.vars <- c('gender_imputed','cell_type','featureSetName2','geBatchName')
   mm <- model.matrix(as.formula(paste0('~',paste0(model.vars, collapse='+'))),
-                     data = pData(day0))
+                     data = pData(baseline))
 
   # Remove model matrix variables that are not estimable
   # unique FAS: study2SDY1291 study2SDY1289 study2SDY1370 study2SDY80
@@ -70,14 +70,14 @@ batchCorrectBaselineData <- function(eset){
   mm.est <- mm[, !colnames(mm) %in% notEstimable]
 
   # Create a linear model based on the model matrix with all estimable vars for day 0
-  fit <- lmFit(object = exprs(day0), design = mm.est)
+  fit <- lmFit(object = exprs(baseline), design = mm.est)
 
   # Select only study, featureAnnotationSet, and cell type as variables to use
   # (do not use gender)
-  coefs2adjust <- grep('batch|featureSetName|cell_type', colnames(mm.est), value = TRUE)
+  coefs2adjust <- grep('Batch|featureSetName|cell_type', colnames(mm.est), value = TRUE)
 
   # create another model matrix with all estimable vars for all timepoints
-  mm.all <- model.matrix(as.formula(paste0('~',paste0(model.vars, collapse='+'))),
+  mm.all <- model.matrix(as.formula(paste0('~', paste0(model.vars, collapse='+'))),
                          data = pData(eset))
   mm.all <- mm.all[,(colnames(mm.all) %in% colnames(mm.est))]
 
@@ -88,7 +88,8 @@ batchCorrectBaselineData <- function(eset){
   fit.vals <- fit$coefficients[, coefs2adjust]
 
   # adjust the expression values at baseline for each sample and feature by an amount proportional to the sum of the coefficient values multiplied by the presence or absence of the coefficient variable
-  exprs(eset) <- exprs(eset) - fit.vals %*% mm.subset
+  correctionValues <- fit.vals %*% mm.subset
+  exprs(eset) <- exprs(eset) - correctionValues
 
   return(eset)
 }
@@ -100,25 +101,19 @@ batchCorrectBaselineData <- function(eset){
 #'
 generateSampleMDSPlot <- function(eset, numberOfSamples){
   # Based on code by Aris - 03/10/2019
-  exp <- exprs(eset)
-  pheno <- pData(eset)
+  day0 <- eset[ , eset$time_post_last_vax == 0 ]
+  studies <- unique(day0$study_accession)
 
-  # Get data for time point = 0; remove NA genes
-  dset <- exp[, rownames(pheno)[pheno$time_post_last_vax == 0]]
-  keep <- apply(dset, 1, function(x){return(sum(is.na(x)) == 0)})
-  dset <- dset[keep, ]
-
-  # To make plotting more clear, use hardcoded number of samples from each study
-  groups <- pheno[colnames(dset), ]$study_accession
-  names(groups) <- colnames(dset)
-  ind <- unlist(lapply(unique(groups), function(x){
-    smpls <- which(groups == x)
-    toReturn <- ifelse(length(smpls) > numberOfSamples, numberOfSamples, length(smpls))
-    return(smpls[1:toReturn])
+  ind <- unlist(lapply(studies, function(study){
+    smpls <- sampleNames(day0)[ day0$study_accession == study ]
+    if(length(smpls) > numberOfSamples){
+      smpls <- sample(smpls, numberOfSamples)
+    }
+    return(smpls)
   }))
-  dset <- dset[, ind]
-  groups <- groups[colnames(dset)]
+
+  subsetDay0 <- day0[ , sampleNames(day0) %in% ind ]
   colors <- RColorBrewer::brewer.pal(10, "Spectral")
-  colors <- colorRampPalette(colors)(length(unique(groups)))
-  tmp <- plotMDS(dset, col = colors[factor(groups)], labels = groups)
+  colors <- colorRampPalette(colors)(length(studies))
+  tmp <- plotMDS(subsetDay0, col = colors[factor(studies)], labels = studies)
 }

@@ -9,23 +9,10 @@ customProcessing <- function(assay, df){
   dt <- data.table(df)
   dt$value_preferred <- as.numeric(dt$value_preferred)
 
-  # add pvTime for mapping stc to planned visit
-
   # Fix SDY1276 log scaling - both assays
   dt <- dt[ study_accession == "SDY1276", value_preferred := 4 ^ value_preferred ]
 
-  # if(assay == "hai"){
-  #
-  #   # Fix SDY269 strains
-  #   dt <- dt[ arm_accession == "ARM1889", study_accession := "SDY269_TIV" ]
-  #   dt <- dt[ arm_accession == "ARM1888", study_accession := "SDY269_LAIV" ]
-  #
-  # }else if(assay == "neut_ab_titer"){
   if(assay == "neut_ab_titer"){
-
-    # # Fix SDY180 treatments
-    # dt <- dt[ arm_accession %in% c("ARM776", "ARM773"), study_accession := "SDY180_Fluzone" ]
-    # dt <- dt[ arm_accession %in% c("ARM775", "ARM774"), study_accession := "SDY180_Pneunomax" ]
 
     # Fix baseline values for SDY1289
     dt <- dt[ study_accession == "SDY1289" &
@@ -84,7 +71,7 @@ preProcessImmData <- function(dt, postVaxDayRange){
                     age_imputed,
                     participant_id,
                     study_accession,
-                    batchName)]
+                    irpBatchName)]
 
   # Filter the post-baseline samples down to those that have the max value_preferred
   # and then if there are ties, use the study_time_collected closest to baseline
@@ -101,40 +88,40 @@ preProcessImmData <- function(dt, postVaxDayRange){
                       age_imputed,
                       participant_id,
                       study_accession,
-                      batchName)]
+                      irpBatchName)]
 
   # Put baseline and post back together - reduces to only those with both pre and post
   full <- merge(pre, post, by = c('participant_id',
                                   'virus',
                                   'study_accession',
                                   'age_imputed',
-                                  'batchName'))
+                                  'irpBatchName'))
 
   # Update Strain to add study and age_cohort for identifiability
   # full[, study_accession := paste(study_accession,
   #                                 ifelse(full$age_imputed > ageCutoffs[[1]], "old", "young"),
   #                                 sep = "_")]
-  full[, virus := paste(batchName, virus, sep = "_")]
+  full[, virus := paste(irpBatchName, virus, sep = "_")]
 
   # Ensure that every study * age_cohort * strain has matching numbers of Subjects
   # by removing individuals that do not have values for all strains in their
   # study * age_cohort group
-  full <- full[, sumStrains := length(unique(virus)), by = c("batchName")]
-  full <- full[, indivStrains := .N, by = c("batchName", "participant_id")]
+  full <- full[, sumStrains := length(unique(virus)), by = c("irpBatchName")]
+  full <- full[, indivStrains := .N, by = c("irpBatchName", "participant_id")]
   full <- full[ sumStrains == indivStrains ]
 
   # Remove unnecessary columns and update names
   full <- full[, list(SubjectID = participant_id,
                       Strain = virus,
                       study_accession,
-                      batchName,
+                      irpBatchName,
                       Study_time_collected_pre,
                       Pre,
                       Study_time_collected_post,
                       Post)]
 
   # Split into titer list for FormatTiters based on study
-  titer_list_study <- split(full, f = full$batchName)
+  titer_list_study <- split(full, f = full$irpBatchName)
 
   # Ensure correct data.frame format for the FormatTiters call
   titer_list_study <- lapply(X = titer_list_study, FUN = as.data.frame)
