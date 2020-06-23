@@ -90,7 +90,7 @@ addTimePostLastVax <- function(dt){
 removeSubjectsWithoutBaseline <- function(eset){
   pd <- pData(eset)
   allPids <- unique(pd$participant_id)
-  pidsWithBaseline <- unique(pd$participant_id[ pd$study_time_collected >= -7 || pd$study_time_collected <= 0 ])
+  pidsWithBaseline <- unique(pd$participant_id[ pd$study_time_collected >= -7 & pd$study_time_collected <= 0 ])
   pidsToRm <- setdiff(allPids, pidsWithBaseline)
   eset <- eset[ , !eset$participant_id %in% pidsToRm ]
 }
@@ -158,17 +158,13 @@ addAnalysisVariables <- function(geMetaData){
                                 "study_time_collected",
                                 "White",
                                 "Asian",
-                                "Black",
-                                "study_accession2"
+                                "Black"
                                 ) :=
                               list(1 * (ethnicity == 'Hispanic or Latino'),
                                    as.numeric(as.character(study_time_collected)),
                                    1 * (race == 'White'),
                                    1 * (race == 'Asian'),
-                                   1 * (race == 'Black or African American'),
-                                   ifelse(study_accession == 'SDY1276',
-                                          paste(study_accession, gender, sep = '_'),
-                                          study_accession))
+                                   1 * (race == 'Black or African American'))
                             ]
 }
 
@@ -283,22 +279,55 @@ summarizeByGeneSymbol <- function(esets){
 #'
 imputeGender <- function(eset){
 
-  # Create subset eset with only one sample per participantId.
-  # By using !duplicated, we are taking the earliest timepoint
-  e0 <- eset[, !duplicated(eset$participant_id) ]
+  # Create subset eset with only one sample per participantId, using d0 timepoint preferably
+  # Removing technical replicates (only one)
+  e0 <- eset[, eset$time_post_last_vax <= 0 ]
+  pd <- data.table(pData(e0))
+  pdBaseline <- pd[ , maxBaseline := max(time_post_last_vax) , by = "participant_id" ]
+  pdBaseline <- pdBaseline[ time_post_last_vax == maxBaseline ]
+  pdBaseline <- pdBaseline[ !duplicated(participant_id) ]
+  e0 <- e0[, e0$uid %in% pdBaseline$uid ]
+
   PD0 <- data.table(pData(e0))
   PD0[, gender_imputed := NA]
 
   yChromGenes <- intersect(featureNames(e0), yChromGenes)
   yChromGenes <- yChromGenes[ which(rowSums(is.na(exprs(e0)[yChromGenes,])) == 0) ]
 
-  studies <- unique(as.character(e0$study_accession2))
-  for(study in studies){
-    smpls <- sampleNames(e0)[ which((e0$study_accession2 == study)) ]
-    a <- massi_cluster(exprs(e0)[yChromGenes, smpls])
-    PD0$gender_imputed[match(smpls, PD0$uid)] <- ifelse(a[[1]]$clustering[smpls] == 1,
-                                                        'Female','Male')
+  # SDY1119 TD2 OLD - only one pid, SDY1276 cohorts are separated by gender
+  matrices <- unique(as.character(e0$matrix))
+  for(matrix in matrices){
+    if(!grepl("SDY1276", matrix)){
+      smpls <- sampleNames(e0)[ which((e0$matrix == matrix)) ]
+      if(length(smpls) >= 2){
+        yChromEset <- e0[yChromGenes, smpls]
+
+        # Get clusters from reduced dimensional projection to eliminate
+        # issues
+        mds <- plotMDS(yChromEset)
+        mdsClust <- kmeans(mds$x, 2)
+        mdsCall <- mdsClust$cluster
+
+        # Figure out which of original clusters has higher overall values
+        # for expression of yChromGenes
+        clustANames <- names(mdsCall)[ mdsCall == 1 ]
+        clustAexprs <- yChromEset[ ,yChromEset$uid %in% clustANames]
+        clustAMeans <- mean(rowMeans(exprs(clustAexprs)))
+        clustBexprs <- yChromEset[ , !yChromEset$uid %in% clustANames]
+        clustBMeans <- mean(rowMeans(exprs(clustBexprs)))
+        if(clustAMeans > clustBMeans){
+          mdsFinal <- ifelse(mdsCall == 1, "Male", "Female")
+        }else{
+          mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
+        }
+
+        PD0$gender_imputed[match(names(mdsFinal), PD0$uid)] <- mdsFinal
+      }
+    }
   }
+
+  genderImputationFailed <- which(is.na(PD0$gender_imputed))
+  PD0$gender_imputed[genderImputationFailed] <- PD0$gender[genderImputationFailed]
 
   # Check that all PD0 samples have gender_imputed of "Female" or "Male"
   if (!all(PD0$gender_imputed %in% c("Female", "Male"))) {
@@ -311,7 +340,8 @@ imputeGender <- function(eset){
               by = c('participant_id'),
               all.x = TRUE)
   rownames(PD) <- as.character(PD$uid)
-  pData(eset) <- PD[sampleNames(eset),]
+  orderMatch <- order( match(rownames(PD), colnames(exprs(eset))) )
+  pData(eset) <- PD[ orderMatch, ]
 
   return(eset)
 }
