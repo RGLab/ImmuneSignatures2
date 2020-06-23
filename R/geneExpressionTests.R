@@ -90,3 +90,27 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
   return(chks)
 }
 
+#' Test non-normalized base expression set for reasonable gender imputation and
+#' removal of participants without baseline data
+#'
+#' @param eset non-normalized expression set with all participants
+#' @export
+#'
+testNoNormEset <- function(eset){
+  chks <- list()
+  pd <- pData(eset)
+
+  allPids <- unique(pd$participant_id)
+  pidsWithBaseline <- unique(pd$participant_id[ pd$study_time_collected >= -7 & pd$study_time_collected <= 0 ])
+  pidsToRm <- setdiff(allPids, pidsWithBaseline)
+  chks$allPidsHaveBaseline <- length(pidsToRm) == 0
+
+  chks$allPidsHaveImputedGender <- !any(is.na(pd$gender_imputed))
+
+  updatedGender <- pd[ grepl("male", pd$gender, ignore.case = TRUE), ]
+  updatedGender <- updatedGender[ updatedGender$gender != updatedGender$gender_imputed, ]
+  pidsWithUpdatedGender <- length(unique(updatedGender$participant_id))
+  chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
+
+  return(chks)
+}

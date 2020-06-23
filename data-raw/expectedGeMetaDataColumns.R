@@ -16,7 +16,6 @@ expectedGeMetaDataColumns <- c(
   "matrix",
   "gsm",
   "study_accession",
-  "study_accession2",
   "Hispanic",
   "White",
   "Asian",
@@ -30,6 +29,8 @@ expectedGeMetaDataColumns <- c(
   "vaccine_type",
   "adjuvant",
   "pathogen",
-  "arm_accession"
+  "arm_accession",
+  "geBatchName",
+  "irpBatchName"
 )
 usethis::use_data(expectedGeMetaDataColumns, overwrite = TRUE)

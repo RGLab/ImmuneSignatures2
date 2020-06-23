@@ -19,25 +19,29 @@ addArmAccession <- function(dt, gef){
   return(dt)
 }
 
-#' Add Arm Accession to meta-data
+#' Add geBatchName for use in cross-study normalization
 #'
 #' @param dt meta-data data.table
 #' @export
 #'
-addBatchName <- function(dt){
-  byCohort <- c("ARM4428", "ARM4431", "ARM4368", "ARM4369")
+addGeBatchName <- function(dt){
   # SDY1276 - Discovery/Male (ARM4428), Validation/Female (ARM4431)
   # SDY1264 - Trial1 (ARM4368), Trial2 (ARM4369)
+  byCohort <- c("ARM4428", "ARM4431", "ARM4368", "ARM4369")
 
-  byVaccine <- c("ARM774", "ARM777", "ARM773", "ARM776", "ARM1888", "ARM1889")
-  # SDY180 - PneunoVax (ARM774, ARM777), Fluzone (ARM773, ARM776)
-  # SDY269 - (LAIV) ARM1888, (TIV) ARM1889
+  # SDY180 - originally 3 groups with 2 vaccines per group, except Group 3
+  # was saline and therefore not included
+  byGroup <- c(ARM773 = "Group 1",
+               ARM774 = "Group 1",
+               ARM776 = "Group 2",
+               ARM777 = "Group 2")
 
-  dt$batchName <- apply(dt, 1, function(x){
+  dt$geBatchName <- apply(dt, 1, function(x){
     if(x[['arm_accession']] %in% byCohort){
       return(paste(x[['study_accession']], x[['cohort']], sep = "_"))
-    }else if(x[['arm_accession']] %in% byVaccine){
-      return(paste(x[['study_accession']], x[['vaccine']], sep = "_"))
+    }else if(x[['arm_accession']] %in% names(byGroup)){
+      grpName <- byGroup[ match(x[['arm_accession']], names(byGroup))]
+      return(paste(x[['study_accession']], grpName, sep = "_"))
     }else{
       return(x[['study_accession']])
     }
@@ -46,6 +50,31 @@ addBatchName <- function(dt){
   return(dt)
 }
 
+#' Add irpBatchName for use in responseCall generation
+#'
+#' @param dt meta-data data.table
+#' @export
+#'
+addIrpBatchName <- function(dt){
+
+  # Ensure that each vaccine within studies is looked at separately
+  dt$irpBatchName <- paste(dt$study_accession, dt$vaccine, sep = "_")
+
+  # For studies with significantly different cohorts over time
+  byCohort <- c("ARM4428", "ARM4431", "ARM4368", "ARM4369")
+  # SDY1276 - Discovery/Male (ARM4428), Validation/Female (ARM4431)
+  # SDY1264 - Trial1 (ARM4368), Trial2 (ARM4369)
+
+  dt$irpBatchName <- apply(dt, 1, function(x){
+    if(x[['arm_accession']] %in% byCohort){
+      return(paste(x[['irpBatchName']], x[['cohort']], sep = "_"))
+    }else{
+      return(x[['irpBatchName']])
+    }
+  })
+
+  return(dt)
+}
 
 #' Add fields from vaccine data to meta-data
 #'
