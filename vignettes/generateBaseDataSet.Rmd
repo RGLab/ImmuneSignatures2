@@ -15,11 +15,12 @@ library(Rlabkey)
 library(Biobase)
 library(dplyr)
 library(data.table)
+library(limma)
 ```
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_06_15_"
+timeStamp <- "2020_06_22_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -51,7 +52,8 @@ sharedMetaData <- addStudy(demographics)
 sharedMetaData <- addArmAccession(sharedMetaData, geneExpressionFiles)
 sharedMetaData <- addVaccineFields(sharedMetaData, vaccines)
 sharedMetaData <- filterOutNoVaccineSamples(sharedMetaData)
-sharedMetaData <- addBatchName(sharedMetaData)
+sharedMetaData <- addGeBatchName(sharedMetaData)
+sharedMetaData <- addIrpBatchName(sharedMetaData)
 sharedMetaData <- imputeAge(sharedMetaData)
 ```
 
@@ -121,7 +123,7 @@ esets <- lapply(esets, function(eset){
   pd <- correctHrs(pd)
   pd <- addTimePostLastVax(pd)
   pData(eset) <- pd
-  eset <- removeSubjectsWithoutBaseline(eset)
+  return(eset)
 })
 ```
 
@@ -194,6 +196,15 @@ noNormEset <- new("ExpressionSet",
                    exprs = as.matrix(allGE, rownames = "rn"),
                    phenoData = new('AnnotatedDataFrame', 
                                geMetaData))
+
+noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
 noNormEset <- imputeGender(noNormEset)
+```
+
+```{r test-non-normalized-expression-set}
+res <- testNoNormEset(noNormEset)
+if(!all(unlist(res))){
+  stop("noNormEset does not meet expectations")
+}
 saveRDS(noNormEset, file = paste0(prefix, "noNormEset.rds"))
 ```
