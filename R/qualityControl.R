@@ -3,7 +3,7 @@
 #' @param eset expressionSet
 #' @export
 #'
-qualityControl.sampleMDSPlot <- function(eset, numberOfSamples = 10){
+qualityControl.sampleMDSPlot <- function(eset, numberOfSamples = 10, colorCol = "study_accession"){
   # Based on code by Aris - 03/10/2019
   day0 <- eset[ , eset$time_post_last_vax == 0 ]
   studies <- unique(day0$study_accession)
@@ -18,8 +18,10 @@ qualityControl.sampleMDSPlot <- function(eset, numberOfSamples = 10){
 
   subsetDay0 <- day0[ , sampleNames(day0) %in% ind ]
   colors <- RColorBrewer::brewer.pal(10, "Spectral")
-  colors <- colorRampPalette(colors)(length(studies))
-  tmp <- plotMDS(subsetDay0, col = colors[factor(studies)], labels = studies)
+
+  colorVec <- unique(subsetDay0[[colorCol]])
+  colors <- colorRampPalette(colors)(length(colorVec))
+  tmp <- plotMDS(subsetDay0, col = colors[factor(colorVec)], labels = colorVec)
 }
 
 #' Generate sample MDS plots for QC
