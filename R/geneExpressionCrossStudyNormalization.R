@@ -7,9 +7,12 @@
 #' @export
 #'
 crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributionExcludedStudies){
-  # Find samples having at least 60% of genes with non-NA value
+  # Find samples having at least 50% of genes with non-NA value
   geneSymbolMeans <- colMeans(is.na(exprs(eset)))
-  samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.6]
+  samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.5 ]
+  if(length(samplesToUse) < 0.2 * length(sampleNames(eset))){
+    stop("Note enough coverage to perform cross-study normalization")
+  }
 
   # Find features that are present in samples with good coverage of gene expression
   tmp <- exprs(eset[, samplesToUse])
@@ -41,13 +44,22 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 
   # replace expression values in expressionSet and create copy with clear name
   dimnames(normAllExprs) <- dimnames(exprs.not.norm)
-  exprs(eset) <- normAllExprs
+
+  # Ensure formatting of returned eSet
+  pd <- pData(eset)
+  rownames(pd) <- pd$uid
+  normAllExprs <- normAllExprs[ , order(match(colnames(normAllExprs), rownames(pd)))]
+  normEset <- new("ExpressionSet",
+                  exprs = as.matrix(normAllExprs, rownames = rownames(normAllExprs)),
+                  phenoData = new('AnnotatedDataFrame',
+                                  pd)
+  )
 
   # Clean up as we go
   rm(normAllExprs)
   gc()
 
-  return(eset)
+  return(normEset)
 }
 
 #' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type

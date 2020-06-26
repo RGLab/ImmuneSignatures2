@@ -64,7 +64,7 @@ testAllGEMatrixPreNorm <- function(allGE){
 testAllGEMetaDataPreNorm <- function(geMetaData){
   chks <- list()
 
-  tmp <- apply(geMetaData, 2, function(x){ all(is.na(x))})
+  tmp <- apply(geMetaData, 2, function(x){ all(is.na(x)) })
   tmp <- tmp[ !names(tmp) %in% c("exposure_material_reported", "exposure_process_preferred")]
   chks$naCols <- sum(tmp == TRUE) == 0
 
