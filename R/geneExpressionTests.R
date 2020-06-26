@@ -68,9 +68,8 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
   tmp <- tmp[ !names(tmp) %in% c("exposure_material_reported", "exposure_process_preferred")]
   chks$naCols <- sum(tmp == TRUE) == 0
 
-  sdy180cellTypes <- unique(geMetaData$cell_type[ geMetaData$study_accession == "SDY180"])
-  sdy80cellTypes <- unique(geMetaData$cell_type[ geMetaData$study_accession == "SDY80"])
-  chks$cellTypes <- sdy180cellTypes == "Whole blood" & sdy80cellTypes == "PBMC"
+  expectedCellTypes <- c("Whole blood", "PBMC")
+  chks$cellTypes <- length(setdiff(unique(geMetaData$cell_types), expectedCellTypes)) == 0
 
   yaleStudies <- c("SDY63", "SDY404", "SDY400", "SDY520", "SDY640")
   yaleTimepoints <- unique(geMetaData$time_post_last_vax[ geMetaData$study_accession %in% yaleStudies ])
@@ -105,12 +104,15 @@ testNoNormEset <- function(eset){
   pidsToRm <- setdiff(allPids, pidsWithBaseline)
   chks$allPidsHaveBaseline <- length(pidsToRm) == 0
 
-  chks$allPidsHaveImputedGender <- !any(is.na(pd$gender_imputed))
+  chks$allPidsHaveImputedGender <- !any(is.na(pd$gender_imputed) | pd$gender_imputed == "NP")
 
   updatedGender <- pd[ grepl("male", pd$gender, ignore.case = TRUE), ]
   updatedGender <- updatedGender[ updatedGender$gender != updatedGender$gender_imputed, ]
   pidsWithUpdatedGender <- length(unique(updatedGender$participant_id))
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
+
+  problemSamples <- qualityControl.genderByMatrix(noNormEset, returnObject = "probSamplesDT")
+  chks$minimalGenderProblemSamples <- nrow(problemSamples) < 2
 
   return(chks)
 }

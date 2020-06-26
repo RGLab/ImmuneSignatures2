@@ -106,7 +106,8 @@ addMatrixRelatedFields <- function(phenoDataSets, geMatrices){
     pd <- phenoDataSets[[index]]
     pd$matrix <- geMatrices$name[[index]]
     pd$featureset <- geMatrices$featureset[[index]]
-    pd$cell_type <- strsplit(pd$cohort_type, "_")[[1]][[2]]
+    pd$cell_type <- regmatches(pd$cohort_type,
+                               regexpr("Whole blood|PBMC", pd$cohort_type, ignore.case = TRUE))
     return(pd)
   })
 }
@@ -277,7 +278,7 @@ summarizeByGeneSymbol <- function(esets){
 #' @param eset expressionSet
 #' @export
 #'
-imputeGender <- function(eset){
+imputeGender.useBaseline <- function(eset){
 
   # Create subset eset with only one sample per participantId, using d0 timepoint preferably
   # Removing technical replicates (only one)
@@ -311,10 +312,13 @@ imputeGender <- function(eset){
         # Figure out which of original clusters has higher overall values
         # for expression of yChromGenes
         clustANames <- names(mdsCall)[ mdsCall == 1 ]
-        clustAexprs <- yChromEset[ ,yChromEset$uid %in% clustANames]
+
+        clustAexprs <- yChromEset[ , yChromEset$uid %in% clustANames]
         clustAMeans <- mean(rowMeans(exprs(clustAexprs)))
+
         clustBexprs <- yChromEset[ , !yChromEset$uid %in% clustANames]
         clustBMeans <- mean(rowMeans(exprs(clustBexprs)))
+
         if(clustAMeans > clustBMeans){
           mdsFinal <- ifelse(mdsCall == 1, "Male", "Female")
         }else{
@@ -344,4 +348,82 @@ imputeGender <- function(eset){
   pData(eset) <- PD[ orderMatch, ]
 
   return(eset)
+}
+
+#' Impute gender based on expression of Y chromosome-related genes
+#'
+#' @param eset expressionSet
+#' @export
+#'
+imputeGender.useAllTimepoints <- function(eset){
+  PD <- data.table(pData(eset))
+  PD[, gender_imputed_timepoint := NA]
+
+  yGenes <- intersect(featureNames(eset), yChromGenes)
+  yGenes <- yGenes[ which(rowSums(is.na(exprs(eset)[yGenes,])) == 0) ]
+
+  # SDY1119 TD2 OLD - only one pid, SDY1276 cohorts are separated by gender
+  matrices <- unique(as.character(eset$matrix))
+  for(matrix in matrices){
+    print(matrix)
+    if(!grepl("SDY1276", matrix)){
+      smpls <- sampleNames(eset)[ which((eset$matrix == matrix)) ]
+      if(length(smpls) > 2){
+        yChromEset <- eset[yGenes, smpls]
+
+        # Get clusters from reduced dimensional projection to eliminate
+        # issues
+        mds <- plotMDS(yChromEset)
+        mdsClust <- kmeans(mds$x, 2)
+        mdsCall <- mdsClust$cluster
+
+        # Figure out which of original clusters has higher overall values
+        # for expression of yChromGenes
+        clustANames <- names(mdsCall)[ mdsCall == 1 ]
+
+        clustAexprs <- yChromEset[ , yChromEset$uid %in% clustANames]
+        clustAMeans <- mean(colMeans(exprs(clustAexprs)))
+
+        clustBexprs <- yChromEset[ , !yChromEset$uid %in% clustANames]
+        clustBMeans <- mean(colMeans(exprs(clustBexprs)))
+
+        if(clustAMeans > clustBMeans){
+          mdsFinal <- ifelse(mdsCall == 1, "Male", "Female")
+        }else{
+          mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
+        }
+
+        PD$gender_imputed_timepoint[ match(names(mdsFinal), PD$uid) ] <- mdsFinal
+      }
+    }
+  }
+
+
+  genderImputationFailed <- which(is.na(PD$gender_imputed_timepoint))
+  PD$gender_imputed_timepoint[genderImputationFailed] <- PD$gender[genderImputationFailed]
+
+  # Summarize by subject
+  summarizeGender <- function(genderGuesses){
+    assignedGender <- unique(genderGuesses)
+    if(length(assignedGender) > 1){
+      return("NP")
+    }else{
+      return(assignedGender)
+    }
+  }
+
+  PD[ , gender_imputed := summarizeGender(gender_imputed_timepoint), by = "participant_id"]
+  pData(eset) <- PD
+
+  return(eset)
+}
+
+#' Remove selected participants from expression set
+#'
+#' @param eset expressionSet
+#' @param participantIdsToRm vector of participant IDs to remove
+#' @export
+#'
+removeSubjectsWithoutGenderConsensus <- function(eset, participantIdsToRm){
+  eset <- eset[ , !eset$participant_id %in% participantIdsToRm]
 }

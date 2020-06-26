@@ -16,11 +16,12 @@ library(Biobase)
 library(dplyr)
 library(data.table)
 library(limma)
+library(tidyverse)
 ```
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_06_22_"
+timeStamp <- "2020_06_26_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -184,6 +185,7 @@ allGE[, rn := gs ]
 ```{r pre-norm-gene-expression-tests}
 exprDataResults <- testAllGEMatrixPreNorm(allGE)
 metaDataResults <- testAllGEMetaDataPreNorm(geMetaData)
+
 if(!all(unlist(c(exprDataResults, metaDataResults)))){
   stop("Not all pre-norm checks are passing!")
 }
@@ -198,7 +200,30 @@ noNormEset <- new("ExpressionSet",
                                geMetaData))
 
 noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
-noNormEset <- imputeGender(noNormEset)
+
+# Gender Imputation using Y-Chromosome associated genes
+# The following code assigns probable gender based on clustering
+# of samples given expression values for 13 Y-Chromosome genes.
+noNormEset <- imputeGender.useAllTimepoints(noNormEset)
+allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
+allMatricesPlot
+
+# Subjects that have samples with differing assignments are labeled "NP" 
+problemSamples <- noNormEset[ , noNormEset$gender_imputed == "NP"]
+problemSubjectsPlot <- qualityControl.genderByMatrix(problemSamples, 
+                                                         returnObject = "probSubjects")
+probStudiesBySubjectTbl <- qualityControl.createSubjectsByStudyTable(problemSamples$participant_id)
+
+# Studies with "NP" subjects
+# SDY1260 SDY1264 SDY1325 SDY1364 SDY1370  SDY180  SDY400   SDY63   SDY67   SDY80  SDY984 
+#      1       2       4       1       2       7       1       1       9       5      22 
+
+# All these subjects are removed as they likely have samples that are mixed up with other subjects
+noNormEset <- removeSubjectsWithoutGenderConsensus(noNormEset, 
+                                                   unique(problemSamples$participant_id))
+
+allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
+allMatricesPlot
 ```
 
 ```{r test-non-normalized-expression-set}

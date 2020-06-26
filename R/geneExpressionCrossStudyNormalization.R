@@ -94,26 +94,4 @@ batchCorrectBaselineData <- function(eset){
   return(eset)
 }
 
-#' Generate sample MDS plots for QC
-#'
-#' @param eset expressionSet
-#' @export
-#'
-generateSampleMDSPlot <- function(eset, numberOfSamples){
-  # Based on code by Aris - 03/10/2019
-  day0 <- eset[ , eset$time_post_last_vax == 0 ]
-  studies <- unique(day0$study_accession)
 
-  ind <- unlist(lapply(studies, function(study){
-    smpls <- sampleNames(day0)[ day0$study_accession == study ]
-    if(length(smpls) > numberOfSamples){
-      smpls <- sample(smpls, numberOfSamples)
-    }
-    return(smpls)
-  }))
-
-  subsetDay0 <- day0[ , sampleNames(day0) %in% ind ]
-  colors <- RColorBrewer::brewer.pal(10, "Spectral")
-  colors <- colorRampPalette(colors)(length(studies))
-  tmp <- plotMDS(subsetDay0, col = colors[factor(studies)], labels = studies)
-}

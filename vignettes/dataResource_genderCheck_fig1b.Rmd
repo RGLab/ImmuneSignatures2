@@ -1,0 +1,171 @@
+---
+title: HIPC IS2 Data Resource Fig S1b (gender-check)
+author: Slim Fourati
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: github_documents
+---
+
+Load required packages
+```{r, load-packages}
+suppressPackageStartupMessages(library(package = "knitr"))
+suppressPackageStartupMessages(library(package = "Biobase"))
+suppressPackageStartupMessages(library(package = "biomaRt"))
+suppressPackageStartupMessages(library(package = "ggbeeswarm"))
+suppressPackageStartupMessages(library(package = "tidyverse"))
+```
+
+Set session options
+```{r, session-options}
+workDir <- dirname(getwd())
+opts_chunk$set(tidy = FALSE, fig.path = "Figure/")
+options(stringsAsFactors = FALSE,
+        width            = 80)
+```
+
+Read virtual study from Evan
+```{r, read-eset}
+geFile <- list.files(path       = file.path(workDir, "Input"),                     
+                     pattern    = "noResponse_norm_young.rds",                     
+                     full.names = TRUE)                                            
+esetYngNoResp <- readRDS(file = geFile)
+geFile <- list.files(path       = file.path(workDir, "Input"),                     
+                     pattern    = "noResponse_norm_older.rds",                     
+                     full.names = TRUE)
+esetOldNoResp <- readRDS(file = geFile)
+```
+
+Combine young and elderly ExpressionSet
+```{r, combine-eset}
+featuresCommon <- intersect(featureNames(esetYngNoResp),
+			    featureNames(esetOldNoResp))
+eset <- ExpressionSet(assayData = cbind(exprs(esetYngNoResp)[featuresCommon, ],
+					exprs(esetOldNoResp)[featuresCommon, ]),
+		      phenoData =
+			AnnotatedDataFrame(data = rbind(pData(esetYngNoResp),
+							pData(esetOldNoResp))))
+```
+
+Average chrY genes intensities
+```{r, chry-gene-expression}
+human <- useMart(biomart = "ensembl",
+		 dataset = "hsapiens_gene_ensembl")
+# create gene 2 chromosome data.frame
+gene2chr <- getBM(attributes = c("hgnc_symbol", "chromosome_name"),
+		  filters    = "hgnc_symbol",
+		  values     = featuresCommon,
+		  mart       = human)
+chrYgenes <- filter(gene2chr, chromosome_name %in% "Y") %>%
+  .$hgnc_symbol %>%
+  as.vector()
+``` 
+
+Plot chrY average as function of gender
+```{r, plot-chry}
+plotDF <- colMeans(exprs(eset)[chrYgenes, ], na.rm = TRUE) %>%
+  data.frame(chry = .) %>%
+  rownames_to_column() %>%
+  merge(y    = pData(eset),
+	by.x = "rowname",
+	by.y = "uid") %>%
+  mutate(matrix = ifelse(test = study_accession %in% "SDY1328" & age_reported < 50,
+			 yes  = paste0(matrix, "_young"),
+			 no   = paste0(matrix, "_old")))
+
+# exclude studies with only one gender or missing gender annotation
+singleGender <- plotDF %>%
+  group_by(study_accession, matrix) %>%
+  summarize(n.gender = length(unique(setdiff(gender,
+					     c("Not Specified",
+					       "Unknown"))))) %>%
+  filter(n.gender <= 1) %>%
+  mutate(matrix = as.vector(matrix))
+singleGender %>%
+  select(study_accession, n.gender) %>%
+  distinct() %>%
+  arrange(n.gender, study_accession) %>%
+  print()
+
+# find outlier (1.5 x IGR from Q1 and Q3) 
+outlierDF <- plotDF %>%
+  filter(gender != "Not Specified") %>%
+  group_by(study_accession, matrix, gender) %>%
+  mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
+         dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+
+quartileDF <- plotDF %>%
+  filter(gender != "Not Specified") %>%
+  group_by(study_accession, matrix, gender) %>%
+  summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
+            q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+  mutate(gender = c("Female" = "Male", "Male" = "Female")[gender])
+
+# flag outlier samples (possible swap)
+flagDF <- merge(x  = outlierDF,
+                y  = quartileDF,
+                by = c("study_accession", "matrix", "gender")) %>%
+  mutate(flag = FALSE,
+         flag = ifelse(test = gender %in% "Female" & up & chry >= q1,
+                       yes  = TRUE,
+                       no   = flag),
+         flag = ifelse(test = gender %in% "Male" & dn & chry <= q3,
+                       yes  = TRUE,
+                       no   = flag))
+plotDF <- merge(x     = plotDF,
+                y     = select(flagDF, rowname, flag),
+                by    = "rowname",
+                all.x = TRUE) %>%
+  # if gender not specified, set flag as false
+  mutate(flag = ifelse(test = is.na(flag),
+                       yes  = FALSE,
+                       no   = flag))
+
+ggplot(data = filter(plotDF, !(matrix %in% singleGender$matrix)),
+       mapping = aes(x = gender, y = chry)) +
+  geom_boxplot(outlier.color = "transparent", fill = "grey") +
+  geom_jitter(height = 0, width = 0.25, mapping = aes(color = flag)) +
+  labs(y = "Average probe intensities (chrY)") +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+  facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.pos = "none",
+        strip.text = element_text(size = 5))
+``` 
+
+Print possible possible mislabelled samples
+```{r, print-swap}
+filter(plotDF, flag) %>%
+  select(rowname, chry, matrix, study_accession) %>%
+  rename(uid = rowname) %>%
+  arrange(study_accession, uid) %>%
+  print()
+``` 
+
+Plot jitter plot for four example studies
+```{r, fig-s1b, fig.width=4.23, fig.height=4.38}
+plotTemp <- filter(plotDF,
+    (study_accession %in% "SDY1260" &
+       matrix %in% "SDY1260_PBMC_MCV4_Geo_old") |
+    (study_accession %in% "SDY400" &
+       matrix %in% "SDY400_PBMC_Young_Geo_old") |
+    (study_accession %in% "SDY984" &
+       matrix %in% "SDY984_PBMC_Elderly_Geo_old") |
+    study_accession %in% "SDY1291") 
+
+ggplot(data = plotTemp,
+       mapping = aes(x = gender, y = chry)) +
+  geom_boxplot(outlier.color = "transparent", fill = "grey") +
+  geom_beeswarm(mapping = aes(color = flag), cex = 2.5, size = 0.8) +
+  labs(y = "Average probe intensities (chrY)", x = "Sex") +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+  facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.pos = "none",
+        strip.text = element_text(size = 6))
+```
+
+Print session info
+```{r, session-info}
+sessionInfo()
+```
