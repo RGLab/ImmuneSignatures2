@@ -1,0 +1,138 @@
+
+```{r prep}
+# devtools::install_github("rglab/immunesignatures2", ref="dev")
+# repo is currently private, so would need to request access
+library(ImmuneSignatures2) # for utils if desired
+library(Biobase)
+library(limma)
+library(ggfortify)
+library(ggplot2)
+
+noNormEset <- readRDS("/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_06_26_noNormEset.rds")
+
+young <- c(18,50)
+old <- c(60,91)
+ageGroups <- list(
+  young = young,
+  old = old,
+  all = c(min(young), max(old))
+)
+
+targetDistributionVendor <- "Affymetrix"
+targetDistributionExcludedStudies <- "SDY1293"
+
+eset.old <- filterEsetByAge(noNormEset, ages = ageGroups[["old"]])
+eset.old <- removeAllNArows(eset.old)
+eset.old <- eset.old[, !eset.old$study_accession %in% c("SDY1368","SDY67") ]
+eset.old.norm <- crossStudyNormalize(eset.old,
+                            targetDistributionVendor,
+                            targetDistributionExcludedStudies)
+
+# Use "young" eset baseline data to batchCorrect older group
+eset.young <- filterEsetByAge(noNormEset, ages = ageGroups[["young"]])
+eset.young <- removeAllNArows(eset.young)
+eset.young.norm <- crossStudyNormalize(eset.young,
+                                       targetDistributionVendor,
+                                       targetDistributionExcludedStudies)
+
+# Using baseline for correction
+eset.young.baseline <- eset.young.norm[, eset.young.norm$time_post_last_vax <= 0]
+```
+
+```{r relevel}
+# # For this to work, we need to have batch as factor where the reference level
+# esets <- c(young = eset.young.baseline,
+#            old = eset.old.norm)
+# featuresToRelevel <- c("geBatchName", "featureSetName2", "cell_type")
+#
+# relevelEsets <- function(esets, featuresToRelevel){
+#   for(feature in featuresToRelevel){
+#     ref.batch <- intersect(unique(esets[["young"]][[feature]]),
+#                            unique(esets[["old"]][[feature]]))[[1]]
+#     esets[["young"]][[feature]] <- relevel(as.factor(esets[["young"]][[feature]]),
+#                                            ref = ref.batch)
+#     esets[["old"]][[feature]] <- relevel(as.factor(esets[["old"]][[feature]]),
+#                                          ref = ref.batch)
+#   }
+#   return(esets)
+# }
+#
+# esets <- relevelEsets(esets, featuresToRelevel)
+# eset.young.baseline <- esets$young
+# eset.old.norm <- esets$old
+
+# # # is a batch that contains old young and old (SDY1328)
+# ref.batch <- intersect(unique(eset.young.norm$geBatchName),
+#                        unique(eset.old.norm$geBatchName))[[1]]
+# eset.young.norm$geBatchName <- relevel(as.factor(eset.young.norm$geBatchName),
+#                                        ref = ref.batch)
+# eset.old.norm$geBatchName <- relevel(as.factor(eset.old.norm$geBatchName),
+#                                      ref = ref.batch)
+#
+# ## 3. also do featureSetName and cell_type for above
+```
+
+```{r model for young}
+# General model parameters
+model.vars <- c('gender_imputed','cell_type','featureSetName2','geBatchName')
+model.formula <- as.formula(paste0('~',paste0(model.vars, collapse='+')))
+
+# Generate linear model for young cohort
+mm.young <- model.matrix(model.formula, data = pData(eset.young.baseline))
+notEstimable.young <- nonEstimable(mm.young)
+mm.young.est <- mm.young[, !colnames(mm.young) %in% notEstimable.young]
+youngFit <- lmFit(object = exprs(eset.young.baseline), design = mm.young.est)
+
+# Get coefficients for adjusting young cohort
+coefs2adjust <- grep('Batch|featureSetName|cell_type',
+                     colnames(mm.young.est), value = TRUE)
+youngFit.vals <- youngFit$coefficients[, coefs2adjust]
+```
+
+```{r design-matrix-old}
+# Design matrix for old cohort subsetted for coefficients found
+# in the intersection with young cohort
+mm.old <- model.matrix(model.formula, data = pData(eset.old.norm))
+mm.old.subset <- mm.old[ , colnames(mm.old) %in% coefs2adjust] # 1. can use just coefs2adjust
+```
+
+```{r filter-young-coefs}
+# subset the coefficents from the young fit object to match
+# needs of old cohort design matrix
+geneIntersect <- intersect(rownames(exprs(eset.old.norm)),
+                           rownames(exprs(eset.young.baseline)))
+youngFit.vals.subset <- youngFit.vals[ geneIntersect, colnames(mm.old.subset) ]
+```
+
+```{r subset-old-eset-by-available-genes}
+# Subset the old eset by genes that can be corrected
+exprs.old.norm <- exprs(eset.old.norm)
+exprs.old.norm.subset <- exprs.old.norm[ rownames(exprs.old.norm) %in% geneIntersect, ]
+```
+
+```{r run-correction}
+# Create correction values by matrix multiplication of the gene * coef fit matrix
+# by the design matrix for old cohort
+# 2. Double-check the column order for yfit-vals and mm.old.subset
+mm.old.subset.t <- t(mm.old.subset)
+mm.old.subset.t <- mm.old.subset.t[ order(match(rownames(mm.old.subset.t),
+                                                colnames(youngFit.vals.subset)))]
+correctionValues <- youngFit.vals.subset %*% t(mm.old.subset)
+
+# Ensure that correction matrix has same ordering as the expression matrix to be corrected
+correctionValues <- correctionValues[ order(match(rownames(correctionValues),
+                                                  rownames(exprs.old.norm.subset)))]
+exprs.old.corr <- exprs.old.norm.subset - correctionValues
+
+# Create new expressionSet object as validation fails for insertion into old
+eset.old.corr <- new("ExpressionSet",
+                     exprs = as.matrix(exprs.old.corr, rownames = rownames(exprs.old.corr)),
+                     phenoData = new('AnnotatedDataFrame', pData(eset.old.norm)))
+```
+
+```{r run-sample-test}
+qualityControl.samplePlot(eset.old.corr, method = "PCA", colorCol = "featureSetName2")
+```
+
+###
+# bit bucket - data resource ... new plots
