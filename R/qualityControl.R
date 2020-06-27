@@ -3,7 +3,10 @@
 #' @param eset expressionSet
 #' @export
 #'
-qualityControl.sampleMDSPlot <- function(eset, numberOfSamples = 10, colorCol = "study_accession"){
+qualityControl.samplePlot <- function(eset,
+                                      method = "MDS",
+                                      numberOfSamples = 10,
+                                      colorCol = "study_accession"){
   # Based on code by Aris - 03/10/2019
   day0 <- eset[ , eset$time_post_last_vax == 0 ]
   studies <- unique(day0$study_accession)
@@ -17,11 +20,22 @@ qualityControl.sampleMDSPlot <- function(eset, numberOfSamples = 10, colorCol = 
   }))
 
   subsetDay0 <- day0[ , sampleNames(day0) %in% ind ]
-  colors <- RColorBrewer::brewer.pal(10, "Spectral")
 
-  colorVec <- unique(subsetDay0[[colorCol]])
-  colors <- colorRampPalette(colors)(length(colorVec))
-  tmp <- plotMDS(subsetDay0, col = colors[factor(colorVec)], labels = colorVec)
+  if(method == "MDS"){
+    colors <- RColorBrewer::brewer.pal(10, "Spectral")
+    colorVec <- unique(subsetDay0[[colorCol]])
+    colors <- sample(colors, length(colorVec))
+    colors <- colors[ match(subsetDay0[[colorCol]], colorVec)]
+    tmp <- plotMDS(subsetDay0, col = colors, labels = subsetDay0[[colorCol]])
+    return(tmp)
+  }else if(method == "PCA"){
+    em <- as.matrix(exprs(subsetDay0))
+    em <- em[ complete.cases(em), ]
+    tem <- data.frame(t(em), stringsAsFactors = FALSE)
+    res <- prcomp(tem)
+    pd <- pData(subsetDay0)
+    autoplot(res, data = pd, colour = colorCol)
+  }
 }
 
 #' Generate sample MDS plots for QC
