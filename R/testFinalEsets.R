@@ -25,7 +25,10 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   #                                           )
   #                         )
 
-  noResponseCols <- c(expectedGeMetaDataColumns, "gender_imputed")
+  noResponseCols <- c(expectedGeMetaDataColumns,
+                      "gender_imputed",
+                      "gender_imputed_timepoint",
+                      "failedGenderQC")
 
   staticResponseCols <- c(
     'ImmResp_baseline_value_MFC','ImmResp_baseline_timepoint_MFC',

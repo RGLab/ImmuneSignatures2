@@ -2,15 +2,13 @@
 % Please edit documentation in R/qualityControl.R
 \name{qualityControl.genderByMatrix}
 \alias{qualityControl.genderByMatrix}
-\title{Generate sample MDS plots for QC}
+\title{Generate gender box plots (prior to QC)}
 \usage{
-qualityControl.genderByMatrix(eset, returnObject = "allMatricesPlot")
+qualityControl.genderByMatrix(eset)
 }
 \arguments{
 \item{eset}{expressionSet}
-
-\item{returnObject}{options are allMatricesPlot (default), probSamplesPlot, probSamplesDT}
 }
 \description{
-Generate sample MDS plots for QC
+Generate gender box plots (prior to QC)
 }

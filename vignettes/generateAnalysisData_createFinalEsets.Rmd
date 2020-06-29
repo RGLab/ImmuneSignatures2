@@ -19,7 +19,7 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-filenamePrefix <- "2020_06_22_"
+filenamePrefix <- "2020_06_29_"
 
 postVaxDayRanges <- list(
   hai = c(20,46),

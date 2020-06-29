@@ -399,22 +399,42 @@ imputeGender.useAllTimepoints <- function(eset){
   }
 
 
-  genderImputationFailed <- which(is.na(PD$gender_imputed_timepoint))
-  PD$gender_imputed_timepoint[genderImputationFailed] <- PD$gender[genderImputationFailed]
+  genderImputationNotDone <- which(is.na(PD$gender_imputed_timepoint))
+  PD$gender_imputed_timepoint[genderImputationNotDone] <- PD$gender[genderImputationNotDone]
 
-  # Summarize by subject
-  summarizeGender <- function(genderGuesses){
+  # Only reassign if all timepoints are opposite sex
+  summarizeGender <- function(genderReported, genderGuesses){
+    originalGender <- unique(genderReported)
     assignedGender <- unique(genderGuesses)
-    if(length(assignedGender) > 1){
-      return("NP")
-    }else{
+    if(length(assignedGender) == 1){
       return(assignedGender)
+    }else{
+      return(originalGender)
     }
   }
 
-  PD[ , gender_imputed := summarizeGender(gender_imputed_timepoint), by = "participant_id"]
+  # flag problem samples if there is disagreement within subject
+  flagProblemTimepoints <- function(gender_imputed_timepoint){
+    status <- length(unique(gender_imputed_timepoint)) > 1
+  }
+
+  PD[ , gender_imputed := summarizeGender(gender, gender_imputed_timepoint), by = "participant_id"]
+
+  PD[ , failedGenderQC := flagProblemTimepoints(gender_imputed_timepoint), by = "participant_id"]
+
   pData(eset) <- PD
 
+  return(eset)
+}
+
+#' Remove selected participants from expression set
+#'
+#' @param eset expressionSet
+#' @param participantIdsToRm vector of participant IDs to remove
+#' @export
+#'
+adjustProblemStudies <- function(eset, problemStudies){
+  eset$failedGenderQC[ eset$study_accession %in% problemStudies] <- TRUE
   return(eset)
 }
 

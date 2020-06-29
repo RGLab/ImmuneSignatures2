@@ -21,7 +21,7 @@ library(tidyverse)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_06_26_"
+timeStamp <- "2020_06_29_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -200,30 +200,45 @@ noNormEset <- new("ExpressionSet",
                                geMetaData))
 
 noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
+```
 
+```{r gender-imputation}
+allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
+allMatricesPlot
 # Gender Imputation using Y-Chromosome associated genes
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
+
+# Gender Imputation Cases:
+# 1. Gender at all timepoints is different from original - clinical error - switch
+# 2. Some timepoints have different assigned gender - use original gender reported as canonical, and then flag samples as "failedGenderQC"
+# 3. Studies without gender_reported and with poor differentiation, mark as "failedGenderQC"
 noNormEset <- imputeGender.useAllTimepoints(noNormEset)
-allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
-allMatricesPlot
+noNormEset <- adjustProblemStudies(noNormEset, c("SDY1325", "SDY1370"))
 
-# Subjects that have samples with differing assignments are labeled "NP" 
-problemSamples <- noNormEset[ , noNormEset$gender_imputed == "NP"]
-problemSubjectsPlot <- qualityControl.genderByMatrix(problemSamples, 
-                                                         returnObject = "probSubjects")
+failedGenderQC <- qualityControl.failedGenderImputation(noNormEset)
+failedGenderQC
+
+problemSamples <- noNormEset[ , noNormEset$failedGenderQC]
+problemSubjectsPlot <- qualityControl.genderImputedByMatrix(problemSamples, 
+                                                     returnObject = "probSubjects")
+problemSubjectsPlot
+
 probStudiesBySubjectTbl <- qualityControl.createSubjectsByStudyTable(problemSamples$participant_id)
+data.frame(probStudiesBySubjectTbl)
 
-# Studies with "NP" subjects
-# SDY1260 SDY1264 SDY1325 SDY1364 SDY1370  SDY180  SDY400   SDY63   SDY67   SDY80  SDY984 
-#      1       2       4       1       2       7       1       1       9       5      22 
-
-# All these subjects are removed as they likely have samples that are mixed up with other subjects
-noNormEset <- removeSubjectsWithoutGenderConsensus(noNormEset, 
-                                                   unique(problemSamples$participant_id))
-
-allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
-allMatricesPlot
+#    studies Freq
+# 1  SDY1260    1
+# 2  SDY1264    2
+# 3  SDY1325   10
+# 4  SDY1364    1
+# 5  SDY1370    8
+# 6   SDY180    7
+# 7   SDY400    1
+# 8    SDY63    1
+# 9    SDY67    9
+# 10   SDY80    5
+# 11  SDY984   22
 ```
 
 ```{r test-non-normalized-expression-set}

@@ -1,6 +1,7 @@
 #' Generate sample MDS plots for QC
 #'
 #' @param eset expressionSet
+#' @import ggfortify
 #' @export
 #'
 qualityControl.samplePlot <- function(eset,
@@ -8,7 +9,7 @@ qualityControl.samplePlot <- function(eset,
                                       numberOfSamples = 10,
                                       colorCol = "study_accession"){
   # Based on code by Aris - 03/10/2019
-  day0 <- eset[ , eset$time_post_last_vax == 0 ]
+  day0 <- eset[ , eset$time_post_last_vax <= 0 ]
   studies <- unique(day0$study_accession)
 
   ind <- unlist(lapply(studies, function(study){
@@ -24,7 +25,7 @@ qualityControl.samplePlot <- function(eset,
   if(method == "MDS"){
     colors <- RColorBrewer::brewer.pal(10, "Spectral")
     colorVec <- unique(subsetDay0[[colorCol]])
-    colors <- sample(colors, length(colorVec))
+    colors <- sample(colors, length(colorVec), replace = TRUE)
     colors <- colors[ match(subsetDay0[[colorCol]], colorVec)]
     tmp <- plotMDS(subsetDay0, col = colors, labels = subsetDay0[[colorCol]])
     return(tmp)
@@ -38,14 +39,14 @@ qualityControl.samplePlot <- function(eset,
   }
 }
 
-#' Generate sample MDS plots for QC
+#' Generate box plots showing gender imputed after QC
 #'
 #' @param eset expressionSet
 #' @param returnObject options are allMatricesPlot (default), probSamplesPlot, probSamplesDT
 #' @import ggbeeswarm tidyverse Biobase data.table
 #' @export
 #'
-qualityControl.genderByMatrix <- function(eset, returnObject = "allMatricesPlot"){
+qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatricesPlot"){
   yChromGenes <- yChromGenes[ yChromGenes %in% featureNames(eset) ]
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
@@ -149,6 +150,116 @@ qualityControl.genderByMatrix <- function(eset, returnObject = "allMatricesPlot"
   }
 }
 
+#' Generate gender box plots (prior to QC)
+#'
+#' @param eset expressionSet
+#' @import ggbeeswarm tidyverse Biobase data.table
+#' @export
+#'
+qualityControl.genderByMatrix <- function(eset){
+  yChromGenes <- yChromGenes[ yChromGenes %in% featureNames(eset) ]
+
+  plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
+    data.frame(chry = .) %>%
+    rownames_to_column() %>%
+    merge(y    = pData(eset),
+          by.x = "rowname",
+          by.y = "uid")
+
+  outlierDF <- plotDF %>%
+    group_by(study_accession, matrix, gender) %>%
+    mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
+           dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+
+  quartileDF <- plotDF %>%
+    group_by(study_accession, matrix, gender) %>%
+    summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
+              q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+    mutate(gender = c("Female" = "Male", "Male" = "Female")[gender])
+
+  # flag outlier samples (possible swap)
+  flagDF <- merge(x  = outlierDF,
+                  y  = quartileDF,
+                  by = c("study_accession", "matrix", "gender")) %>%
+    mutate(flag = FALSE,
+           flag = ifelse(test = gender %in% "Female" & up & chry >= q1,
+                         yes  = TRUE,
+                         no   = flag),
+           flag = ifelse(test = gender %in% "Male" & dn & chry <= q3,
+                         yes  = TRUE,
+                         no   = flag))
+
+  plotDF <- merge(x     = plotDF,
+                  y     = select(flagDF, rowname, flag),
+                  by    = "rowname",
+                  all.x = TRUE) %>%
+    # if gender not specified, set flag as false
+    mutate(flag = ifelse(test = is.na(flag),
+                         yes  = FALSE,
+                         no   = flag))
+
+  fullPlot <- ggplot(data = plotDF,
+                     mapping = aes(x = gender, y = chry)) +
+    geom_boxplot(outlier.color = "transparent", fill = "grey") +
+    geom_jitter(height = 0, width = 0.25, mapping = aes(color = flag)) +
+    labs(y = "Average probe intensities (chrY)") +
+    scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+    facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.pos = "none",
+          strip.text = element_text(size = 5))
+}
+
+#' Generate gender box plots after QC
+#'
+#' @param eset expressionSet
+#' @import ggbeeswarm tidyverse Biobase data.table
+#' @export
+#'
+qualityControl.failedGenderImputation <- function(eset){
+  yChromGenes <- yChromGenes[ yChromGenes %in% featureNames(eset) ]
+
+  plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
+    data.frame(chry = .) %>%
+    rownames_to_column() %>%
+    merge(y    = pData(eset),
+          by.x = "rowname",
+          by.y = "uid")
+
+  outlierDF <- plotDF %>%
+    group_by(study_accession, matrix, gender_imputed) %>%
+    mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
+           dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+
+  quartileDF <- plotDF %>%
+    group_by(study_accession, matrix, gender_imputed) %>%
+    summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
+              q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+    mutate(gender_imputed = c("Female" = "Male", "Male" = "Female")[gender_imputed])
+
+  # # flag outlier samples (possible swap)
+  flagDF <- merge(x  = outlierDF,
+                  y  = quartileDF,
+                  by = c("study_accession", "matrix", "gender_imputed"))
+
+  plotDF <- merge(x     = plotDF,
+                  y     = select(flagDF, rowname),
+                  by    = "rowname",
+                  all.x = TRUE)
+
+  fullPlot <- ggplot(data = plotDF,
+                     mapping = aes(x = gender_imputed, y = chry)) +
+    geom_boxplot(outlier.color = "transparent", fill = "grey") +
+    geom_jitter(height = 0, width = 0.25, mapping = aes(color = failedGenderQC)) +
+    labs(y = "Average probe intensities (chrY)") +
+    scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+    facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5),
+          legend.pos = "none",
+          strip.text = element_text(size = 5))
+}
 #' Generate table of studies with count of participants from vector of pids
 #'
 #' @param participantIds
