@@ -7,9 +7,9 @@
 #' @export
 #'
 crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributionExcludedStudies){
-  # Find samples having at least 50% of genes with non-NA value ... necessary?
-  geneSymbolMeans <- colMeans(is.na(exprs(eset)))
-  samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.5 ]
+  # Find samples having at least 60% of genes with non-NA value ... necessary?
+  geneSymbolMeans <- colMeans(!is.na(exprs(eset)))
+  samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.6 ]
   if(length(samplesToUse) == 0){
     warning("no samples found with sufficient coverage ... using all")
   }

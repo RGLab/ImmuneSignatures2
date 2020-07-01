@@ -20,7 +20,7 @@ library(limma)
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
 inputFilenamePrefix <- "2020_06_29_"
-outputFilenamePrefix <- "2020_07_01_"
+outputFilenamePrefix <- "2020_07_01/2020_07_01_"
 
 postVaxDayRanges <- list(
   hai = c(20,46),
@@ -145,7 +145,7 @@ for(ageGroupName in names(ageGroups)){
 }
 ```
 
-```{r create diagnostic plots}
+```{r create-diagnostic-plots}
 allEset <- readRDS(paste0(outputDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
 genderQCPlot <- qualityControl.failedGenderImputation(allEset)
 genderQCPlot
