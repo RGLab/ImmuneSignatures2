@@ -133,7 +133,8 @@ addFeatureAnnotationSetName <- function(geMetaData, featureAnnotationMap){
 #' @export
 #'
 addFeatureAnnotationSetVendor <- function(geMetaData, featureAnnotation){
-  geMetaData$featureSetVendor <- featureAnnotation$vendor[ match(geMetaData$featureSetName, featureAnnotation$name)]
+  geMetaData$featureSetVendor <- featureAnnotation$vendor[ match(geMetaData$featureSetName,
+                                                                 featureAnnotation$name)]
   return(geMetaData)
 }
 
@@ -145,7 +146,8 @@ addFeatureAnnotationSetVendor <- function(geMetaData, featureAnnotation){
 #'
 addGSMAccessions <- function(geMetaData, gef){
   gef <- gef[ !is.na(gef$geo_accession), ]
-  geMetaData$gsm <- gef$geo_accession[ match(geMetaData$biosample_accession, gef$biosample_accession)]
+  geMetaData$gsm <- gef$geo_accession[ match(geMetaData$biosample_accession,
+                                             gef$biosample_accession)]
   return(geMetaData)
 }
 

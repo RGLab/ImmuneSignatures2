@@ -1,7 +1,10 @@
 #' Generate sample MDS plots for QC
 #'
 #' @param eset expressionSet
-#' @import ggfortify
+#' @param method MDS or PCA
+#' @param numberOfSamples number of samples to use per study
+#' @param colorCol field name to use for labeling samples in plot
+#' @import ggfortify limma
 #' @export
 #'
 qualityControl.samplePlot <- function(eset,
@@ -262,7 +265,7 @@ qualityControl.failedGenderImputation <- function(eset){
 }
 #' Generate table of studies with count of participants from vector of pids
 #'
-#' @param participantIds
+#' @param participantIds participant IDs
 #' @export
 #'
 qualityControl.createSubjectsByStudyTable <- function(participantIds){

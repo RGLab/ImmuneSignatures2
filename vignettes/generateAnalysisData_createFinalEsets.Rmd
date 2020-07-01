@@ -19,7 +19,8 @@ library(limma)
 
 ```{r output-variables}
 outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-filenamePrefix <- "2020_06_29_"
+inputFilenamePrefix <- "2020_06_29_"
+outputFilenamePrefix <- "2020_07_01_"
 
 postVaxDayRanges <- list(
   hai = c(20,46),
@@ -34,6 +35,7 @@ discretizationValues <- list(
 
 young <- c(18,50)
   old <- c(60,91)
+  
 ageGroups <- list(
   young = young,
   old = old,
@@ -45,171 +47,112 @@ targetDistributionExcludedStudies <- "SDY1293"
 ```
 
 ```{r load-base-data}
-immdata_all <- readRDS(paste0(outputDir, "/", filenamePrefix, "immdata_all.rds"))
-noNormEset <- readRDS(paste0(outputDir, "/", filenamePrefix, "noNormEset.rds"))
+immdata_all <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "immdata_all.rds"))
+noNormEset <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "noNormEset.rds"))
+noNormEset$featureSetVendor[ noNormEset$featureSetName2 == "RNA-seq"] <- "NA" # correct data
 ```
 
-```{r create-final-esets-function}
-createFinalEset <- function(noNormEset, immdata_all, ages, ageGroupName,
-                            crossStudyNormalize, targetDistributionVendor,
-                            targetDistributionExcludedStudies,
-                            addResponseCall, postVaxDayRanges, discretizationValues,
-                            outputDir, filenamePrefix){
-  
-  eset <- filterEsetByAge(noNormEset, ages)
-  eset <- removeAllNArows(eset)
-  
-  if(crossStudyNormalize){
-      
-    if(ageGroupName == "old"){
-      # Studies removed as they have no young cohorts: SDY1368, SDY1368
-      eset <- eset[, !eset$study_accession %in% c("SDY1368","SDY67") ]
-      
-      eset <- crossStudyNormalize(eset, 
-                                targetDistributionVendor, 
-                                targetDistributionExcludedStudies)
-      
-      # Use "young" eset baseline data to batchCorrect older group
-      eset.young <- filterEsetByAge(noNormEset, ages = ageGroups[["young"]])
-      eset.young <- removeAllNArows(eset.young)
-      eset.young.norm <- crossStudyNormalize(eset.young,
-                                             targetDistributionVendor,
-                                             targetDistributionExcludedStudies)
-      eset <- batchCorrectBaselineData.importedModel(eset.young.norm = eset.young.norm,
-                                                     eset.old.norm = eset)
-    }else{
-      eset <- crossStudyNormalize(eset, 
-                                targetDistributionVendor, 
-                                targetDistributionExcludedStudies)
-      eset <- batchCorrectBaselineData(eset)
-    }
-    eset <- removeAllNArows(eset)
-    normSuffix <- "norm"
-    
-  }else{
-    normSuffix <- "noNorm"
-  }
-  
-  if(addResponseCall){
-    filteredImmdata <- filterImmdataByAge(immdata_all, ages)
-    immdataWithResponses <- lapply(names(filteredImmdata), function(assay){
-      dataWithResponses <- generateResponseCall(
-        assay = assay,
-        data = filteredImmdata[[assay]],
-        postVaxDayRange = postVaxDayRanges[[assay]],
-        discretizationValues = discretizationValues
-      )
-    })
-    selectedImmdata <- selectResponsesToUse(immdataWithResponses)
-    eset <- addResponseData(eset, selectedImmdata)
-    responseSuffix <- "withResponse"
-  }else{
-    responseSuffix <- "noResponse"
-  }
-  
-  res <- testFinalEset(eset, 
-                       expectResponse = addResponseCall, 
-                       expectNormalization = crossStudyNormalize, 
-                       ages)
-  
-  if(!all(unlist(res))){
-    esetName <- paste(normSuffix, responseSuffix)
-    msg <- paste0("eset failed: ", esetName, "\n", 
-                  "For Ages: ", paste(ages, collapse = " "), "\n")
-    stop(msg)
-  }
-  
-  fullSuffix <- paste0(ageGroupName, "_", normSuffix, "_", responseSuffix, "_eset.rds")
-  filename <- paste0(filenamePrefix, fullSuffix)
-  outputFile <- paste0(outputDir, filename)
-  
-  saveRDS(eset, outputFile)
-}
-```
-
-```{r create-final-eset-using-other-eset-model-params}
-batchCorrectBaselineData.importedModel <- function(eset.young.norm, eset.old.norm){
-        
-  # Using baseline for correction
-  eset.young.baseline <- eset.young.norm[, eset.young.norm$time_post_last_vax <= 0]
-  
-  # For this to work, we need to have batch as factor where the reference level
-  # is a batch that contains old young and old (SDY1328)
-  ref.batch <- intersect(unique(eset.young.norm$geBatchName), 
-                         unique(eset.old.norm$geBatchName))[[1]]
-  eset.young.norm$geBatchName <- relevel(as.factor(eset.young.norm$geBatchName),
-                                               ref = ref.batch)
-  eset.old.norm$geBatchName <- relevel(as.factor(eset.old.norm$geBatchName),
-                                       ref = ref.batch)
-  
-  # General model parameters
-  model.vars <- c('gender_imputed','cell_type','featureSetName2','geBatchName')
-  model.formula <- as.formula(paste0('~', paste0(model.vars, collapse='+')))
-  
-  # Generate linear model for young cohort using baseline expression
-  # and the young cohort design matrix
-  mm.young <- model.matrix(model.formula, data = pData(eset.young.baseline))
-  notEstimable.young <- nonEstimable(mm.young)
-  mm.young.est <- mm.young[, !colnames(mm.young) %in% notEstimable.young]
-  youngFit <- lmFit(object = exprs(eset.young.baseline), design = mm.young.est)
-  
-  # Get coefficients for adjusting young cohort and do not include gender_imputed
-  coefs2adjust <- grep('gender|Batch|featureSetName|cell_type', 
-                       colnames(mm.young.est), value = TRUE)
-  youngFit.vals <- youngFit$coefficients[, coefs2adjust]
-  
-  # Design matrix for old cohort for all timepoints subsetted for coefficients found
-  # in the intersection with young cohort
-  mm.old <- model.matrix(model.formula, data = pData(eset.old.norm))
-  mm.old.subset <- mm.old[ , colnames(mm.old) %in% coefs2adjust]
-  
-  # subset the coefficents from the young fit object to match 
-  # needs of old cohort design matrix
-  geneIntersect <- intersect(rownames(exprs(eset.old.norm)),
-                             rownames(exprs(eset.young.baseline)))
-  youngFit.vals.subset <- youngFit.vals[geneIntersect, colnames(mm.old.subset)]
-  
-  # Subset the old eset by genes that can be corrected
-  exprs.old.norm <- exprs(eset.old.norm)
-  exprs.old.norm.subset <- exprs.old.norm[ rownames(exprs.old.norm) %in% geneIntersect, ]
-  
-  # Create correction values by matrix multiplication of the gene * coef fit matrix
-  # by the design matrix for old cohort
-  correctionValues <- youngFit.vals.subset %*% t(mm.old.subset)
-  
-  # Ensure that correction matrix has same ordering as the expression matrix to be corrected
-  correctionValues <- correctionValues[ order(match(rownames(correctionValues), 
-                                                    rownames(exprs.old.norm.subset)))]
-  exprs.old.corr <- exprs.old.norm.subset - correctionValues
-  
-  # Create new expressionSet object as validation fails for insertion into old
-  eset.old.corr <- new("ExpressionSet", 
-             exprs = as.matrix(exprs.old.corr, rownames = rownames(exprs.old.corr)),
-             phenoData = new('AnnotatedDataFrame', pData(eset.old.norm)))
-
-  return(eset.old.corr)
-}
+```{r create-cross-study-normalized-version}
+eset.all.norm <- crossStudyNormalize(noNormEset, 
+                                     targetDistributionVendor, 
+                                     targetDistributionExcludedStudies)
 ```
 
 ```{r create-variants-of-final-eset}
 for(ageGroupName in names(ageGroups)){
-  for(crossStudyNormalize in c(TRUE, FALSE)){
-    for(addResponseCall in c(TRUE, FALSE)){
-        createFinalEset(noNormEset = noNormEset,
-                      immdata_all = immdata_all,
-                      ages = ageGroups[[ageGroupName]],
-                      ageGroupName = ageGroupName,
-                      crossStudyNormalize = crossStudyNormalize,
-                      addResponseCall = addResponseCall,
-                      targetDistributionVendor = targetDistributionVendor,
-                      targetDistributionExcludedStudies = targetDistributionExcludedStudies,
-                      postVaxDayRanges = postVaxDayRanges,
-                      discretizationValues = discretizationValues,
-                      outputDir = outputDir,
-                      filenamePrefix = filenamePrefix)
+  ages <- ageGroups[[ageGroupName]]
+  
+  # No Cross-Study Normalization, No Immune Response Calls
+  eset.noNorm.noResponse <- filterEsetByAge(noNormEset, ages)
+  eset.noNorm.noResponse <- removeAllNArows(eset.noNorm.noResponse)
+  res <- testFinalEset(eset.noNorm.noResponse, 
+                       expectResponse = FALSE, 
+                       expectNormalization = FALSE, 
+                       ages)
+  checkFinalTestResults(res)
+  
+  fullSuffix <- paste0(ageGroupName, "_noNorm_noResponse_eset.rds")
+  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  saveRDS(eset.noNorm.noResponse, filename)
+  
+  # With Cross-Study Normalization, No Immune Response Calls
+  if(ageGroupName == "old"){
+      eset.young.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["young"]])
+      eset.young.norm <- removeAllNArows(eset.young.norm)
+      
+      eset.old.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["old"]])
+      eset.old.norm <- removeAllNArows(eset.old.norm)
+      
+      # Remove studies that do not have young cohorts and cannot be modeled
+      eset.old.norm <- eset.old.norm[, !eset.old.norm$study_accession %in% c("SDY1368","SDY67") ]
+      
+      eset.corr.noResponse <- batchCorrect.importedModel(modelEset = eset.young.norm,
+                                                         targetEset = eset.old.norm)
+    }else{
+      eset.norm.noResponse <- filterEsetByAge(eset.all.norm, ages)
+      eset.norm.noResponse <- removeAllNArows(eset.norm.noResponse)
+      eset.corr.noResponse <- batchCorrect(eset.norm.noResponse)
     }
-  }
+  eset.corr.noResponse <- removeAllNArows(eset.corr.noResponse)
+  
+  res <- testFinalEset(eset.corr.noResponse, 
+                       expectResponse = FALSE, 
+                       expectNormalization = TRUE, 
+                       ages)
+  checkFinalTestResults(res)
+  
+  fullSuffix <- paste0(ageGroupName, "_norm_noResponse_eset.rds")
+  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  saveRDS(eset.corr.noResponse, filename)
+  
+  # Generate Immune Response Calls
+  filteredImmdata <- filterImmdataByAge(immdata_all, ages)
+  immdataWithResponses <- lapply(names(filteredImmdata), function(assay){
+    dataWithResponses <- generateResponseCall(
+      assay = assay,
+      data = filteredImmdata[[assay]],
+      postVaxDayRange = postVaxDayRanges[[assay]],
+      discretizationValues = discretizationValues
+    )
+  })
+  selectedImmdata <- selectResponsesToUse(immdataWithResponses)
+    
+  # No Cross-Study Normalization, with Immune Response Calls
+  eset.noNorm.withResponse <- addResponseData(eset.noNorm.noResponse,
+                                              selectedImmdata)
+  res <- testFinalEset(eset.noNorm.withResponse, 
+                       expectResponse = TRUE, 
+                       expectNormalization = FALSE, 
+                       ages)
+  checkFinalTestResults(res)
+  
+  fullSuffix <- paste0(ageGroupName, "_noNorm_withResponse_eset.rds")
+  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  saveRDS(eset.noNorm.withResponse, filename)
+  
+  # With Cross-Study Normalization, with Immune Response Calls
+  eset.corr.withResponse <- addResponseData(eset.corr.noResponse, 
+                                            selectedImmdata)
+  res <- testFinalEset(eset.corr.withResponse, 
+                       expectResponse = TRUE, 
+                       expectNormalization = TRUE, 
+                       ages)
+  checkFinalTestResults(res)
+  
+  fullSuffix <- paste0(ageGroupName, "_norm_withResponse_eset.rds")
+  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  saveRDS(eset.corr.withResponse, filename)
 }
+```
 
+```{r create diagnostic plots}
+allEset <- readRDS(paste0(outputDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
+genderQCPlot <- qualityControl.failedGenderImputation(allEset)
+genderQCPlot
 
+young <- readRDS(paste0(outputDir, outputFilenamePrefix, "young_norm_noResponse_eset.rds"))
+qualityControl.samplePlot(young)
+
+old <- readRDS(paste0(outputDir, outputFilenamePrefix, "old_norm_noResponse_eset.rds"))
+qualityControl.samplePlot(old)
 ```

@@ -6,6 +6,9 @@
 \usage{
 qualityControl.createSubjectsByStudyTable(participantIds)
 }
+\arguments{
+\item{participantIds}{participant IDs}
+}
 \description{
 Generate table of studies with count of participants from vector of pids
 }

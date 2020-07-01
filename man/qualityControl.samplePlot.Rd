@@ -13,6 +13,12 @@ qualityControl.samplePlot(
 }
 \arguments{
 \item{eset}{expressionSet}
+
+\item{method}{MDS or PCA}
+
+\item{numberOfSamples}{number of samples to use per study}
+
+\item{colorCol}{field name to use for labeling samples in plot}
 }
 \description{
 Generate sample MDS plots for QC

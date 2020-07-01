@@ -54,7 +54,7 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   pidsWithBaseline <- pd$participant_id[ pd$time_post_last_vax <= 0 | pd$time_post_last_vax >= -7 ]
   chks$pdata$allPidsHaveBaseline <- all(uniquePids %in% pidsWithBaseline)
 
-  chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] > 1000
+  chks$pdata$expectedNumberOfSamples <- dim(pd)[[1]] > 850
 
   chks$pdata$agesOk <- ifelse(length(ages) == 2,
                               all(pd$age_imputed >= ages[[1]] & pd$age_imputed < ages[[2]]),
@@ -88,4 +88,15 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   chks$namesMatch <- all.equal(colnames(em), pd$uid)
 
   return(chks)
+}
+
+#' Ensure eset is as expected
+#'
+#' @param results test results list
+#' @export
+#'
+checkFinalTestResults <- function(results){
+  if(!all(unlist(results))){
+    stop("eset does not meet expectations")
+  }
 }
