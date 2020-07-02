@@ -20,8 +20,8 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-timeStamp <- "2020_06_29_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_02/"
+timeStamp <- "2020_07_02_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -55,6 +55,7 @@ sharedMetaData <- addVaccineFields(sharedMetaData, vaccines)
 sharedMetaData <- filterOutNoVaccineSamples(sharedMetaData)
 sharedMetaData <- addGeBatchName(sharedMetaData)
 sharedMetaData <- addIrpBatchName(sharedMetaData)
+sharedMetaData <- addSDY1325metadata(sharedMetaData)
 sharedMetaData <- imputeAge(sharedMetaData)
 ```
 
@@ -208,13 +209,8 @@ allMatricesPlot
 # Gender Imputation using Y-Chromosome associated genes
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
-
-# Gender Imputation Cases:
-# 1. Gender at all timepoints is different from original - clinical error - switch
-# 2. Some timepoints have different assigned gender - use original gender reported as canonical, and then flag samples as "failedGenderQC"
-# 3. Studies without gender_reported and with poor differentiation, mark as "failedGenderQC"
 noNormEset <- imputeGender.useAllTimepoints(noNormEset)
-noNormEset <- adjustProblemStudies(noNormEset, c("SDY1325", "SDY1370"))
+noNormEset <- adjustProblemStudies(noNormEset, c("SDY1370"))
 
 failedGenderQC <- qualityControl.failedGenderImputation(noNormEset)
 failedGenderQC
@@ -230,7 +226,7 @@ data.frame(probStudiesBySubjectTbl)
 #    studies Freq
 # 1  SDY1260    1
 # 2  SDY1264    2
-# 3  SDY1325   10
+# 3  SDY1325    4
 # 4  SDY1364    1
 # 5  SDY1370    8
 # 6   SDY180    7

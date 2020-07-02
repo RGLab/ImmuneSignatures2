@@ -18,9 +18,9 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
-inputFilenamePrefix <- "2020_06_29_"
-outputFilenamePrefix <- "2020_07_01/2020_07_01_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_02/"
+inputFilenamePrefix <- "2020_07_02_"
+outputFilenamePrefix <- "2020_07_02"
 
 postVaxDayRanges <- list(
   hai = c(20,46),
@@ -49,7 +49,6 @@ targetDistributionExcludedStudies <- "SDY1293"
 ```{r load-base-data}
 immdata_all <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "immdata_all.rds"))
 noNormEset <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "noNormEset.rds"))
-noNormEset$featureSetVendor[ noNormEset$featureSetName2 == "RNA-seq"] <- "NA" # correct data
 ```
 
 ```{r create-cross-study-normalized-version}
@@ -152,7 +151,11 @@ genderQCPlot
 
 young <- readRDS(paste0(outputDir, outputFilenamePrefix, "young_norm_noResponse_eset.rds"))
 qualityControl.samplePlot(young)
+qualityControl.samplePlot(young, colorCol = "gender_imputed")
+qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
 
 old <- readRDS(paste0(outputDir, outputFilenamePrefix, "old_norm_noResponse_eset.rds"))
 qualityControl.samplePlot(old)
+qualityControl.samplePlot(old, colorCol = "gender_imputed")
+qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
 ```

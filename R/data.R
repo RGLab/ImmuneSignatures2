@@ -18,6 +18,13 @@ NULL
 #' @format A data frame that mimics ImmuneSpace `con$getDataset("elisa", original_view=TRUE)` results
 "sdy1370_elisa"
 
+#' SDY1325 meta-data
+#
+#' Derived from study-associated paper's figure 1.
+#'
+#' @format data.table
+"sdy1325_metadata"
+
 #' Y-Chromosome Associated Genes
 #'
 #' Y-Chromosome genes from the ensembl database using the `biomaRt` library

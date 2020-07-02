@@ -148,3 +148,16 @@ imputeAge <- function(dt){
 
   return(dt)
 }
+
+#' Add fields from SDY1325 custom meta-data to shared meta-data
+#'
+#' @param dt meta-data data.table
+#' @export
+#'
+addSDY1325metadata <- function(dt){
+  sdy1325pids <- which(dt$participant_id %in% sdy1325_metadata$participant_id)
+  matchOrder <- order(match(sdy1325_metadata$participant_id, dt$participant_id[sdy1325pids]))
+  dt$age_reported[ sdy1325pids ] <- sdy1325_metadata$Age[ matchOrder ]
+  dt$gender[ sdy1325pids ] <- sdy1325_metadata$Sex[ matchOrder ]
+  return(dt)
+}
