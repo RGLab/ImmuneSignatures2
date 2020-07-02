@@ -7,43 +7,24 @@
 #' @export
 #'
 crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributionExcludedStudies){
-  # Find samples having at least 60% of genes with non-NA value ... necessary?
-  geneSymbolMeans <- colMeans(!is.na(exprs(eset)))
-  samplesToUse <- names(geneSymbolMeans)[ geneSymbolMeans > 0.6 ]
-  if(length(samplesToUse) == 0){
-    warning("no samples found with sufficient coverage ... using all")
-  }
+  eset.target <- eset[ , eset$featureSetVendor == targetDistributionVendor &
+                         !(eset$study_accession %in% targetDistributionExcludedStudies) ]
 
-  # Find features that are present in samples with good coverage of gene expression
-  tmp <- exprs(eset[, samplesToUse])
-  featuresToUse <- rownames(tmp)[ complete.cases(tmp) ]
-  rm(tmp)
+  # Ensure we only use features with complete.cases, as normalize.quantiles.robust
+  # doesn't handle NAs well - shrinks quantiles
+  eset.target <- eset.target[ complete.cases(exprs(eset.target)), ]
 
-  # Use only Affymetrix samples to generate target distribution as this ensures
-  # a reasonable range of values for all studies to use as it removes cross-platform
-  # technical variation in range of expression values which causes the distribution
-  # to be too wide.  SDY1293 also generated a flattened distribution and was excluded.
-  exprs.not.norm <- exprs(eset)
-  excludedSmpls <- which(eset$featureSetVendor != targetDistributionVendor |
-                         eset$study_accession %in% targetDistributionExcludedStudies)
-  targetExprs <- exprs.not.norm[ featuresToUse, -excludedSmpls]
-
-  # perform normalization on selected features (12127) and samples (1654)
-  normTargetExprs <- preprocessCore::normalize.quantiles.robust(targetExprs)
+  # perform normalization on selected features (14827) and samples (1973)
+  normTargetExprs <- preprocessCore::normalize.quantiles.robust(exprs(eset.target), use.log2 = TRUE)
 
   # Create target distribution based on normalized version of selected features and samples
   target.dist <- preprocessCore::normalize.quantiles.determine.target(normTargetExprs)
 
-  # Clean up as we go
-  rm(normTargetExprs, targetExprs)
-
   # Normalize all features and samples based on subset target distribution
-  # Even though selected features are only 12127 and the number of features per sample may be more or less.
-  # It is unclear how this problem is handled.
-  normAllExprs <- preprocessCore::normalize.quantiles.use.target(exprs.not.norm, target = target.dist)
+  normAllExprs <- preprocessCore::normalize.quantiles.use.target(exprs(eset), target = target.dist)
 
   # replace expression values in expressionSet and create copy with clear name
-  dimnames(normAllExprs) <- dimnames(exprs.not.norm)
+  dimnames(normAllExprs) <- dimnames(exprs(eset))
 
   # Ensure formatting of returned eSet
   pd <- pData(eset)
@@ -56,7 +37,7 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
   )
 
   # Clean up as we go
-  rm(normAllExprs)
+  rm(normAllExprs, normTargetExprs, eset.target)
   gc()
 
   return(normEset)
