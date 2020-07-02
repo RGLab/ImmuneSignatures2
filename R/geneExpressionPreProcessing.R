@@ -369,7 +369,7 @@ imputeGender.useAllTimepoints <- function(eset){
   for(matrix in matrices){
     print(matrix)
     if(!grepl("SDY1276", matrix)){
-      smpls <- sampleNames(eset)[ which((eset$matrix == matrix)) ]
+      smpls <- which(eset$matrix == matrix)
       if(length(smpls) > 2){
         yChromEset <- eset[yGenes, smpls]
 
@@ -404,25 +404,64 @@ imputeGender.useAllTimepoints <- function(eset){
   genderImputationNotDone <- which(is.na(PD$gender_imputed_timepoint))
   PD$gender_imputed_timepoint[genderImputationNotDone] <- PD$gender[genderImputationNotDone]
 
-  # Only reassign if all timepoints are opposite sex
-  summarizeGender <- function(genderReported, genderGuesses){
-    originalGender <- unique(genderReported)
-    assignedGender <- unique(genderGuesses)
-    if(length(assignedGender) == 1){
-      return(assignedGender)
+  # has gender_reported, only change gender_imputed if all in agreement
+  # no gender_reported, use majority assigned gender if disagreement, if
+  # no majority then use unspecified original gender_reported
+  summarizeGender <- function(gender_reported, gender_imputed_timepoint){
+    originalGender <- unique(gender_reported)
+    assignedGender <- unique(gender_imputed_timepoint)
+    if(originalGender %in% c("Female","Male")){
+      if(length(assignedGender) == 1){
+        return(assignedGender)
+      }else{
+        return(originalGender)
+      }
     }else{
-      return(originalGender)
+      if(length(assignedGender) > 1){
+        res <- table(gender_imputed_timepoint)
+        majority <- names(res)[ res == max(res) ]
+        if(length(majority) == 1){
+          return(majority)
+        }else{
+          return(originalGender)
+        }
+      }else{
+        return(assignedGender)
+      }
     }
   }
 
-  # flag problem samples if there is disagreement within subject
-  flagProblemTimepoints <- function(gender_imputed_timepoint){
-    status <- length(unique(gender_imputed_timepoint)) > 1
+  # flag problem samples with following logic:
+  # 1a. has gender_reported, timepoints differ - FAIL QC if disagree with reported
+  # 1b. has gender_reported, all timepoints imputed same - all PASS, even if differ from reported
+  # 2a. No gender_reported, clear majority of timepoints - FAIL QC if disagree with majority
+  # 2b. No gender_reported, no clear majority - ALL FAIL
+  # 2c. No gender_reported, all timepoints agree - ALL PASS
+  flagProblemTimepoints <- function(gender_reported, gender_imputed_timepoint){
+    if(unique(gender_reported) %in% c("Female", "Male")){
+      if(length(unique(gender_imputed_timepoint)) > 1){
+        return(gender_imputed_timepoint != gender_reported)
+      }else{
+        return(FALSE)
+      }
+    }else{
+      if(length(unique(gender_imputed_timepoint)) > 1){
+        res <- table(gender_imputed_timepoint)
+        majority <- names(res)[ res == max(res) ]
+        if(length(majority) == 1){
+          return(gender_imputed_timepoint != majority)
+        }else{
+          return(TRUE)
+        }
+      }else{
+        return(FALSE)
+      }
+    }
   }
 
   PD[ , gender_imputed := summarizeGender(gender, gender_imputed_timepoint), by = "participant_id"]
 
-  PD[ , failedGenderQC := flagProblemTimepoints(gender_imputed_timepoint), by = "participant_id"]
+  PD[ , failedGenderQC := flagProblemTimepoints(gender, gender_imputed_timepoint), by = "participant_id"]
 
   pData(eset) <- PD
 
