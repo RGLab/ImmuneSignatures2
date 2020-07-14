@@ -43,7 +43,8 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
   return(normEset)
 }
 
-#' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
+#' Adjust expression data using correction coefficients based on baseline data
+#' to account for study_accession, featureSetName, and cell_type
 #'
 #' @param eset expressionSet
 #' @export
@@ -51,15 +52,19 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 batchCorrect <- function(eset){
   eset.baseline <- eset[, eset$time_post_last_vax <= 0 ]
 
+  # samples that failed Gender QC are not used for generating coefficients,
+  # but are left in the dataset for analysts to use / rm
+  eset.baseline.passedGenderQC <- eset.baseline[ , !eset.baseline$failedGenderQC ]
+
   model.formula <- getModelFormula()
 
-  fit.vals <- getLmFitValues(model.formula, eset.baseline)
+  fit.vals <- getLmFitValues(model.formula, eset.baseline.passedGenderQC)
 
   # create another model matrix with all estimable vars for all timepoints
   mm.all <- model.matrix(model.formula, data = pData(eset))
   mm.all.subset <- mm.all[, (colnames(mm.all) %in% colnames(fit.vals))]
 
-  # adjust the expression values at baseline for each sample and feature
+  # adjust the expression values for each sample and feature
   # by an amount proportional to the sum of the coefficient values multiplied
   # by the presence or absence of the coefficient variable
   correctionValues <- fit.vals %*% t(mm.all.subset)
@@ -89,14 +94,16 @@ batchCorrect.importedModel <- function(modelEset, targetEset){
   modelEset <- esets$model
   targetEset <- esets$target
 
-  modelEset.baseline <- modelEset[, modelEset$time_post_last_vax <= 0]
+  # Ensure baseline and passing gender QC only for determining coefficients
+  modelEset.baseline <- modelEset[, modelEset$time_post_last_vax <= 0 ]
+  modelEset.baseline.passedGenderQC <- modelEset.baseline[, !modelEset.baseline$failedGenderQC ]
 
   model.formula <- getModelFormula()
-  fit.vals <- getLmFitValues(model.formula, modelEset.baseline)
+  fit.vals <- getLmFitValues(model.formula, modelEset.baseline.passedGenderQC)
 
   exprs.target <- exprs(targetEset)
   geneIntersect <- intersect(rownames(exprs.target),
-                             rownames(exprs(modelEset.baseline)))
+                             rownames(exprs(modelEset.baseline.passedGenderQC)))
   exprs.target.subset <- exprs.target[ geneIntersect, ]
 
   # Find common components of the model matrix for target and the modelEset.baseline
@@ -122,11 +129,13 @@ batchCorrect.importedModel <- function(modelEset, targetEset){
   # create new expression matrix
   exprs.target.corr <- exprs.target.subset - correctionValues
 
-  # pd
+  # ensure phenotypic data is ordered correctly as this is not checked
+  # when inserted directly - i.e. pData(x) <- pd
   pd <- pData(targetEset)
   pd <- pd[ order(match(pd$uid, colnames(exprs.target.corr))), ]
 
   # Create new expressionSet object as validation fails for insertion into target
+  # due to internal checks related to expression matrix
   eset.target.corr <- new("ExpressionSet",
                        exprs = as.matrix(exprs.target.corr, rownames = rownames(exprs.target.corr)),
                        phenoData = new('AnnotatedDataFrame', pd))

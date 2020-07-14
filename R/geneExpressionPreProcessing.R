@@ -471,11 +471,11 @@ imputeGender.useAllTimepoints <- function(eset){
 #' Remove selected participants from expression set
 #'
 #' @param eset expressionSet
-#' @param participantIdsToRm vector of participant IDs to remove
+#' @param problemSamples vector of participant IDs to flag as failedGenderQC
 #' @export
 #'
-adjustProblemStudies <- function(eset, problemStudies){
-  eset$failedGenderQC[ eset$study_accession %in% problemStudies] <- TRUE
+adjustProblemSamples <- function(eset, problemSamples){
+  eset$failedGenderQC[ eset$participant_id %in% problemSamples] <- TRUE
   return(eset)
 }
 

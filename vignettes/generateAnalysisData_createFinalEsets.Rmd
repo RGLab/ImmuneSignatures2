@@ -18,9 +18,9 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_02/"
-inputFilenamePrefix <- "2020_07_02_"
-outputFilenamePrefix <- "2020_07_02"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_14/"
+inputFilenamePrefix <- "2020_07_14_"
+outputFilenamePrefix <- "2020_07_14_"
 
 postVaxDayRanges <- list(
   hai = c(20,46),
@@ -145,17 +145,52 @@ for(ageGroupName in names(ageGroups)){
 ```
 
 ```{r create-diagnostic-plots}
+library(tidyverse)
 allEset <- readRDS(paste0(outputDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
 genderQCPlot <- qualityControl.failedGenderImputation(allEset)
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "genderQC.pdf")),
+    width = 8.5,
+    height = 11)
 genderQCPlot
+dev.off()
 
 young <- readRDS(paste0(outputDir, outputFilenamePrefix, "young_norm_noResponse_eset.rds"))
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byStudy.pdf")),
+    width = 8.5,
+    height = 11)
 qualityControl.samplePlot(young)
+dev.off()
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byGenderImputed.pdf")),
+    width = 8.5,
+    height = 11)
 qualityControl.samplePlot(young, colorCol = "gender_imputed")
+dev.off()
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_pca_byGenderImputed.pdf")),
+    width = 8.5,
+    height = 11)
 qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
+dev.off()
 
 old <- readRDS(paste0(outputDir, outputFilenamePrefix, "old_norm_noResponse_eset.rds"))
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byStudy.pdf")),
+    width = 8.5,
+    height = 11)
 qualityControl.samplePlot(old)
+dev.off()
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byGenderImputed.pdf")),
+    width = 8.5,
+    height = 11)
 qualityControl.samplePlot(old, colorCol = "gender_imputed")
-qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
+dev.off()
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_pca_byGenderImputed.pdf")),
+    width = 8.5,
+    height = 11)
+qualityControl.samplePlot(old, method = "PCA", colorCol = "gender_imputed")
+dev.off()
 ```

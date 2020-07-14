@@ -20,8 +20,8 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_02/"
-timeStamp <- "2020_07_02_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_14/"
+timeStamp <- "2020_07_14_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -206,11 +206,16 @@ noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
 ```{r gender-imputation}
 allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
 allMatricesPlot
+
 # Gender Imputation using Y-Chromosome associated genes
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
 noNormEset <- imputeGender.useAllTimepoints(noNormEset)
-noNormEset <- adjustProblemStudies(noNormEset, c("SDY1370"))
+
+# Specific samples for SDY1370 were determined to be problematic by
+# looking at the coordination of gender_imputed by timepoint
+problemSamples <- c("SUB192192.1370,","SUB192199.1370")
+noNormEset <- adjustProblemSamples(noNormEset, problemSamples)
 
 failedGenderQC <- qualityControl.failedGenderImputation(noNormEset)
 failedGenderQC

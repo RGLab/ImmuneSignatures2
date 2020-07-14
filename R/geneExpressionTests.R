@@ -112,7 +112,7 @@ testNoNormEset <- function(eset){
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
 
   problemSamples <- qualityControl.genderImputedByMatrix(noNormEset, returnObject = "probSamplesDT")
-  chks$expectedGenderProblemSamples <- nrow(problemSamples) == 64
+  chks$expectedGenderProblemSamples <- nrow(problemSamples) == 63
 
   return(chks)
 }

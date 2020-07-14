@@ -6,16 +6,21 @@
 #'
 addResponseData <- function(eset, immdata){
 
-    eset <- eset[ , eset$participant_id %in% immdata$participant_id ]
+    # Subsetting to participants with immune response data results
+    # in there being genes without expression data. Must trim.
+    eset <- eset[, eset$participant_id %in% immdata$participant_id ]
     eset <- removeAllNArows(eset)
 
     pd <- pData(eset)
     sharedCols <- intersect(colnames(pd), colnames(immdata))
-    pd <- merge(pd, immdata, by = sharedCols)
+    pdWithResponse <- merge(pd, immdata, by = sharedCols)
 
-    pData(eset) <- pd[ order(match(pd$uid, colnames(exprs(eset)))), ]
+    # Some participants drop due to insufficient data to make calls
+    eset.withResponse <- eset[, eset$uid %in% pdWithResponse$uid]
+    matchOrder <- order(match(pdWithResponse$uid, colnames(exprs(eset.withResponse))))
+    pData(eset.withResponse) <- pdWithResponse[ matchOrder, ]
 
-    return(eset)
+    return(eset.withResponse)
 }
 
 #' Filter expressionSet by age cutoffs
