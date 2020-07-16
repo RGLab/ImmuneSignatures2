@@ -20,8 +20,8 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_14/"
-timeStamp <- "2020_07_14_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_17/"
+timeStamp <- "2020_07_17_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 

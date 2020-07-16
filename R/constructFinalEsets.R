@@ -13,7 +13,7 @@ addResponseData <- function(eset, immdata){
 
     pd <- pData(eset)
     sharedCols <- intersect(colnames(pd), colnames(immdata))
-    pdWithResponse <- merge(pd, immdata, by = sharedCols)
+    pdWithResponse <- merge(pd, immdata, by = sharedCols, all.x = TRUE)
 
     # Some participants drop due to insufficient data to make calls
     eset.withResponse <- eset[, eset$uid %in% pdWithResponse$uid]
