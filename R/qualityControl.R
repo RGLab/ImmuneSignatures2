@@ -225,10 +225,9 @@ qualityControl.failedGenderImputation <- function(eset){
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
     data.frame(chry = .) %>%
-    rownames_to_column() %>%
-    merge(y    = pData(eset),
-          by.x = "rowname",
-          by.y = "uid")
+    rownames_to_column()
+
+  plotDF <- merge(plotDF, pData(eset), by.x = "rowname", by.y = "uid")
 
   outlierDF <- plotDF %>%
     group_by(study_accession, matrix, gender_imputed) %>%
@@ -241,7 +240,7 @@ qualityControl.failedGenderImputation <- function(eset){
               q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
     mutate(gender_imputed = c("Female" = "Male", "Male" = "Female")[gender_imputed])
 
-  # # flag outlier samples (possible swap)
+  # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
                   y  = quartileDF,
                   by = c("study_accession", "matrix", "gender_imputed"))

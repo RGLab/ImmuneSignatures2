@@ -90,7 +90,7 @@ addTimePostLastVax <- function(dt){
 removeSubjectsWithoutBaseline <- function(eset){
   pd <- pData(eset)
   allPids <- unique(pd$participant_id)
-  pidsWithBaseline <- unique(pd$participant_id[ pd$study_time_collected >= -7 & pd$study_time_collected <= 0 ])
+  pidsWithBaseline <- unique(pd$participant_id[ pd$time_post_last_vax >= -7 & pd$time_post_last_vax <= 0 ])
   pidsToRm <- setdiff(allPids, pidsWithBaseline)
   eset <- eset[ , !eset$participant_id %in% pidsToRm ]
 }
@@ -102,10 +102,10 @@ removeSubjectsWithoutBaseline <- function(eset){
 #' @export
 #'
 addMatrixRelatedFields <- function(phenoDataSets, geMatrices){
-  phenoDataSets <- lapply(seq(1:length(phenoDataSets)), function(index){
-    pd <- phenoDataSets[[index]]
-    pd$matrix <- geMatrices$name[[index]]
-    pd$featureset <- geMatrices$featureset[[index]]
+  phenoDataSets <- lapply(names(phenoDataSets), function(matrixName){
+    pd <- phenoDataSets[[matrixName]]
+    pd$matrix <- matrixName
+    pd$featureset <- geMatrices$featureset[[match(matrixName, geMatrices$name)]]
     pd$cell_type <- regmatches(pd$cohort_type,
                                regexpr("Whole blood|PBMC", pd$cohort_type, ignore.case = TRUE))
     return(pd)

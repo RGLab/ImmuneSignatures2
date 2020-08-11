@@ -20,8 +20,8 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_17/"
-timeStamp <- "2020_07_17_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_08_10/"
+timeStamp <- "2020_08_10_"
 prefix <- paste0(outputDir, timeStamp)
 ```
 
@@ -85,13 +85,14 @@ geMatrices <- con$cache$GE_matrices
 geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
 geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = TRUE), ] 
 
-esets <- lapply(
-  geMatrices$name,
-  con$getGEMatrix,
-  outputType = "normalized",
-  annotation = "latest")
-names(esets) <- geMatrices$name
-saveRDS(esets, file = paste0(prefix, "IS2_esets.rds"))
+# esets <- lapply(
+#   geMatrices$name,
+#   con$getGEMatrix,
+#   outputType = "normalized",
+#   annotation = "latest")
+# names(esets) <- geMatrices$name
+# saveRDS(esets, file = paste0(prefix, "IS2_esets.rds"))
+esets <- readRDS("../../IS2_OUTPUT/2020_08_10/2020_08_10_IS2_esets.rds")
 ```
 
 ```{r check-extracted-ge-data}
@@ -150,7 +151,7 @@ geMetaData <- subsetToOnlyNeededColumns(geMetaData)
 
 ```{r fix-yale-studies-study-time-collected}
 geMetaData$time_post_last_vax <- as.numeric(geMetaData$time_post_last_vax)
-geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520", "SDY63"), 24, 28)
+geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520", "SDY63", "SDY640"), 24, 28)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 3, 2)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 8, 7)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520"), 9, 7)
@@ -172,7 +173,6 @@ allGE <- Reduce(f = function(x, y){ merge(x, y, by = "gs", all = TRUE)},
 gs <- allGE$gs
 allGE[, gs := NULL ]
 ```
-
 
 ```{r match-ge-and-metadata}
 geMetaData <- geMetaData[ order(match(geMetaData$biosample_accession, colnames(allGE))), ]
@@ -231,15 +231,16 @@ data.frame(probStudiesBySubjectTbl)
 #    studies Freq
 # 1  SDY1260    1
 # 2  SDY1264    2
-# 3  SDY1325    4
-# 4  SDY1364    1
-# 5  SDY1370    8
-# 6   SDY180    7
-# 7   SDY400    1
-# 8    SDY63    1
-# 9    SDY67    9
-# 10   SDY80    5
-# 11  SDY984   22
+# 3  SDY1293    1
+# 4  SDY1325    4
+# 5  SDY1364    1
+# 6  SDY1370    2
+# 7   SDY180    7
+# 8   SDY400    1
+# 9    SDY63    1
+# 10   SDY67   10
+# 11   SDY80    5
+# 12  SDY984   22
 ```
 
 ```{r test-non-normalized-expression-set}

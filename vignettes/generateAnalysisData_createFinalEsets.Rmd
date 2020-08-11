@@ -18,9 +18,9 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_07_17/"
-inputFilenamePrefix <- "2020_07_17_"
-outputFilenamePrefix <- "2020_07_17_"
+outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_08_10/"
+inputFilenamePrefix <- "2020_08_10_"
+outputFilenamePrefix <- "2020_08_10_"
 
 postVaxDayRanges <- list(
   hai = c(20,46),
@@ -39,6 +39,7 @@ young <- c(18,50)
 ageGroups <- list(
   young = young,
   old = old,
+  extendedOld = c(max(young), max(old)),
   all = c(min(young), max(old))
 )
 
@@ -75,11 +76,11 @@ for(ageGroupName in names(ageGroups)){
   saveRDS(eset.noNorm.noResponse, filename)
   
   # With Cross-Study Normalization, No Immune Response Calls
-  if(ageGroupName == "old"){
+  if(grepl("old", ageGroupName, ignore.case = TRUE)){
       eset.young.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["young"]])
       eset.young.norm <- removeAllNArows(eset.young.norm)
       
-      eset.old.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["old"]])
+      eset.old.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[[ageGroupName]])
       eset.old.norm <- removeAllNArows(eset.old.norm)
       
       # Remove studies that do not have young cohorts and cannot be modeled
@@ -192,5 +193,13 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_pca_byGenderIm
     width = 8.5,
     height = 11)
 qualityControl.samplePlot(old, method = "PCA", colorCol = "gender_imputed")
+dev.off()
+
+extendedOld <- readRDS(paste0(outputDir, outputFilenamePrefix, "extendedOld_norm_noResponse_eset.rds"))
+
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "extendedOld_mds_byStudy.pdf")),
+    width = 8.5,
+    height = 11)
+qualityControl.samplePlot(extendedOld)
 dev.off()
 ```

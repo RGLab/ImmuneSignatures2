@@ -37,6 +37,13 @@ testExtractedGEData <- function(esets){
 #'
 testGEMetaDataPreSummarization <- function(geMetaData){
   results <- all(expectedGeMetaDataColumns %in% colnames(geMetaData))
+
+  if(results){
+    tmp <- geMetaData[ geMetaData$study_accession == "SDY1276", ]
+    return(all(grepl("SDY1276", unique(tmp$matrix))))
+  }else{
+    return(results)
+  }
 }
 
 #' Test gene expression matrix of all samples prior to cross-study normalization
@@ -73,8 +80,8 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
 
   yaleStudies <- c("SDY63", "SDY404", "SDY400", "SDY520", "SDY640")
   yaleTimepoints <- unique(geMetaData$time_post_last_vax[ geMetaData$study_accession %in% yaleStudies ])
-  badTimepoints <- c(3, 5, 8, 9, 24, 35)
-  chks$yaleTimepoints <- !any(badTimepoints %in% as.numeric(yaleTimepoints))
+  goodTimepoints <- c(0, 2, 4, 7, 28)
+  chks$yaleTimepoints <- length(setdiff(yaleTimepoints, goodTimepoints)) == 0
 
   chks$sdy212biosampleRemoved <- !any(geMetaData$biosample_accession == "BS694717")
 
@@ -100,7 +107,7 @@ testNoNormEset <- function(eset){
   pd <- pData(eset)
 
   allPids <- unique(pd$participant_id)
-  pidsWithBaseline <- unique(pd$participant_id[ pd$study_time_collected >= -7 & pd$study_time_collected <= 0 ])
+  pidsWithBaseline <- unique(pd$participant_id[ pd$time_post_last_vax >= -7 & pd$time_post_last_vax <= 0 ])
   pidsToRm <- setdiff(allPids, pidsWithBaseline)
   chks$allPidsHaveBaseline <- length(pidsToRm) == 0
 
@@ -112,7 +119,9 @@ testNoNormEset <- function(eset){
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
 
   problemSamples <- qualityControl.genderImputedByMatrix(noNormEset, returnObject = "probSamplesDT")
-  chks$expectedGenderProblemSamples <- nrow(problemSamples) == 64
+  chks$expectedGenderProblemSamples <- nrow(problemSamples) == 65
+
+  chks$allStudiesPresent <- length(unique(pd$study_accession)) == 30
 
   return(chks)
 }
