@@ -2,7 +2,8 @@
 % Please edit documentation in R/geneExpressionCrossStudyNormalization.R
 \name{batchCorrect}
 \alias{batchCorrect}
-\title{Adjust baseline expression data to account for study_accession, featureSetName, and cell_type}
+\title{Adjust expression data using correction coefficients based on baseline data
+to account for study_accession, featureSetName, and cell_type}
 \usage{
 batchCorrect(eset)
 }
@@ -10,5 +11,6 @@ batchCorrect(eset)
 \item{eset}{expressionSet}
 }
 \description{
-Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
+Adjust expression data using correction coefficients based on baseline data
+to account for study_accession, featureSetName, and cell_type
 }

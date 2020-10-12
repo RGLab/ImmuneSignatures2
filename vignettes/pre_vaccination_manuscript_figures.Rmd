@@ -1,0 +1,396 @@
+---
+title: "Pre-Vaccination Data Figures"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, libraries}
+suppressPackageStartupMessages(library(package = "knitr"))
+suppressPackageStartupMessages(library(package = "Biobase"))
+suppressPackageStartupMessages(library(package = "RColorBrewer"))
+suppressPackageStartupMessages(library(package = "tidyverse"))
+suppressPackageStartupMessages(library(package = "ggbeeswarm"))
+suppressPackageStartupMessages(library(package = "pvca")) # dleelab/pvca
+suppressPackageStartupMessages(library(package = "lme4"))
+suppressPackageStartupMessages(library(package = "cluster"))
+suppressPackageStartupMessages(library(package = "ComplexHeatmap")) # Bioc Install
+suppressPackageStartupMessages(library(package = "ImmuneSignatures2"))
+```
+
+```{r, global-variables}
+baseDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
+resourcesDir <- file.path(baseDir, "2020_08_10/")
+outputsDir <- file.path(baseDir, "Vignette_outputs/Pre_vaccination_manuscript/")
+```
+
+```{r, read-esets}
+noRespGEFile <- list.files(path       = resourcesDir,
+                           pattern    = "young_norm_noResponse_eset.rds",
+                           full.names = TRUE)
+esetNoResp <- readRDS(file = noRespGEFile)
+
+withRespGEFile <- list.files(path       = resourcesDir,
+                             pattern    = "young_norm_withResponse_eset.rds",
+                             full.names = TRUE)
+esetWithResp <- readRDS(file = withRespGEFile)
+```
+
+```{r, set-standard-colors}
+getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
+				                         brewer.pal(name = "Dark2", n = 4)))
+vaccines <- unique(paste0(esetNoResp$pathogen, 
+                          " (", esetNoResp$vaccine_type, ")"))
+vaccine2color <- getPalette(n = length(vaccines)) %>%
+  setNames(nm = sort(vaccines))
+```
+
+Authors: Slim Fourati, Joanna Arce
+Title: Plot number of samples as a function of day of sampling
+```{r, fig-1b, message=FALSE, fig.width=6.29, fig.height=4.84}
+# any sampling data after 20 days coded as >20
+plotDF <- pData(esetNoResp) %>%
+  select(uid, study_time_collected, pathogen, vaccine_type) %>%
+  arrange(study_time_collected) %>%
+  mutate(study_time_collected = signif(study_time_collected, digits = 3),
+	 study_time_collected.factor = ifelse(test = study_time_collected > 20,
+					      yes  = ">20",
+					      no   = study_time_collected),
+	 study_time_collected.factor =
+	   factor(study_time_collected.factor,
+		  levels = unique(study_time_collected.factor)),
+	 vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
+  group_by(study_time_collected.factor, vaccine) %>%
+  summarize(n = n())
+
+ggplot(data = plotDF,
+       mapping = aes(x = study_time_collected.factor,
+		                 y = n)) +
+  geom_bar(stat = "identity", mapping = aes(fill = vaccine)) +
+  labs(x = "Days post-vaccination", y = "Number of samples") +
+  scale_y_continuous(limits = c(0, 800),
+		                 breaks = seq(from = 0, to = 800, by = 100)) + 
+  scale_fill_manual(name   = "Pathogen (Vaccine type)",
+		                values = vaccine2color) +
+  theme_bw() +
+  theme(panel.grid         = element_blank(),
+      	panel.grid.major.y = element_line(color = "lightgrey"),
+      	axis.text          = element_text(color = "black"),
+      	axis.text.x        = element_text(angle = 45, hjust = 1),
+      	legend.pos         = "bottom",
+      	legend.text        = element_text(size = 7),
+      	legend.key.height  = unit(0.02, units = "npc"),
+      	legend.key.width   = unit(0.015, units = "npc")) +
+  guides(fill = guide_legend(ncol = 2))
+```
+
+Credit: Slim Fourati
+Plot age as a function of vaccine investigated
+```{r, fig-1c, message=FALSE, fig.width=6.8, fig.height=7}
+plotDF <- pData(esetNoResp) %>%
+  select(participant_id, pathogen, vaccine_type, age_imputed, gender_imputed) %>%
+  distinct() %>%
+  mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")"))
+
+# remove vaccine where all the participant have the same age
+flag <- plotDF %>%
+  group_by(vaccine) %>%
+  summarize(nbUniqueAge = length(unique(age_imputed))) %>%
+  filter(nbUniqueAge > 1)
+
+plotDF <- filter(plotDF, vaccine %in% flag$vaccine)
+
+ggplot(data = plotDF,
+       mapping = aes(x = vaccine,
+		                 y = age_imputed)) +
+  geom_boxplot(fill = "transparent", outlier.color = "transparent") +
+  geom_beeswarm(mapping = aes(color = vaccine, shape = gender_imputed),
+		            cex = 0.3) +
+  scale_color_manual(name   = "Pathogen (Vaccine type)",
+                     values = vaccine2color) +
+  labs(x = "Pathogen (Vaccine type)", y = "Age") + 
+  theme_bw() +
+  theme(panel.grid         = element_blank(),
+      	panel.grid.major.y = element_line(color = "lightgrey"),
+      	axis.text          = element_text(color = "black"),
+      	axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
+      	legend.text        = element_text(size = 7),
+      	legend.key.height  = unit(0.02, units = "npc"),
+      	legend.key.width   = unit(0.015, units = "npc")) +
+  guides(fill = guide_legend(ncol = 1))
+
+# test for difference between vaccine
+kruskal.test(formula = age_imputed ~ vaccine, data = plotDF)
+```
+
+Credit: Slim Fourati
+Plot number of samples as a function of day of sampling
+```{r, fig-1d, message=FALSE, fig.width=4, fig.height=7}
+mat <- exprs(esetNoResp)
+pdata <- pData(esetNoResp) %>%
+  mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
+  select(uid, gender_imputed, ethnicity, Vaccine, study_time_collected,
+	 age_imputed) %>%
+  rename(Gender    = gender_imputed,
+	 Ethnicity = ethnicity,
+	 Timepoint = study_time_collected,
+	 Age       = age_imputed) %>%
+  column_to_rownames(var = "uid")
+pdata <- pdata[colnames(mat), ]
+
+fit <- PVCA(counts    = mat,
+            meta      = pdata,
+            threshold = 0.6,
+            inter     = FALSE)
+
+plotDF <- data.frame(explained = as.vector(fit),
+                     effect    = names(fit)) %>%
+  arrange(explained) %>%
+  mutate(effect = factor(effect, levels = effect))
+
+ggplot(data    = plotDF,
+       mapping = aes(x = effect, y = explained)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = signif(explained, digits = 3)),
+            nudge_y   = 0.01,
+            size      = 3) +
+  labs(x = NULL, y = "Proportion of the variance explained") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90,
+                                   vjust = 0.5,
+                                   hjust = 1))
+```
+
+Credit: Slim Fourati
+
+Perform SLEA on hallmark+BTM genesets
+```{r, slea}
+# Microarray probes may have different affinity for their target mRNA and
+# thus the itensities can't be compared between probes inside the same sample.
+# A way to correct for that is to scale each probe to a mean of 0 and a sd 1
+# filter on pre-vax timepoints
+batch <- interaction(esetNoResp$study_accession,
+                     esetNoResp$matrix,
+                     drop = TRUE)
+scaledMat <- by(data = t(exprs(esetNoResp)),
+                INDICES = batch,
+                FUN = function(x) scale(x)) %>%
+  do.call(what = rbind) %>%
+  t()
+scaledMat <- scaledMat[, sampleNames(esetNoResp)]
+
+# SLEA (Ref: Lopez-Bigas N. et al. (2008) Genome Biol.)
+B <- 100
+flag <- lapply(all_genesets, FUN = intersect, y = rownames(scaledMat)) %>%
+  sapply(FUN = length)
+zscoreMat <- sapply(all_genesets, FUN = function(gs) {
+  gs <- intersect(gs, rownames(scaledMat))
+  ngenes <- length(gs)
+  mu <- colMeans(scaledMat[gs, , drop = FALSE], na.rm = TRUE)
+  muPermut <- mclapply(1:B, FUN = function(seed) {
+    set.seed(seed = seed)
+    muHat <- colMeans(scaledMat[sample.int(nrow(scaledMat), ngenes), , drop = FALSE],
+                      na.rm = TRUE)
+    return(value = muHat)
+  })
+  muPermut <- do.call(what = rbind, args = muPermut)
+  zscore <- (mu - colMeans(muPermut, na.rm = TRUE)) /
+    apply(muPermut, MARGIN = 2, FUN = sd, na.rm = TRUE)
+  return(value = zscore)
+})
+```
+
+Create SLEA ExpressionSet
+```{r, create-slea-eset}
+sleaSet <- ExpressionSet(assayData = t(zscoreMat),
+                         phenoData = AnnotatedDataFrame(pData(esetNoResp)))
+```
+
+Heatmap of SLEA zscore on pre-vaccination samples
+```{r, fig2, fig.width=8, fig.height=6}
+zscoreTemp <- exprs(sleaSet)[, sleaSet$study_time_collected <= 0]
+
+# remove genesets with missing symbols in virtual study
+zscoreTemp <- zscoreTemp[rowMeans(is.na(zscoreTemp)) < 1, ]
+
+# for representation purpsis only present top 200 varying genesets
+varLS <- apply(zscoreTemp, MARGIN = 1, FUN = var)
+zscoreTemp <- zscoreTemp[order(varLS, decreasing = TRUE)[1:200], ]
+
+# cutree into three groups (see gap statistic analysis
+set.seed(seed = 23)
+tree_col  <- kmeans(x = t(zscoreTemp), centers = 3)
+gr <- tree_col$cluster
+
+# relabel cluster based on inflammatory genesets
+inflamLS <- c("HALLMARK_INFLAMMATORY_RESPONSE",
+              "HALLMARK_COMPLEMENT",
+              "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+              "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+inflamDF <- data.frame(mu = colMeans(zscoreTemp[inflamLS, ])) %>%
+  rownames_to_column()
+inflamDF <- data.frame(grn = gr) %>%
+  rownames_to_column() %>%
+  merge(x = inflamDF) %>%
+  merge(y = pData(sleaSet),
+        by.x = "rowname",
+        by.y = "uid")
+inflamDF %>%
+  group_by(grn) %>%
+  summarize(q2 = median(mu)) %>%
+  ungroup() %>%
+  mutate(gr = ifelse(q2 %in% min(q2),
+                     yes = "low",
+                     no  = NA),
+         gr = ifelse(q2 %in% max(q2) & is.na(gr),
+                     yes = "high",
+                     no  = gr),
+         gr = ifelse(is.na(gr),
+                     yes = "mid",
+                     no  = gr),
+         gr = factor(gr, levels = c("low", "mid", "high"))) %>%
+  merge(x = inflamDF,
+        by = "grn") %>%
+  column_to_rownames(var = "rowname") -> inflamDF
+inflamDF <- inflamDF[colnames(zscoreTemp), ]
+
+rowLabels <- rownames(zscoreTemp)
+rowLabels[!grepl(pattern = "B.cell|E2F|T.cell|MYC| NK",
+		 rownames(zscoreTemp),
+		 ignore.case = TRUE) &
+	    !grepl(pattern = "Interferon|STAT|migration|Monocytes| DC|Neutrophiles",
+		   rownames(zscoreTemp),
+                 ignore.case = TRUE)] <- ""
+
+# generate heatmap annotation
+ha <- inflamDF %>%
+  rownames_to_column() %>%
+  mutate(inflam.gs = findInterval(mu,
+				  vec = quantile(mu ,
+						 probs = c(0, 0.33, 0.66, 1)),
+				  rightmost.closed= TRUE),
+	 inflam.gs = paste0("tier", inflam.gs)) %>%
+  select(rowname, inflam.gs) %>%
+  column_to_rownames() %>%
+  .[colnames(zscoreTemp), , drop=FALSE] %>%
+  HeatmapAnnotation(df = ., col = list(inflam.gs = c(tier1 = "yellow",
+tier2 = "orange",
+ tier3 = "red")))
+
+Heatmap(matrix                = zscoreTemp,
+	row_names_side              = "left", 
+	show_column_names           = FALSE,
+	column_split                = inflamDF$gr,
+	show_row_dend               = FALSE,
+	name                        = "SLEA z-score",
+	row_labels                  = rowLabels,
+	row_names_gp                = gpar(fontsize = 8),
+	top_annotation              = ha)
+```
+
+Determine optimal number of cluster using the Gap statistic
+```{r, fig-s2a}
+set.seed(seed = 23)
+fit <- clusGap(t(zscoreTemp), kmeans, K.max = 10)
+plot(fit)
+print(fit, method = "firstSEmax")
+```
+
+Assess association with clinical variable
+```{r, stat-clinical-vars}
+# continuous variable
+inflamDF %>%
+  select(gr,
+         age_reported,
+         age_imputed) %>%
+  pivot_longer(cols = -gr) %>%
+  group_by(name) %>%
+  do(p = kruskal.test(formula = value~gr,
+                      data    = .)$p.value) %>%
+  ungroup() %>%
+  mutate(p = unlist(p))
+
+# categorical variable
+inflamDF %>%
+  select(gr,
+         study_time_collected,
+gender,
+race,
+ethnicity,
+exposure_material_reported,
+matrix,
+study_accession,
+Hispanic,
+White,
+Asian,
+Black,
+cell_type,
+cohort,
+featureSetName,
+featureSetName2,
+featureSetVendor,
+vaccine,
+vaccine_type,
+adjuvant,
+pathogen) %>%
+sapply(FUN = as.character) %>%
+as.data.frame() %>%
+  pivot_longer(cols = -gr) %>%
+  group_by(name) %>%
+  do(p = {
+fit <- try(fisher.test(table(.$value, .$gr),
+simulate.p.value = TRUE),
+silent = TRUE)
+if ("try-error" %in% class(fit)) {
+NA
+} else {
+fit$p.value}}) %>%
+  ungroup() %>%
+  mutate(p = unlist(p),
+adj.p = p.adjust(p, method = "BH"))
+```
+
+Stability of the signature over time
+```{r, fig-s2b, fig.width=5.9, fig.height=4.72}
+dupDF <- inflamDF %>%
+filter(mu < 4.5 & mu > -4.5) %>% # remove outlier
+  filter(duplicated(participant_id) |
+         duplicated(participant_id, fromLast = TRUE))
+
+dupDF %>%
+  filter(study_accession %in% c("SDY80", "SDY180")) %>%
+  arrange(participant_id, study_time_collected) %>%
+  wilcox.test(formula = mu ~ study_time_collected,
+              data    = .,
+              paired  = TRUE)
+
+dupDF %>%
+  filter(study_accession %in% c("SDY80", "SDY180")) %>%                            
+  select(participant_id, gr, mu, study_time_collected) %>%
+  pivot_wider(names_from  = study_time_collected,
+              values_from = c(gr, mu))  %>%
+  mutate(stable = (`gr_-7` == `gr_0`) | abs(`mu_0`-`mu_-7`)< 1) %>%
+  group_by(stable) %>%
+  summarize(n = n())
+
+dupDF %>%
+  filter(study_accession %in% c("SDY80", "SDY180")) %>%                            
+  select(participant_id, gr, mu, study_time_collected) %>%
+  pivot_wider(names_from  = study_time_collected,
+              values_from = c(gr, mu))  %>%
+  mutate(stable = (`gr_-7` == `gr_0`) | abs(`mu_0`-`mu_-7`)< 1) %>%
+  select(participant_id, stable) %>%
+  merge(x = dupDF, by = "participant_id", all.x = TRUE) -> dupDF
+
+ggplot(data    = dupDF,
+       mapping = aes(x = factor(study_time_collected), y = mu)) +
+  geom_point(mapping = aes(color = gr)) +
+  geom_line(mapping = aes(group = participant_id,
+            linetype  = stable)) +
+  scale_color_discrete(name = "pre-vax cluster") +
+  labs(x = "study_time_collected",
+       y = "Inflammatory genesets (SLEA z-score)") +
+  theme_bw()
+```

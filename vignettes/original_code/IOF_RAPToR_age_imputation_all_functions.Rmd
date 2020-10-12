@@ -1,0 +1,266 @@
+---
+title: "RAPToR Age Imputation, Young and Old Separated"
+author: "Jeremy Gygi"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+
+# Description: This file takes two separate eset files (currently 2020_08_10) and implements the RAPToR package to impute age for studies without age_reported. All possible feature combinations are tried, and the highest R^2 values (calculated for studies with age_reported against their RAPToR imputed ages) are returned.
+
+Load packages
+```{r}
+library(stats) #prcomp
+library(RAPToR)
+library(Biobase) #pData
+library(tidyverse)
+
+# Paths to virtual studies: Currently using the normalized, noResponse esets (to include more studies)
+path_to_old_eset <- "~/Documents/Coding/Data/HIPC/2020_08_10_extendedOld_norm_noResponse_eset.rds"
+path_to_young_eset <- "~/Documents/Coding/Data/HIPC/2020_08_10_young_norm_noResponse_eset.rds"
+```
+
+# Finding the extendedOld dataset's best function:
+
+Load / Separate Data
+```{r}
+# Load data
+IS2_eset_noResponse_norm_old <- readRDS(file = path_to_old_eset)
+
+# Subset data: 
+pdata_df <- as_tibble(pData(IS2_eset_noResponse_norm_old@phenoData))
+pdata_df <- pdata_df %>% dplyr::select(uid, everything())
+pdata_df$age_reported <- as.numeric(pdata_df$age_reported)
+pdata_df$age_imputed <- as.numeric(pdata_df$age_imputed)
+# exprs_mat -> rows = genes, cols = samples
+exprs_mat <- exprs(IS2_eset_noResponse_norm_old)
+IS2_eset <- IS2_eset_noResponse_norm_old
+```
+
+
+Make Reference Dataset
+```{r}
+# Reference Dataset: 
+# X - gene expression data [genes X samples]
+# p - phenotypic data [samples X pheno_feat]
+
+# pheno data (e.g time, batch)
+p <- pdata_df
+
+# gene expression data
+X <- exprs_mat
+
+# only use pre-vaccination for reference dataset:
+pre_vacc_ind <- which(p$study_time_collected == 0)
+p <- p[pre_vacc_ind,]
+X <- X[,pre_vacc_ind]
+
+# Choose which samples to use for reference dataset:
+studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
+test_sample_indices <- which(p$study_accession %in% studies_without_ages)
+ref_sample_indices <- which(!p$study_accession %in% studies_without_ages)
+
+# Make test sets:
+p_test <- p[test_sample_indices,]
+p <- p[ref_sample_indices,]
+
+# Remove missing gene values
+missing_indices <- sapply(1:nrow(X), function(j){
+    return(any(is.na(X[j,])))
+  })
+X <- X[!missing_indices,]
+X_test <- X[,test_sample_indices]
+X <- X[,ref_sample_indices]
+```
+
+```{r}
+# Number of components
+# NOTE: Can be very time consuming. I ran this and got around 150 - 250 consistently
+#pca <- stats::prcomp(X, rank = 20)
+#nc <- sum(summary(pca)$importance[3, ] < .999) + 1 # Number of significant components
+nc <- 200
+
+# Generate list of functions and R^2 values:
+r.squared <- c()
+base_funct <- "X ~ s(age_reported, bs = 'cr')"
+vars <- c("cohort", "gender_imputed", "featureSetName2" , "featureSetVendor", "cell_type", "matrix", "study_accession")
+
+# One feature or none:
+functs <-  c('', 'gender_imputed', 'cohort', 'matrix', 'study_accession', 'featureSetName2', 'featureSetVendor', 'cell_type')
+# Two features:
+functs <- c(functs, apply(combn(vars, 2), 2, function(col){return(paste(col, collapse = " + "))}))
+# Three plus features: NOTE: to reduce the number of combinations, I reduced 'vars' down to the top 5 R^2 values from above (remove 'matrix' and 'study_accession')
+for(i in 3:length(vars))
+{
+  functs <- c(functs, apply(combn(vars, i), 2, function(col){return(paste(col, collapse = " + "))}))
+}
+functs <- paste0('X ~ s(age_reported, bs = \'cr\') + ', functs)
+functs[1] <- 'X ~ s(age_reported, bs = \'cr\')'
+
+# Build models and get R^2 from predicted ages:
+for(i in 1:length(functs)){
+  print(paste0("Iter ", i, ": ", functs[i], " | ", format(Sys.time(), "%H:%M:%S")))
+  funct <- functs[i]
+  m <- ge_im(X = X, p = p, formula = funct, nc = nc)
+  
+  # Build interpolation data
+  n.inter = 500
+  ndat <- data.frame(
+    age_reported = seq(min(p$age_reported),
+              max(p$age_reported), l = n.inter),
+    cohort = sample(unique(p$cohort),n.inter,replace = TRUE),
+    matrix = sample(unique(p$matrix),n.inter,replace = TRUE),
+    gender_imputed = sample(c("Male","Female"), n.inter, replace = TRUE),
+    study_accession = sample(unique(p$study_accession),n.inter,replace = TRUE),
+    featureSetName2 = sample(unique(IS2_eset@phenoData@data$featureSetName2[ref_sample_indices]),n.inter,replace = TRUE),
+    featureSetVendor = sample(unique(IS2_eset@phenoData@data$featureSetVendor[ref_sample_indices]),n.inter,replace = TRUE),
+    cell_type = sample(unique(IS2_eset@phenoData@data$cell_type[ref_sample_indices]),n.inter,replace = TRUE)
+  )
+  
+  # get interpolated GE matrix, as a reference
+  r_X <- list(interpGE = predict(m, ndat), time.series = ndat$age_reported)
+  
+  # test
+  ae_X <- ae(X, r_X$interpGE, r_X$time.series)
+  
+  # Get regression:
+  results <- tibble(actual = p$age_reported, estimates = ae_X$age.estimates[,1], gender_imputed = p$gender_imputed)
+  lm_fit <- lm(actual ~ estimates, data=results)
+  r.squared <- c(r.squared, summary(lm_fit)$r.squared)
+}
+
+saveRDS(tibble(Funct = functs, r.squared = r.squared), file = "~/Documents/Coding/Data/HIPC/IOF/2020_8_12_raptor_old_functs.rds")
+```
+
+# Finding the young dataset's best function:
+
+```{r}
+# Load data
+IS2_eset_noResponse_norm_young <- readRDS(file = path_to_young_eset)
+
+# Subset data: 
+pdata_df <- as_tibble(pData(IS2_eset_noResponse_norm_young@phenoData))
+pdata_df <- pdata_df %>% dplyr::select(uid, everything())
+pdata_df$age_reported <- as.numeric(pdata_df$age_reported)
+pdata_df$age_imputed <- as.numeric(pdata_df$age_imputed)
+# exprs_mat -> rows = genes, cols = samples
+exprs_mat <- exprs(IS2_eset_noResponse_norm_young)
+IS2_eset <- IS2_eset_noResponse_norm_young
+```
+
+
+Make Reference Dataset
+```{r}
+# Reference Dataset: 
+# X - gene expression data [genes X samples]
+# p - phenotypic data [samples X pheno_feat]
+
+# pheno data (e.g time, batch)
+p <- pdata_df
+
+# gene expression data
+X <- exprs_mat
+
+# only use pre-vaccination for reference dataset:
+pre_vacc_ind <- which(p$study_time_collected == 0)
+p <- p[pre_vacc_ind,]
+X <- X[,pre_vacc_ind]
+
+# Choose which samples to use for reference dataset:
+studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1293","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
+test_sample_indices <- which(p$study_accession %in% studies_without_ages)
+ref_sample_indices <- which(!p$study_accession %in% studies_without_ages)
+
+# Make test sets:
+p_test <- p[test_sample_indices,]
+p <- p[ref_sample_indices,]
+
+# Remove missing gene values
+missing_indices <- sapply(1:nrow(X), function(j){
+    return(any(is.na(X[j,])))
+  })
+X <- X[!missing_indices,]
+X_test <- X[,test_sample_indices]
+X <- X[,ref_sample_indices]
+```
+
+```{r}
+# Number of components
+# NOTE: Can be very time consuming. I ran this and got around 400 - 500 consistently, I found it didn't really matter > 400
+#pca <- stats::prcomp(X, rank = 20)
+#nc <- sum(summary(pca)$importance[3, ] < .999) + 1 # Number of significant components
+nc <- 400
+
+# Generate list of functions and R^2 values:
+r.squared <- c()
+base_funct <- "X ~ s(age_reported, bs = 'cr')"
+vars <- c("cohort", "gender_imputed", "featureSetName2" , "featureSetVendor", "cell_type", "matrix", "study_accession")
+
+# One feature or none:
+functs <-  c('', 'gender_imputed', 'cohort', 'matrix', 'study_accession', 'featureSetName2', 'featureSetVendor', 'cell_type')
+# Two features:
+functs <- c(functs, apply(combn(vars, 2), 2, function(col){return(paste(col, collapse = " + "))}))
+# Three plus features: NOTE: to reduce the number of combinations, I reduced 'vars' down to the top 5 R^2 values from above (remove 'matrix' and 'study_accession')
+for(i in 3:length(vars))
+{
+  functs <- c(functs, apply(combn(vars, i), 2, function(col){return(paste(col, collapse = " + "))}))
+}
+functs <- paste0('X ~ s(age_reported, bs = \'cr\') + ', functs)
+functs[1] <- 'X ~ s(age_reported, bs = \'cr\')'
+
+# Build models and get R^2 from predicted ages:
+for(i in 1:length(functs)){
+  print(paste0("Iter ", i, ": ", functs[i], " | ", format(Sys.time(), "%H:%M:%S")))
+  funct <- functs[i]
+  m <- ge_im(X = X, p = p, formula = funct, nc = nc)
+  
+  # Build interpolation data
+  n.inter = 500
+  ndat <- data.frame(
+    age_reported = seq(min(p$age_reported),
+              max(p$age_reported), l = n.inter),
+    cohort = sample(unique(p$cohort),n.inter,replace = TRUE),
+    matrix = sample(unique(p$matrix),n.inter,replace = TRUE),
+    gender_imputed = sample(c("Male","Female"), n.inter, replace = TRUE),
+    study_accession = sample(unique(p$study_accession),n.inter,replace = TRUE),
+    featureSetName2 = sample(unique(IS2_eset@phenoData@data$featureSetName2[ref_sample_indices]),n.inter,replace = TRUE),
+    featureSetVendor = sample(unique(IS2_eset@phenoData@data$featureSetVendor[ref_sample_indices]),n.inter,replace = TRUE),
+    cell_type = sample(unique(IS2_eset@phenoData@data$cell_type[ref_sample_indices]),n.inter,replace = TRUE)
+  )
+  
+  # get interpolated GE matrix, as a reference
+  r_X <- list(interpGE = predict(m, ndat), time.series = ndat$age_reported)
+  
+  # test
+  ae_X <- ae(X, r_X$interpGE, r_X$time.series)
+  
+  # Get regression:
+  results <- tibble(actual = p$age_reported, estimates = ae_X$age.estimates[,1], gender_imputed = p$gender_imputed)
+  lm_fit <- lm(actual ~ estimates, data=results)
+  r.squared <- c(r.squared, summary(lm_fit)$r.squared)
+}
+
+saveRDS(tibble(Funct = functs, r.squared = r.squared), file = "~/Documents/Coding/Data/HIPC/IOF/2020_8_12_raptor_young_functs.rds")
+```
+
+# Find best functions for both:
+```{r}
+young_res <- readRDS(file = "~/Documents/Coding/Data/HIPC/2020_8_12_raptor_young_functs.rds")
+old_res <- readRDS(file = "~/Documents/Coding/Data/HIPC/2020_8_12_raptor_old_functs.rds")
+
+#Sort by highest R^2:
+young_res <- arrange(young_res, -r.squared)
+old_res <- arrange(old_res, -r.squared)
+
+# Optional: write to csv:
+#write.table(young_res, file = "~/Documents/Coding/Data/HIPC/IOF/raptor_young_results.csv", sep=",")
+#write.table(old_res, file = "~/Documents/Coding/Data/HIPC/IOF/raptor_oldExtended_results.csv", sep=",")
+
+#Get best functions
+best_young_funct <- young_res$Funct[1]
+best_old_funct <- old_res$Funct[1]
+print(paste0("YOUNG: ", best_young_funct))
+print(paste0("OLD: ", best_old_funct))
+```

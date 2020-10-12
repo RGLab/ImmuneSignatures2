@@ -47,3 +47,10 @@ NULL
 #' @format A data frame with three variables: \code{count}, \code{study},
 #'   and \code{age_bracket}
 "ageGroups"
+
+#' Gene sets used in the pre-vaccination manuscript
+#'
+#' Genesets combining the hallmark gene set and blood transcription modules
+#'
+#' @format A list of lists
+"all_genesets"
