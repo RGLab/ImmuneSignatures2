@@ -1,8 +1,11 @@
 ---
-title: "ImmuneSignatures 2 Project - Data Preprocessing for Analysis"
+title: "ImmuneSignatures2: Generating Base ExpressionSet from ImmuneSpace Data"
 author: "Evan Henrich"
 output: html_document
 ---
+
+# Overview
+The purpose of this vignette is to generate a base expressionSet object with transcriptomic and immune response data for a number of studies from the ImmuneSpace portal, www.immunespace.org.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = FALSE)
@@ -20,10 +23,12 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_08_10/"
-timeStamp <- "2020_08_10_"
-prefix <- paste0(outputDir, timeStamp)
+outputDir <- "outputs/"
+dataCacheDir <- "data_cache/"
+timeStamp <- "2020_10_27_"
 ```
+
+The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
 
 ```{r global-variables}
 studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373, SDY1529")
@@ -38,7 +43,7 @@ rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
 assays <- c("hai", "neut_ab_titer", "elisa")
 
-con <- CreateConnection("", onTest = TRUE)
+con <- CreateConnection("")
 ```
 
 ```{r load-meta-data}
@@ -59,7 +64,7 @@ sharedMetaData <- addSDY1325metadata(sharedMetaData)
 sharedMetaData <- imputeAge(sharedMetaData)
 ```
 
-# IMMUNE RESPONSE
+# Immune Response Data Retrieval
 
 ```{r prepare-immune-response-data}
 immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
@@ -72,27 +77,32 @@ immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- createUniqueIdColumn(dt)
   dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
 })
-saveRDS(immdata_all, file = paste0(prefix, "immdata_all.rds"))
+saveRDS(immdata_all, file = paste0(dataCacheDir, timeStamp, "immdata_all.rds"))
 ```
 
-# GENE EXPRESSION
+# Gene Expression Data Retrieval
+Gene expression matrices in ImmuneSpace are created on a cohort*cell_type basis
+and each matrix is quantile normalized and log-transformed separately. The .rds file that contains the list of expressionSets needed for downstream analysis is approximately 1GB and is therefore cached.
 
 ```{r extract-within-study-normalized-gene-expression-data}
-# gene expression matrices in ImmuneSpace are done on a cohort*cell_type basis
-# and each matrix is normalized separately.  With a global CreateConnection object
-# we start with all available matrices.
+# With a global CreateConnection object we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
 geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
 geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = TRUE), ] 
 
-# esets <- lapply(
-#   geMatrices$name,
-#   con$getGEMatrix,
-#   outputType = "normalized",
-#   annotation = "latest")
-# names(esets) <- geMatrices$name
-# saveRDS(esets, file = paste0(prefix, "IS2_esets.rds"))
-esets <- readRDS("../../IS2_OUTPUT/2020_08_10/2020_08_10_IS2_esets.rds")
+esetsFile <- list.files(path = dataCacheDir, pattern = "IS2_esets.rds", full.names = TRUE)
+if(length(esetsFile) == 0){
+  esets <- lapply(
+    geMatrices$name,
+    con$getGEMatrix,
+    outputType = "normalized",
+    annotation = "latest")
+  names(esets) <- geMatrices$name
+  esetsFile <- paste0(dataCacheDir, timeStamp, "IS2_esets.rds")
+  saveRDS(esets, file = esetsFile)
+}else{
+  esets <- readRDS(esetsFile)
+}
 ```
 
 ```{r check-extracted-ge-data}
@@ -102,6 +112,8 @@ if( !all(unlist(results)) ){
     stop("Normalized matrices do not meet dim and NA value expectations")
 }
 ```
+
+There are some samples that are removed prior to the summarization of the transcriptomic data from the probe level to the gene symbol level.  The reason for removal is noted for each study.
 
 ```{r remove-unused-samples-from-esets-pre-summarization}
 esets <- lapply(esets, function(eset){
@@ -130,6 +142,7 @@ esets <- lapply(esets, function(eset){
 })
 ```
 
+
 ```{r prepare-gene-expression-meta-data}
 phenoDataSets <- lapply(esets, pData)
 phenoDataSets <- addMatrixRelatedFields(phenoDataSets, geMatrices)
@@ -149,6 +162,8 @@ geMetaData <- addAnalysisVariables(geMetaData)
 geMetaData <- subsetToOnlyNeededColumns(geMetaData)
 ```
 
+A subset of studies created by HIPC collaborators at Yale University have "study_time_collected" values that do not align with the intended "visit_day" value.  These are manually corrected here.
+
 ```{r fix-yale-studies-study-time-collected}
 geMetaData$time_post_last_vax <- as.numeric(geMetaData$time_post_last_vax)
 geMetaData <- updateStudyTimepoints(geMetaData, c("SDY400", "SDY404", "SDY520", "SDY63", "SDY640"), 24, 28)
@@ -164,6 +179,8 @@ if(!metaDataResults){
   stop("Not all pre-summarization checks are passing!")
 }
 ```
+
+Gene expression data is summarized from the probe level (for microarray data) and gene-alias level (RNAseq) to the canonical Gene-Symbol level using mappings from the Human Gene Ontology Network (HUGO).  The probes / gene-aliases are summarized by selecting the probe or gene-alias with the maximum mean value (no log transformation) across all samples within the matrix (cohort * cell_type).
 
 ```{r summarize-gene-expression-data-by-gene-symbol}
 summarizedEsets <- summarizeByGeneSymbol(esets)
@@ -203,11 +220,16 @@ noNormEset <- new("ExpressionSet",
 noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
 ```
 
-```{r gender-imputation}
-allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
-allMatricesPlot
+Gender imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either male or female based on the male group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
 
-# Gender Imputation using Y-Chromosome associated genes
+```{r gender-imputation, include=TRUE}
+allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preGenderImpute.pdf")),
+    width = 8.5,
+    height = 11)
+allMatricesPlot
+dev.off()
+
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
 noNormEset <- imputeGender.useAllTimepoints(noNormEset)
@@ -218,29 +240,25 @@ problemSamples <- c("SUB192192.1370,","SUB192199.1370")
 noNormEset <- adjustProblemSamples(noNormEset, problemSamples)
 
 failedGenderQC <- qualityControl.failedGenderImputation(noNormEset)
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedGenderQCAllSubjects.pdf")),
+    width = 8.5,
+    height = 11)
 failedGenderQC
+dev.off()
+
 
 problemSamples <- noNormEset[ , noNormEset$failedGenderQC]
 problemSubjectsPlot <- qualityControl.genderImputedByMatrix(problemSamples, 
                                                      returnObject = "probSubjects")
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedGenderQCproblemSubjects.pdf")),
+    width = 8.5,
+    height = 11)
 problemSubjectsPlot
+dev.off()
+
 
 probStudiesBySubjectTbl <- qualityControl.createSubjectsByStudyTable(problemSamples$participant_id)
 data.frame(probStudiesBySubjectTbl)
-
-#    studies Freq
-# 1  SDY1260    1
-# 2  SDY1264    2
-# 3  SDY1293    1
-# 4  SDY1325    4
-# 5  SDY1364    1
-# 6  SDY1370    2
-# 7   SDY180    7
-# 8   SDY400    1
-# 9    SDY63    1
-# 10   SDY67   10
-# 11   SDY80    5
-# 12  SDY984   22
 ```
 
 ```{r test-non-normalized-expression-set}
@@ -248,5 +266,5 @@ res <- testNoNormEset(noNormEset)
 if(!all(unlist(res))){
   stop("noNormEset does not meet expectations")
 }
-saveRDS(noNormEset, file = paste0(prefix, "noNormEset.rds"))
+saveRDS(noNormEset, file = paste0(dataCacheDir, timeStamp, "noNormEset.rds"))
 ```

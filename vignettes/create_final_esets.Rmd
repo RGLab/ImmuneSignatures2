@@ -1,5 +1,5 @@
 ---
-title: "ImmuneSignatures 2 Project - Create Final ExpressionSets"
+title: "ImmuneSignatures2: Create Final ExpressionSets from Base ExpressionSet"
 author: "Evan Henrich"
 output: html_document
 ---

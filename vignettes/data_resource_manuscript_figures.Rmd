@@ -1,12 +1,14 @@
 ---
-title: "Pre-Vaccination Data Figures"
+title: "ImmuneSignatures2: Reproduction of figures for Data Resource Manuscript"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
+
+# SETUP
 ```{r, libraries}
 suppressPackageStartupMessages(library(package = "knitr"))
 suppressPackageStartupMessages(library(package = "Biobase"))
@@ -20,10 +22,10 @@ suppressPackageStartupMessages(library(package = "ComplexHeatmap")) # Bioc Insta
 suppressPackageStartupMessages(library(package = "ImmuneSignatures2"))
 ```
 
-```{r, global-variables}
+```{r, global-variables, echo=FALSE}
 baseDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/"
 resourcesDir <- file.path(baseDir, "2020_08_10/")
-outputsDir <- file.path(baseDir, "Vignette_outputs/Pre_vaccination_manuscript/")
+# outputsDir <- file.path(baseDir, "Vignette_outputs/Pre_vaccination_manuscript/")
 ```
 
 ```{r, read-esets}
@@ -38,7 +40,7 @@ withRespGEFile <- list.files(path       = resourcesDir,
 esetWithResp <- readRDS(file = withRespGEFile)
 ```
 
-```{r, set-standard-colors}
+```{r, set-standard-colors, echo=FALSE}
 getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
 				                         brewer.pal(name = "Dark2", n = 4)))
 vaccines <- unique(paste0(esetNoResp$pathogen, 
@@ -47,9 +49,11 @@ vaccine2color <- getPalette(n = length(vaccines)) %>%
   setNames(nm = sort(vaccines))
 ```
 
-Authors: Slim Fourati, Joanna Arce
-Title: Plot number of samples as a function of day of sampling
-```{r, fig-1b, message=FALSE, fig.width=6.29, fig.height=4.84}
+# FIGURES
+
+### Figure 1b: Plot number of samples as a function of day of sampling
+*Authors:* Slim Fourati, Joanna Arce
+```{r, fig-1b, fig.width=6.29, fig.height=4.84}
 # any sampling data after 20 days coded as >20
 plotDF <- pData(esetNoResp) %>%
   select(uid, study_time_collected, pathogen, vaccine_type) %>%
@@ -86,9 +90,9 @@ ggplot(data = plotDF,
   guides(fill = guide_legend(ncol = 2))
 ```
 
-Credit: Slim Fourati
-Plot age as a function of vaccine investigated
-```{r, fig-1c, message=FALSE, fig.width=6.8, fig.height=7}
+### Figure 1c: Plot age as a function of vaccine investigated
+*Author: * Slim Fourati
+```{r, fig-1c, fig.width=6.8, fig.height=7}
 plotDF <- pData(esetNoResp) %>%
   select(participant_id, pathogen, vaccine_type, age_imputed, gender_imputed) %>%
   distinct() %>%
@@ -125,9 +129,9 @@ ggplot(data = plotDF,
 kruskal.test(formula = age_imputed ~ vaccine, data = plotDF)
 ```
 
-Credit: Slim Fourati
-Plot number of samples as a function of day of sampling
-```{r, fig-1d, message=FALSE, fig.width=4, fig.height=7}
+### Figure 1d: Plot number of samples as a function of day of sampling
+*Author: * Slim Fourati
+```{r, fig-1d-data-prep}
 mat <- exprs(esetNoResp)
 pdata <- pData(esetNoResp) %>%
   mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
@@ -139,12 +143,22 @@ pdata <- pData(esetNoResp) %>%
 	 Age       = age_imputed) %>%
   column_to_rownames(var = "uid")
 pdata <- pdata[colnames(mat), ]
+```
 
-fit <- PVCA(counts    = mat,
+```{r, fig-1d-PVCA}
+pvcaCacheFile <- "data_cache/pvca.rds"
+if(!file.exists(pvcaCacheFile)){
+  fit <- PVCA(counts    = mat,
             meta      = pdata,
             threshold = 0.6,
             inter     = FALSE)
+  saveRDS(fit, pvcaCacheFile)
+}else{
+  fit <- readRDS(pvcaCacheFile)
+}
+```
 
+```{r, fig-1d-plot, fig.width=4, fig.height=7}
 plotDF <- data.frame(explained = as.vector(fit),
                      effect    = names(fit)) %>%
   arrange(explained) %>%
@@ -163,14 +177,23 @@ ggplot(data    = plotDF,
                                    hjust = 1))
 ```
 
-Credit: Slim Fourati
 
-Perform SLEA on hallmark+BTM genesets
-```{r, slea}
-# Microarray probes may have different affinity for their target mRNA and
-# thus the itensities can't be compared between probes inside the same sample.
-# A way to correct for that is to scale each probe to a mean of 0 and a sd 1
-# filter on pre-vax timepoints
+
+### Perform SLEA on hallmark+BTM genesets
+*Author: * Slim Fourati
+Microarray probes may have different affinity for their target mRNA and
+thus the itensities can't be compared between probes inside the same sample.
+A way to correct for that is to scale each probe to a mean of 0 and a sd 1
+filter on pre-vax timepoints
+```{r, check-cached-slea}
+  cacheFile <- "data_cache/sleaSet.rds"
+  sleaCached <- file.exists(cacheFile)
+  if(sleaCached){
+    sleaSet <- readRDS(cacheFile)
+  }
+```
+
+```{r, slea, eval=!sleaCached}
 batch <- interaction(esetNoResp$study_accession,
                      esetNoResp$matrix,
                      drop = TRUE)
@@ -202,13 +225,15 @@ zscoreMat <- sapply(all_genesets, FUN = function(gs) {
 })
 ```
 
-Create SLEA ExpressionSet
-```{r, create-slea-eset}
+```{r, create-slea-eset, eval=!sleaCached}
 sleaSet <- ExpressionSet(assayData = t(zscoreMat),
                          phenoData = AnnotatedDataFrame(pData(esetNoResp)))
+saveRDS(sleaSet, file = "data_cache/sleaSet.rds")
 ```
 
-Heatmap of SLEA zscore on pre-vaccination samples
+
+### Figure 2: Heatmap of SLEA zscore on pre-vaccination samples
+*Author: * Slim Fourati
 ```{r, fig2, fig.width=8, fig.height=6}
 zscoreTemp <- exprs(sleaSet)[, sleaSet$study_time_collected <= 0]
 
@@ -290,15 +315,25 @@ Heatmap(matrix                = zscoreTemp,
 	top_annotation              = ha)
 ```
 
-Determine optimal number of cluster using the Gap statistic
+
+### Figure s2a: Determine optimal number of cluster using the Gap statistic
+*Author: * Slim Fourati
 ```{r, fig-s2a}
-set.seed(seed = 23)
-fit <- clusGap(t(zscoreTemp), kmeans, K.max = 10)
+clusGapCacheFile <- "data_cache/clusGap.rds"
+if(!file.exists(clusGapCacheFile)){
+  set.seed(seed = 23)
+  fit <- clusGap(t(zscoreTemp), kmeans, K.max = 10)
+  saveRDS(fit, file = clusGapCacheFile)
+}else{
+  fit <- readRDS(clusGapCacheFile)
+}
+
 plot(fit)
 print(fit, method = "firstSEmax")
 ```
 
-Assess association with clinical variable
+
+### Assess association with clinical variable
 ```{r, stat-clinical-vars}
 # continuous variable
 inflamDF %>%
@@ -352,7 +387,9 @@ fit$p.value}}) %>%
 adj.p = p.adjust(p, method = "BH"))
 ```
 
-Stability of the signature over time
+
+### Figure s2b: Stability of the signature over time
+*Author: * Slim Fourati
 ```{r, fig-s2b, fig.width=5.9, fig.height=4.72}
 dupDF <- inflamDF %>%
 filter(mu < 4.5 & mu > -4.5) %>% # remove outlier

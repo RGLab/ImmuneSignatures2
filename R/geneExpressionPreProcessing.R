@@ -215,14 +215,12 @@ summarizeByGeneSymbol <- function(esets){
 
   for(i in 1:length(esets)){
     # Calc probe average without log transform and DO NOT allow NAs
-    # Remove any rows with NAs - SDY1289 montreal cohort 7 probes and SDY212 single probe
     exprs <- data.table(Biobase::exprs(esets[[i]]), keep.rownames = TRUE)
     goodRows <- apply(exprs[,-1], 1, function(row){ all(!is.na(row)) })
     exprs <- exprs[ goodRows ]
     calcAvgWithoutLog <- function(row){ sum(2^row) / length(row) }
     exprs[ , prb_avg := apply(exprs[,-1], 1, calcAvgWithoutLog) ]
 
-    # Latest gene_symbols come from fData based on org.Hs.eg.db - v3.6.0.
     # Ensure that feature data is accurate and ordered correctly before
     # assigning a gene_symbol
     fdat <- Biobase::fData(esets[[i]])
@@ -231,7 +229,6 @@ summarizeByGeneSymbol <- function(esets){
     exprs$gs <- fdat$gene_symbol
 
     # Check for duplicates at probe level and remove.
-    # Gene symbols for these duplicates are noted in IS2_removed_data.
     # This issue is likely caused by gene_symbols being updated in the latest annotation.
     # E.g. probe 1 previously mapped to gene A and gene B, then gene A was updated
     # to be gene B as well.
@@ -251,7 +248,8 @@ summarizeByGeneSymbol <- function(esets){
     # filter to max probe for each gene symbol
     maxPrb <- exprs[, prb_max := max(prb_avg) , by = "gs" ][ prb_avg == prb_max ]
 
-    # Check and remove summary level duplicates
+    # Check and remove summary level duplicates w
+    # here multiple probes have exact same average value AND same sample values
     maxPrb <- maxPrb[ !(duplicated(maxPrb)), ]
 
     # Check and remove summary level NA values
