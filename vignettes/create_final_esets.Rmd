@@ -4,6 +4,9 @@ author: "Evan Henrich"
 output: html_document
 ---
 
+# Overview
+The purpose of this vignette is to generate expressionSets for analysis by HIPC collaborators in the ImmuneSignatures2 project.  The base expressionSet includes all age cohorts and is not normalized across study or batch-corrected for issues like different platforms (e.g. Illumina vs Affymetrix).  Therefore, expressionSets for analysis are generated for both young and old cohorts that then are cross-study normalized and batch corrected.  The cross-study normalization is done by taking a target distribution from one platform (Affymetrix) and applying this to all samples. The batch-correction is done by using a linear-model to determining the effects of platform (e.g. Illumina Human HT-V4), platform vendor (e.g. Illumina), cell type (either Whole Blood or PBMC), and study on baseline data, then removing these effects for all timepoints.  Finally each expressionSet comes in a version with or without immune response data.  For subjects with multiple immune response data points (due to multiple assays), the preference is given to HAI then NAb then ELISA data.
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = FALSE)
 ```
@@ -18,10 +21,14 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "/home/evanhenrich/Documents/FHCRC/IS2_OUTPUT/2020_08_10/"
-inputFilenamePrefix <- "2020_08_10_"
-outputFilenamePrefix <- "2020_08_10_"
+outputDir <- "outputs/"
+dataCacheDir <- "data_cache/"
+inputFilenamePrefix <- "2020_10_27_"
+outputFilenamePrefix <- "2020_10_27_"
+```
 
+
+```{r global-variables}
 postVaxDayRanges <- list(
   hai = c(20,46),
   neut_ab_titer = c(28,90),
@@ -48,8 +55,8 @@ targetDistributionExcludedStudies <- "SDY1293"
 ```
 
 ```{r load-base-data}
-immdata_all <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "immdata_all.rds"))
-noNormEset <- readRDS(paste0(outputDir, "/", inputFilenamePrefix, "noNormEset.rds"))
+immdata_all <- readRDS(paste0(dataCacheDir,  inputFilenamePrefix, "immdata_all.rds"))
+noNormEset <- readRDS(paste0(dataCacheDir, inputFilenamePrefix, "noNormEset.rds"))
 ```
 
 ```{r create-cross-study-normalized-version}
@@ -72,7 +79,7 @@ for(ageGroupName in names(ageGroups)){
   checkFinalTestResults(res)
   
   fullSuffix <- paste0(ageGroupName, "_noNorm_noResponse_eset.rds")
-  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  filename <- paste0(dataCacheDir, outputFilenamePrefix, fullSuffix)
   saveRDS(eset.noNorm.noResponse, filename)
   
   # With Cross-Study Normalization, No Immune Response Calls
@@ -102,7 +109,7 @@ for(ageGroupName in names(ageGroups)){
   checkFinalTestResults(res)
   
   fullSuffix <- paste0(ageGroupName, "_norm_noResponse_eset.rds")
-  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  filename <- paste0(dataCacheDir, outputFilenamePrefix, fullSuffix)
   saveRDS(eset.corr.noResponse, filename)
   
   # Generate Immune Response Calls
@@ -127,7 +134,7 @@ for(ageGroupName in names(ageGroups)){
   checkFinalTestResults(res)
   
   fullSuffix <- paste0(ageGroupName, "_noNorm_withResponse_eset.rds")
-  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  filename <- paste0(dataCacheDir, outputFilenamePrefix, fullSuffix)
   saveRDS(eset.noNorm.withResponse, filename)
   
   # With Cross-Study Normalization, with Immune Response Calls
@@ -140,14 +147,14 @@ for(ageGroupName in names(ageGroups)){
   checkFinalTestResults(res)
   
   fullSuffix <- paste0(ageGroupName, "_norm_withResponse_eset.rds")
-  filename <- paste0(outputDir, outputFilenamePrefix, fullSuffix)
+  filename <- paste0(dataCacheDir, outputFilenamePrefix, fullSuffix)
   saveRDS(eset.corr.withResponse, filename)
 }
 ```
 
 ```{r create-diagnostic-plots}
 library(tidyverse)
-allEset <- readRDS(paste0(outputDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
+allEset <- readRDS(paste0(dataCacheDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
 genderQCPlot <- qualityControl.failedGenderImputation(allEset)
 pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "genderQC.pdf")),
     width = 8.5,
@@ -155,7 +162,7 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "genderQC.pdf")),
 genderQCPlot
 dev.off()
 
-young <- readRDS(paste0(outputDir, outputFilenamePrefix, "young_norm_noResponse_eset.rds"))
+young <- readRDS(paste0(dataCacheDir, outputFilenamePrefix, "young_norm_noResponse_eset.rds"))
 
 pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byStudy.pdf")),
     width = 8.5,
@@ -175,7 +182,7 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_pca_byGender
 qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
 dev.off()
 
-old <- readRDS(paste0(outputDir, outputFilenamePrefix, "old_norm_noResponse_eset.rds"))
+old <- readRDS(paste0(dataCacheDir, outputFilenamePrefix, "old_norm_noResponse_eset.rds"))
 
 pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byStudy.pdf")),
     width = 8.5,
@@ -195,7 +202,7 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_pca_byGenderIm
 qualityControl.samplePlot(old, method = "PCA", colorCol = "gender_imputed")
 dev.off()
 
-extendedOld <- readRDS(paste0(outputDir, outputFilenamePrefix, "extendedOld_norm_noResponse_eset.rds"))
+extendedOld <- readRDS(paste0(dataCacheDir, outputFilenamePrefix, "extendedOld_norm_noResponse_eset.rds"))
 
 pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "extendedOld_mds_byStudy.pdf")),
     width = 8.5,
