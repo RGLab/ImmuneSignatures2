@@ -23,9 +23,9 @@ library(tidyverse)
 ```
 
 ```{r output-variables}
-outputDir <- "outputs/"
+outputDir <- "quality_control_plots/"
 dataCacheDir <- "data_cache/"
-timeStamp <- "2020_10_27_"
+timeStamp <- "2020_12_07_PostAnno_"
 ```
 
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
@@ -43,7 +43,8 @@ rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
 assays <- c("hai", "neut_ab_titer", "elisa")
 
-con <- CreateConnection("")
+# con <- CreateConnection("IS2", onTest = TRUE)
+con <- CreateConnection("", onTest = TRUE) # TODO: rm once IS2 virtual study finalized
 ```
 
 ```{r load-meta-data}
@@ -69,6 +70,7 @@ sharedMetaData <- imputeAge(sharedMetaData)
 ```{r prepare-immune-response-data}
 immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- getImmuneResponseData(assay, con, studies)
+  # dt <- dt[ , lsid := NULL ] # artifact of import into virtual study container
   if(assay == "elisa"){
     dt <- rbind(dt, sdy1370_elisa)
   }
@@ -180,7 +182,7 @@ if(!metaDataResults){
 }
 ```
 
-Gene expression data is summarized from the probe level (for microarray data) and gene-alias level (RNAseq) to the canonical Gene-Symbol level using mappings from the Human Gene Ontology Network (HUGO).  The probes / gene-aliases are summarized by selecting the probe or gene-alias with the maximum mean value (no log transformation) across all samples within the matrix (cohort * cell_type).
+Gene expression data is summarized from the probe level (for microarray data) and gene-alias level (RNAseq) to the canonical Gene-Symbol level using mappings from the Human Gene Ontology Network (HUGO).  The probes / gene-aliases are summarized by selecting the probe or gene-alias with the maximum average value (no log transformation) across all samples within the matrix (cohort * cell_type).
 
 ```{r summarize-gene-expression-data-by-gene-symbol}
 summarizedEsets <- summarizeByGeneSymbol(esets)
@@ -220,7 +222,7 @@ noNormEset <- new("ExpressionSet",
 noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
 ```
 
-Gender imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either male or female based on the male group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
+Gender imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either male or female based on the male group having a higher mean expression value for selected genes.  Due to some outliers with extreme values in a couple genes, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
 
 ```{r gender-imputation, include=TRUE}
 allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)

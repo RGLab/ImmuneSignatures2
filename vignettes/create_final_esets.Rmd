@@ -21,10 +21,10 @@ library(limma)
 ```
 
 ```{r output-variables}
-outputDir <- "outputs/"
+outputDir <- "quality_control_plots/"
 dataCacheDir <- "data_cache/"
-inputFilenamePrefix <- "2020_10_27_"
-outputFilenamePrefix <- "2020_10_27_"
+inputFilenamePrefix <- "2020_12_07_PostAnno_"
+outputFilenamePrefix <- "2020_12_07_PostAnno_"
 ```
 
 

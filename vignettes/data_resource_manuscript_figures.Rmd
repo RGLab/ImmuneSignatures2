@@ -33,12 +33,12 @@ These figures only look at the "Young" cohort that is defined as 18 to 50 years 
 
 ```{r, read-esets}
 noRespGEFile <- list.files(path       = dataCacheDir,
-                           pattern    = "young_norm_noResponse_eset.rds",
+                           pattern    = "PostAnno_young_norm_noResponse_eset.rds",
                            full.names = TRUE)
 esetNoResp <- readRDS(file = noRespGEFile)
 
 withRespGEFile <- list.files(path       = dataCacheDir,
-                             pattern    = "young_norm_withResponse_eset.rds",
+                             pattern    = "PostAnno_young_norm_withResponse_eset.rds",
                              full.names = TRUE)
 esetWithResp <- readRDS(file = withRespGEFile)
 ```
@@ -149,7 +149,7 @@ pd.fig1d <- pd.fig1d[colnames(em.fig1d), ]
 ```
 
 ```{r, fig-1d-PVCA, echo=FALSE}
-pvcaCacheFile <- "data_cache/pvca.rds"
+pvcaCacheFile <- "data_cache/PostAnno_pvca.rds"
 if(!file.exists(pvcaCacheFile)){
   fit <- PVCA(counts    = em.fig1d,
               meta      = pd.fig1d,
@@ -193,7 +193,7 @@ of 1.
 
 The following looks only at pre-vaccination timepoints
 ```{r, check-cached-slea}
-  sleaFile <- file.path(dataCacheDir, "sleaSet.rds")
+  sleaFile <- file.path(dataCacheDir, "PostAnno_sleaSet.rds")
   sleaCached <- file.exists(sleaFile)
   if(sleaCached){
     sleaSet <- readRDS(sleaFile)
@@ -338,7 +338,7 @@ sleaSet$gr <- df.fig2$gr [match(sleaSet$participant_id, df.fig2$participant_id)]
 ### Figure s2a: Determine optimal number of cluster using the Gap statistic
 *Author: * Slim Fourati
 ```{r, fig-s2a}
-clusGapFile <- file.path(dataCacheDir, "clusGap.rds")
+clusGapFile <- file.path(dataCacheDir, "PostAnno_clusGap.rds")
 if(!file.exists(clusGapFile)){
   set.seed(seed = 23)
   fit <- clusGap(t(zscoreTemp), kmeans, K.max = 10)
@@ -517,8 +517,8 @@ plotSLEASubsetByTime.byGene <- function(df){
 ### Figure 3a: Plot SLEA z-score of inflammatory genesets over time
 *Author: * Slim Fourati
 ```{r fig-3a, fig.width=6.92, fig.height=2.96, warning=FALSE}
-pd.fig3a <- getSleaPDSubset(inflamGS)
-plotSLEASubsetByTime(pd.fig3a, "Inflammatory pathways (SLEA z-score)")
+pd.fig3a <- getSleaPDSubset.byGS(inflamGS)
+plotSLEASubsetByTime.byGS(pd.fig3a, "Inflammatory pathways (SLEA z-score)")
 ```
 
 ### Figure s3a: Plot canonical inflammatory genes over time
@@ -534,8 +534,8 @@ plotSLEASubsetByTime.byGene(df.figs3a)
 ```{r fig-s3b, fig.width=6.92, fig.height=2.96, warning=FALSE}
 interferonGS  <- c("HALLMARK_INTERFERON_ALPHA_RESPONSE",
                    "HALLMARK_INTERFERON_GAMMA_RESPONSE")
-pd.figs3b <- getSleaPDSubset(interferonGS)
-plotSLEASubsetByTime(pd.figs3b, "Interferon-stimulated genes (SLEA z-score)")
+pd.figs3b <- getSleaPDSubset.byGS(interferonGS)
+plotSLEASubsetByTime.byGS(pd.figs3b, "Interferon-stimulated genes (SLEA z-score)")
 ```
 
 ### Figure s3b (cont): Plot canonical interferon-regulated genes over time
@@ -552,8 +552,8 @@ plotSLEASubsetByTime.byGene(df.figs3b2)
 bcellGS <- c("enriched in B cells (I) (M47.0)",
              "enriched in B cells (V) (M47.4)",
              "plasma cells & B cells, immunoglobulins (M156.0)")
-pd.fig3c <- getSleaPDSubset(bcellGS)
-plotSLEASubsetByTime(pd.fig3c, "B cells (SLEA z-score)")
+pd.fig3c <- getSleaPDSubset.byGS(bcellGS)
+plotSLEASubsetByTime.byGS(pd.fig3c, "B cells (SLEA z-score)")
 ```
 
 ### Figure s3c: Plot canonical B cell markers over time
