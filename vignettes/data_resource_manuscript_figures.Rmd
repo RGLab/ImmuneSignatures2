@@ -23,42 +23,150 @@ suppressPackageStartupMessages(library(package = "lme4"))
 suppressPackageStartupMessages(library(package = "cluster"))
 suppressPackageStartupMessages(library(package = "ComplexHeatmap")) # Bioc Install
 suppressPackageStartupMessages(library(package = "ImmuneSignatures2"))
+suppressPackageStartupMessages(library(package = "cowplot"))
 ```
+
 
 ```{r, global-variables, echo=FALSE}
 dataCacheDir <- "data_cache/"
+datePrefix <- "2020_12_07_PostAnno"
 ```
 
-These figures only look at the "Young" cohort that is defined as 18 to 50 years old.
-
+These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
 ```{r, read-esets}
 noRespGEFile <- list.files(path       = dataCacheDir,
-                           pattern    = "young_norm_noResponse_eset.rds",
+                           pattern    = paste0(datePrefix,"_extendedOld_norm_noResponse_eset.rds"),
                            full.names = TRUE)
-esetNoResp <- readRDS(file = noRespGEFile)
+old.NoResp <- readRDS(file = noRespGEFile)
+
+noRespGEFile <- list.files(path       = dataCacheDir,
+                           pattern    = paste0(datePrefix,"_young_norm_noResponse_eset.rds"),
+                           full.names = TRUE)
+young.NoResp <- readRDS(file = noRespGEFile)
 
 withRespGEFile <- list.files(path       = dataCacheDir,
-                             pattern    = "young_norm_withResponse_eset.rds",
+                             pattern    = paste0(datePrefix,"_young_norm_withResponse_eset.rds"),
                              full.names = TRUE)
-esetWithResp <- readRDS(file = withRespGEFile)
+young.WithResp <- readRDS(file = withRespGEFile)
 ```
 
+
 ```{r, set-standard-colors, echo=FALSE}
+# Fig 1
+set3colors <- brewer.pal("Set3", n = 12)
+colors.fig1a <- c(set3colors[c(2, 11, 3, 12, 8)], 
+                "black", 
+                set3colors[c(7, 6, 5, 1, 4, 9, 10)])
+
+# Other Figures
 getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
 				                         brewer.pal(name = "Dark2", n = 4)))
-vaccines <- unique(paste0(esetNoResp$pathogen, 
-                          " (", esetNoResp$vaccine_type, ")"))
+vaccines <- unique(paste0(young.NoResp$pathogen, 
+                          " (", young.NoResp$vaccine_type, ")"))
 vaccine2color <- getPalette(n = length(vaccines)) %>%
   setNames(nm = sort(vaccines))
 ```
 
 # FIGURES
 
+### Figure 1a: Proportion of subjects of various self reported race and imputed y chrom values per pathogen*vaccine type
+*Authors:* Joanna Arce
+
+Combine the data for a full dataset with all ages
+```{r create-pdata}
+getPdata <- function(eset){
+  pd <- as_tibble(pData(eset))
+  pd <- pd %>% dplyr::select(uid, everything())
+  pd$age_reported <- as.numeric(pd$age_reported)
+  return(pd)
+}
+
+pdata_young <- getPdata(young.NoResp)
+pdata_old <- getPdata(old.NoResp)
+
+pdata_df <- rbind(pdata_young, pdata_old)
+```
+
+Pre-processing
+```{r}
+# Remove malaria - why?
+pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
+
+# Filter to unique subjects
+pdata_df_uniqueSubjects <- distinct(pdata_no_malaria, 
+                                    participant_id, 
+                                    gender_imputed, 
+                                    race, 
+                                    pathogen, 
+                                    vaccine_type)
+
+# Create new column for pathogen and vaccine
+pdata_df_uniqueSubjects <- mutate(pdata_df_uniqueSubjects, 
+                                  pathogen_vacc = paste0(pathogen, "\n(", vaccine_type, ")"))
+
+getCounts <- function(pd, colnm, prefix){
+  counts_df <- arrange(dplyr::count(pd, .data[[colnm]], pathogen_vacc), n)
+  counts_df$pathogen_total <- sapply(1:nrow(counts_df), function(i){
+    return(sum(filter(counts_df, pathogen_vacc == counts_df$pathogen_vacc[i])$n))
+  })
+  counts_df$pathogen_vacc <- paste0(counts_df$pathogen_vacc, "\nn = ", counts_df$pathogen_total)
+  counts_df$n <- counts_df$n/counts_df$pathogen_total
+  colnames(counts_df) <- c("category", "pathogen_vacc", "freq")
+  counts_df$category <- paste0(prefix, counts_df$category)
+  return(counts_df)
+}
+
+sex_counts_df <- getCounts(pdata_df_uniqueSubjects, "gender_imputed", "SEX_")
+race_counts_df <- getCounts(pdata_df_uniqueSubjects, "race", "RACE_")
+
+total_counts <- rbind(sex_counts_df, race_counts_df)
+names(colors.fig1a) <- c(unique(total_counts$pathogen_vacc)[c(2, 11, 3, 12, 8)],
+                       "Malaria (Recombinant protein)",
+                       unique(total_counts$pathogen_vacc)[c(7, 6, 5, 1, 4, 9, 10)])
+```
+
+
+```{r plot}
+p <- ggplot(total_counts) +
+  geom_bar(aes(x = freq, y = category, fill = pathogen_vacc), 
+           color = "black", stat = "identity", lwd = .2) +
+  geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
+  facet_wrap(vars(pathogen_vacc), nrow = 2) +
+  scale_y_discrete(limits = rev(c("SEX_Male", 
+                                  "SEX_Female",
+                                  "RACE_White", 
+                                  "RACE_Black or African American", 
+                                  "RACE_Asian", 
+                                  "RACE_American Indian or Alaska Native", 
+                                  "RACE_Other", 
+                                  "RACE_Not Specified", 
+                                  "RACE_Unknown")),
+                   labels = rev(c("Male", 
+                                  "Female",
+                                  "White", 
+                                  "Black or African American", 
+                                  "Asian", 
+                                  "American Indian or Alaska Native", 
+                                  "Other", 
+                                  "Not Specified", 
+                                  "Unknown"))) +
+  scale_x_continuous(breaks = c(0, .2, .4, .6, .8, 1), 
+                     labels = c(0, 20, 40, 60, 80, 100)) +
+  scale_fill_manual(values = colors.fig1a) +
+  guides(fill = FALSE) +
+  xlab("Distribution (%)") +
+  ylab(NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+p
+```
+
 ### Figure 1b: Plot number of samples as a function of day of sampling
 *Authors:* Slim Fourati, Joanna Arce
 ```{r, fig-1b, fig.width=6.29, fig.height=4.84}
 # any sampling data after 20 days coded as >20
-df.fig1b <- pData(esetNoResp) %>%
+df.fig1b <- pData(young.NoResp) %>%
   select(uid, study_time_collected, pathogen, vaccine_type) %>%
   arrange(study_time_collected) %>%
   mutate(study_time_collected = signif(study_time_collected, digits = 3),
@@ -96,7 +204,7 @@ ggplot(data = df.fig1b,
 ### Figure 1c: Plot age as a function of vaccine investigated
 *Author: * Slim Fourati
 ```{r, fig-1c, fig.width=6.8, fig.height=7}
-df.fig1c <- pData(esetNoResp) %>%
+df.fig1c <- pData(young.NoResp) %>%
   select(participant_id, pathogen, vaccine_type, age_imputed, gender_imputed) %>%
   distinct() %>%
   mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")"))
@@ -135,8 +243,8 @@ kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
 ### Figure 1d: Proportion of Variance Explained
 *Author: * Slim Fourati
 ```{r, fig-1d-data-prep}
-em.fig1d <- exprs(esetNoResp)
-pd.fig1d <- pData(esetNoResp) %>%
+em.fig1d <- exprs(young.NoResp)
+pd.fig1d <- pData(young.NoResp) %>%
   mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
   select(uid, gender_imputed, ethnicity, Vaccine, study_time_collected,
 	 age_imputed) %>%
@@ -201,15 +309,15 @@ The following looks only at pre-vaccination timepoints
 ```
 
 ```{r, slea, eval=!sleaCached}
-batch <- interaction(esetNoResp$study_accession,
-                     esetNoResp$matrix,
+batch <- interaction(young.NoResp$study_accession,
+                     young.NoResp$matrix,
                      drop = TRUE)
-scaledMat <- by(data = t(exprs(esetNoResp)),
+scaledMat <- by(data = t(exprs(young.NoResp)),
                 INDICES = batch,
                 FUN = function(x) scale(x)) %>%
   do.call(what = rbind) %>%
   t()
-scaledMat <- scaledMat[, sampleNames(esetNoResp)]
+scaledMat <- scaledMat[, sampleNames(young.NoResp)]
 
 # SLEA (Ref: Lopez-Bigas N. et al. (2008) Genome Biol.)
 B <- 100
@@ -234,7 +342,7 @@ zscoreMat <- sapply(all_genesets, FUN = function(gs) {
 
 ```{r, create-slea-eset, eval=!sleaCached}
 sleaSet <- ExpressionSet(assayData = t(zscoreMat),
-                         phenoData = AnnotatedDataFrame(pData(esetNoResp)))
+                         phenoData = AnnotatedDataFrame(pData(young.NoResp)))
 saveRDS(sleaSet, file = sleaFile)
 ```
 
@@ -461,7 +569,7 @@ getSleaPDSubset.byGS <- function(geneset){
 }
 
 getSleaPDSubset.byGenes <- function(genes){
-  df <- exprs(esetNoResp)[genes, ] %>%
+  df <- exprs(young.NoResp)[genes, ] %>%
           as.data.frame() %>%
           rownames_to_column(var = "gene") %>%
           pivot_longer(cols = -gene, names_to = "uid") %>%
@@ -570,7 +678,7 @@ plotSLEASubsetByTime.byGene(df.figs3c)
 pd.fig4a <- pData(sleaSet)[sleaSet$study_time_collected <= 0, ]
 
 df.fig4a <- pd.fig4a %>%
-              merge(y = distinct(select(pData(esetWithResp), 
+              merge(y = distinct(select(pData(young.WithResp), 
                                         participant_id, MFC, MFC_p30))) %>%
                 group_by(study_accession) %>%
                 mutate(sMFC = scale(MFC),
