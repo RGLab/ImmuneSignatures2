@@ -1,0 +1,337 @@
+---
+title: "PaperFigures"
+author: "Mayte Fuarez-Farinas, PhD"
+date: "6/4/2020"
+output: html_document
+---
+### PCA /PVCA
+
+```{r libraries}
+library(gridExtra)
+library(pheatmap)
+library(BiostatsALL)
+library(affy)
+library(ggplot2)
+library(preprocessCore)
+library(limma)
+library(plyr)
+library(sigaR)
+library(MergeMaid)
+library(stringr)
+```
+
+```{r helper-functions}
+addPDataFeatures <- function(eset){
+  eset$pathogen_adjuvant <- interaction(eset$pathogen, eset$adjuvant)
+  eset$time <- eset$study_time_collected
+  eset$age_group <- ifelse(eset$age_imputed < 60, 'young', 'old')
+  eset$sex <- eset$gender_imputed
+  return(eset)
+}
+
+subsetToBaseline <- function(eset){
+  eset.baseline <- eset[, eset$study_time_collected == 0 ]
+  boxplot(exprs(eset.baseline), las = 2)
+  return(eset.baseline)
+}
+
+getSelectedGenes <- function(eset){
+  hasCompleteData <- rowMeans(is.na(exprs(eset))) == 0
+  hasStdDeviation <- apply(exprs(eset), 1, sd) > 0
+  selectedGenes <- featureNames(eset)[ which(hasCompleteData & hasStdDeviation) ]
+}
+
+getPCAs <- function(eset, maxpc = 3){
+  if (!is.matrix(eset)) {
+    ex <- exprs(eset)
+    out <- pData(eset)
+  }
+  else {
+    out <- NULL
+    ex <- eset
+  }
+  
+  pca.res <- prcomp(t(ex))
+  x <- pca.res$x[, 1:maxpc]
+  colnames(x) <- paste("PC", 1:maxpc, sep = ".")
+  varex = round(100 * summary(pca.res)$importance[2, ])
+  
+  db <- cbind.data.frame(x)
+  if (!is.null(out)) {
+    db <- cbind(db, out)
+  }
+    
+  return(list(db = as.data.frame(db), varex = varex))
+}
+
+plotPCA <- function(pca.db,
+                    title = paste0('PCA'), 
+                    color.var='study2',
+                    var.shape='pathogen',
+                    var.size='months2' ){
+  
+  p1 <- ggplot(mutate(as.data.frame(pca.db$db),
+                      months = round((study_time_collected/28), 1),
+                      months2 = ifelse(months < 0, -1, months) + 2),
+               aes_string(x = 'PC.1',
+                          y = 'PC.2', 
+                          color = color.var,  
+                          size = var.size, 
+                          shape = var.shape)) +
+               geom_jitter() + 
+               theme_bw() +
+               scale_color_manual(values=ann.colors[[color.var]]) +
+               labs(x = paste('PC-1 (', pca.db$varex[1], '%)', sep=''), 
+                    y = paste('PC-2 (', pca.db$varex[2], '%)', sep=''), 
+                    title = title) 
+  
+  return(p1)
+}
+
+my.plot.pvca <- function (pvcaObj, 
+                          cex.percentage = 1, 
+                          fname = NULL, 
+                          ht = 4, 
+                          wd = 5, 
+                          title = fname, 
+                          race.vars = NULL) {
+  
+  title <- mgsub(c("/", ".", "PVCA"), 
+                 rep("", 3), 
+                 fixed = TRUE, 
+                 fname)
+  labels <- gsub(":", " x ", pvcaObj$label)
+  labels <- gsub("_imputed", " ", labels)
+  
+  db <- data.frame(perc = t(pvcaObj$dat), 
+                   labels = factor(labels, levels = labels))
+  
+  if (!is.null(race.vars)) {
+    db <- rbind(db, 
+                data.frame(perc = sum(subset(db, labels %in% race.vars)$perc), labels='race')) %>%
+                    subset(!(labels %in% race.vars)) %>% 
+                    arrange(1*(labels == 'resid'), perc)
+  }
+  
+  p <- ggplot(db, aes(x = reorder(labels, perc), y = perc)) + 
+          geom_bar(stat = "identity", fill = "blue") + 
+          theme_bw() + 
+          scale_y_continuous(limits = c(0,  1.1)) + 
+          geom_text(aes(x = labels, 
+                        y = perc + 0.05, 
+                        label = paste0(as.character(round(100 *  perc, 1)), "%"))) +
+          labs(x = "Effects", 
+               y = "Weighted average proportion variance", 
+               title = paste("PVCA ", title)) + 
+          scale_x_discrete(labels = function(x) str_wrap(x, width = 8))
+  
+  if (!is.null(fname)) {
+    ggsave(file = paste0(fname, ".pdf"), height = ht, width = wd, 
+           plot = p)
+  }
+  
+  return(p)
+}
+
+
+impute.na <- function(x){
+  x[is.na(x)] <- mean(x, na.rm=TRUE)
+  return(x)
+}
+```
+
+
+```{r load}
+dir.path<-'../data_cache/'
+eset <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_noNorm_noResponse_eset.rds"))
+eset.n <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_norm_noResponse_eset.rds"))
+```
+
+```{r global-variables}
+Nfeatures.pca <- 5000
+race.vars <- c('Hispanic','White','Black','Asian')
+standard.vars <- c('gender_imputed','cell_type')
+scale_shape_values <- c(12,20,21:23,10,11,13:19)
+pvca_threshold <- 0.8
+```
+
+
+```{r annotation colors}
+load("/Users/maytesuarezfarinas/Desktop/DHIPC/SignaturesIOF_Rproj/adj_path_vt_colors.rda")
+
+# add for batch
+sc <- c("magenta","purple","orangered3","firebrick2","gray","green","lightblue4","yellow2",
+        "cyan","firebrick4","royalblue3","darkorange2","brown",'olivedrab','aquamarine',
+        'red','gold','dodgerblue','darkgray','lightsalmon1','darkgreen','royalblue3','orchid4',
+        'tan3','sandybrown','moccasin','pink','magenta','black','green','blue','violetred','snow4')
+
+ann.colors <- list(gender_imputed = c('red','blue'),
+                   study_accession = sc,
+                   study_accession2 = c(sc,'black'),
+                   featureSetName2 = sc,
+                   vaccine = sc[1:length(unique(eset$vaccine))])
+ann.colors <- c(adj_path_vt_colors, ann.colors)
+
+path <- c('Meningitis'  = "#80B1D3",
+          "Ebola"       = 'gold',
+          'Hepatitis B' = 'purple', 
+          'HIV'         = 'red',
+          'Malaria'     = 'cyan')
+ann.colors$pathogen <- c(path, ann.colors$pathogen[setdiff(names(ann.colors$pathogen), names(path))])
+```
+
+```{r eset-prep}
+# No Normalization
+eset <- addPDataFeatures(eset)
+eset.baseline <- subsetToBaseline(eset)
+selectedGenes.noNorm <- getSelectedGenes(eset.baseline)
+eset.baseline.selected <- eset.baseline[ selectedGenes.noNorm, ]
+pcas.noNorm.baseline <- getPCAs(eset.baseline.selected)
+pcas.noNorm.baseline$db$size <- factor(1)
+
+# With Normalization
+eset.n <- addPDataFeatures(eset.n)
+eset.n.baseline <- subsetToBaseline(eset.n)
+selectedGenes.withNorm <- getSelectedGenes(eset.n.baseline)
+eset.n.baseline.selected <- eset.n.baseline[ selectedGenes.withNorm, ]
+pcas.withNorm.baseline <- getPCAs(eset.n.baseline.selected)
+pcas.withNorm.baseline$db$size <- factor(1)
+```
+
+```{r pca-baseline-all-ages-no-normalization}
+p <- plotPCA(pcas.noNorm.baseline,
+              title = 'PCA Baseline',
+              color.var = 'study_accession',
+              var.shape = 'featureSetName2',
+              var.size = 'size')
+
+plotByStudy.noNorm <- p + scale_shape_manual(values = scale_shape_values)
+plotByStudy.noNorm
+
+p <- plotPCA(pcas.noNorm.baseline,
+              title='PCA Baseline',
+              color.var='featureSetName2',
+              var.shape='cell_type',
+              var.size='size')
+
+plotByPlatform.noNorm <- p + scale_shape_manual(values = scale_shape_values)
+plotByPlatform.noNorm
+```
+
+```{r pca-baseline-all-ages-with-normalization}
+plotByPlatform.withNorm <- plotPCA(pcas.withNorm.baseline,
+                              title='PCA Baseline Norm+Batch',
+                              color.var='featureSetName2',
+                              var.shape='age_group',
+                              var.size='size')
+```
+
+```{r pca-baseline-old-with-normalization}
+eset.n.baseline.old <- eset.n[selectedGenes.withNorm, eset.n$age_group == "old"]
+pcas.withNorm.old <- getPCAs(eset.n.baseline.old)
+pca.withNorm.old$db$size <- factor(1)
+
+p1 <- plotPCA(pcas.withNorm.old,
+              title = paste('PCANorm+Batch old'),
+              color.var = 'featureSetName2', 
+              var.shape = 'cell_type',
+              var.size = 'size')
+
+pcas.withNorm.old$db$time.disc <- cut(pcas.withNorm.old$db$study_time_collected, c(-8,-7,0,7,28,Inf))
+
+p1 <- plotPCA(pcas.withNorm.old,
+              title = 'PCANorm+Batch Old',
+              color.var = 'pathogen',
+              var.shape = 'adjuvant',
+              var.size = 'time.disc')
+p1 <- p1 + scale_shape_manual(values = scale_shape_values)
+
+p1 <- plotPCA(pca.db.n.y,
+              title = 'PCANorm+Batch Old',
+              color.var = 'pathogen',
+              var.shape = 'adjuvant',
+              var.size = 'size')
+p1 <- p1 + scale_shape_manual(values = scale_shape_values)
+```
+
+```{r PVCA original data baseline}
+eset.baseline.withNormFeatures <- eset.baseline[selectedGenes.withNorm,]
+
+eigen.baseline <- getEigen(eset.baseline[selectedGenes.noNorm,]) # should this be withNorm?
+
+batch.vars <- c(standard.vars,
+                race.vars,
+                'age_group',
+                'study_accession')
+
+pvca.baseline <- pvcaBatchAssess.MSF2(eset.baseline.withNormFeatures, 
+                                      eigenData = eigen.baseline,
+                                      batch.factors = batch.vars,
+                                      include.inter = sc( 'age_group:cell_type',
+                                                     'gender_imputed:cell_type'),
+                                      threshold = pvca_threshold)
+
+p <- my.plot.pvca(pvca.baseline,
+                  fname = paste0('PVCA_4paper_baseline_all'),
+                  ht = 3,
+                  wd = 6.2, 
+                  race.vars = race.vars)
+```
+
+```{r PVCA  all data }
+eset.n.selected <- eset.n[selectedGenes.withNorm,]
+eigen.all <- getEigen(eset.n.selected)
+
+batch.vars <- c(standard.vars,
+                race.vars,
+                'participant_id', 
+                'pathogen_adjuvant',
+                'time',
+                'age_group',
+                'study_accession')
+
+a <- pvcaBatchAssess.MSF2(eset.n.selected, 
+                          eigenData = eigen.all,
+                          batch.factors = batch.vars,
+                          include.inter = 'none',
+                          threshold = pvca_threshold)
+
+my.plot.pvca(a,
+             fname = paste0('PVCA_AfterNorm4paper-all_data'),
+             ht = 3,
+             wd = 6.2, 
+             race.vars = race.vars)
+
+pv <- arrange(data.frame(Factor=a$label, perc=a$dat[1,]), desc(perc))
+print(subset(pv, perc > 0.01))
+```
+
+```{r pvca-young}
+pvca.byAge <- function(age_group){
+  eset.n.selected <- eset.n[ selectedGenes.withNorm, eset.n$age_group == age_group]
+  eigen <- getEigen(eset.n.selected)
+  
+  batch.vars <- c('participant_id',
+                  standard.vars,
+                  race.vars,
+                  'pathogen_adjuvant',
+                  'time')
+  
+  a <- pvcaBatchAssess.MSF2(eset.n.selected, 
+                            eigenData = eigen,
+                            batch.factors = batch.vars,
+                            include.inter = c('pathogen_adjuvant:time',
+                                              'gender_imputed:pathogen_adjuvant:time'),
+                            threshold = pvca_threshold)
+                              
+  
+  my.plot.pvca(a,
+               fname = paste0('PVCA_AfterNorm4paper', age_group),
+               ht = 3, 
+               wd = 5.5,
+               race.vars = race.vars)
+}
+
+pvca.byAge("young")
+pvca.byAge("old")
+```
