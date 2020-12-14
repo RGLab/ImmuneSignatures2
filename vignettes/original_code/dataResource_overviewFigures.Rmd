@@ -1,0 +1,107 @@
+---
+title: "Figure1_IOFDataFigs_08_10_2020"
+output: html_document
+---
+
+```{r IOFfigure, echo=FALSE, fig.cap="A caption", out.width = '100%'}
+knitr::include_graphics("~/Dropbox (BCH)/HIPC/IOF/Figures/HIPCOverviewFigure1a.png")
+```
+Figure 1: HIPC Signatures Study creation Pipeline and Study Demographics. Systems vaccinology dataset from existing HIPC studies as well as published vaccinology papers and databases were submitted to ImmPort database. ImmuneSpace captures these datasets to create a combined compedium dataset. Quality control of these data include array quality checks for microarray studies, batch correction, imputations for missing age and sex/gender information and normalization per study
+
+```{r}
+library(stats) #prcomp
+library(RAPToR)
+library(Biobase) #pData
+library(tidyverse)
+library(reshape2)
+library(RColorBrewer)
+library(cowplot) #to plot side-by-side
+
+# Paths to virtual studies: Currently using the normalized, noResponse esets (to include more studies)
+path_to_young_eset <- "~/Dropbox (BCH)/HIPC/IOF/IS2/RDA/CURRENT/CURRENT_2020_08_10/2020_08_10_young_norm_noResponse_ageImputation_eset.rds"
+path_to_old_eset <- "~/Dropbox (BCH)/HIPC/IOF/IS2/RDA/CURRENT/CURRENT_2020_08_10/2020_08_10_extendedOld_norm_noResponse_ageImputation_eset.rds"
+
+# Set seed for consistent results
+set.seed(123)
+
+# Load data
+IS2_eset_noResponse_norm_young <- readRDS(file = path_to_young_eset)
+IS2_eset_noResponse_norm_old <- readRDS(file = path_to_old_eset)
+
+# Subset young data: 
+pdata_df_young <- as_tibble(pData(IS2_eset_noResponse_norm_young@phenoData))
+pdata_df_young <- pdata_df_young %>% dplyr::select(uid, everything())
+pdata_df_young$age_reported <- as.numeric(pdata_df_young$age_reported)
+pdata_df_young$age_imputed <- as.numeric(pdata_df_young$age_imputed)
+young_exprs <- exprs(IS2_eset_noResponse_norm_young)
+
+# Subset old data: 
+pdata_df_old <- as_tibble(pData(IS2_eset_noResponse_norm_old@phenoData))
+pdata_df_old <- pdata_df_old %>% dplyr::select(uid, everything())
+pdata_df_old$age_reported <- as.numeric(pdata_df_old$age_reported)
+pdata_df_old$age_imputed <- as.numeric(pdata_df_old$age_imputed)
+old_exprs <- exprs(IS2_eset_noResponse_norm_old)
+
+# Combine:
+pdata_df <- rbind(pdata_df_young, pdata_df_old)
+#exprs_mat <- cbind(young_exprs, old_exprs)
+```
+
+# Distribution of data:
+
+```{r}
+pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
+pdata_df_uniqueSubjects <- distinct(pdata_no_malaria, participant_id, gender_imputed, race, pathogen, vaccine_type)
+pdata_df_uniqueSubjects <- mutate(pdata_df_uniqueSubjects, pathogen_vacc = paste0(pathogen, "\n(", vaccine_type, ")"))
+
+sex_counts_df <- arrange(dplyr::count(pdata_df_uniqueSubjects, gender_imputed, pathogen_vacc), n)
+sex_counts_df$pathogen_total <- sapply(1:nrow(sex_counts_df), function(i){
+  return(sum(filter(sex_counts_df, pathogen_vacc == sex_counts_df$pathogen_vacc[i])$n))
+})
+sex_counts_df$pathogen_vacc <- paste0(sex_counts_df$pathogen_vacc, "\nn = ", sex_counts_df$pathogen_total)
+sex_counts_df$n <- sex_counts_df$n/sex_counts_df$pathogen_total
+colnames(sex_counts_df) <- c("category", "pathogen_vacc", "freq")
+sex_counts_df$category <- paste0("SEX_", sex_counts_df$category)
+
+race_counts_df <- arrange(dplyr::count(pdata_df_uniqueSubjects, race, pathogen_vacc), n)
+race_counts_df$pathogen_total <- sapply(1:nrow(race_counts_df), function(i){
+  return(sum(filter(race_counts_df, pathogen_vacc == race_counts_df$pathogen_vacc[i])$n))
+})
+race_counts_df$pathogen_vacc <- paste0(race_counts_df$pathogen_vacc, "\nn = ", race_counts_df$pathogen_total)
+race_counts_df$n <- race_counts_df$n/race_counts_df$pathogen_total
+colnames(race_counts_df) <- c("category", "pathogen_vacc", "freq")
+race_counts_df$category <- paste0("RACE_", race_counts_df$category)
+
+total_counts <- rbind(sex_counts_df, race_counts_df)
+
+# Choose colors to keep consistent color scheme (scheme made in other figure)
+set3colors <- brewer.pal("Set3", n = 12)
+mycolors= c(set3colors[c(2, 11, 3, 12, 8)], "black", set3colors[c(7, 6, 5, 1, 4, 9, 10)])
+names(mycolors)= c(unique(total_counts$pathogen_vacc)[c(2, 11, 3, 12, 8)],
+                   "Malaria (Recombinant protein)",
+                   unique(total_counts$pathogen_vacc)[c(7, 6, 5, 1, 4, 9, 10)])
+
+p <- ggplot(total_counts) +
+  geom_bar(aes(x = freq, y = category, fill = pathogen_vacc), color = "black", stat = "identity", lwd = .2) +
+  geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
+  facet_wrap(vars(pathogen_vacc), nrow = 2) +
+  scale_y_discrete(limits = rev(c("SEX_Male", "SEX_Female",
+                              "RACE_White", "RACE_Black or African American", "RACE_Asian", "RACE_American Indian or Alaska Native", "RACE_Other", "RACE_Not Specified", "RACE_Unknown")),
+                   labels = rev(c("Male", "Female",
+                              "White", "Black or African American", "Asian", "American Indian or Alaska Native", "Other", "Not Specified", "Unknown"))) +
+  scale_x_continuous(breaks = c(0, .2, .4, .6, .8, 1), labels = c(0, 20, 40, 60, 80, 100)) +
+  scale_fill_manual(values = mycolors) +
+  guides(fill = FALSE) +
+  xlab("Distribution (%)") +
+  ylab(NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+
+# Show Figure:
+p
+```
+
+
+
+
+
