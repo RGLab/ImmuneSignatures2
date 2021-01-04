@@ -1,0 +1,35 @@
+---
+title: "Update Ychrom QC"
+author: Helen Miller
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+```
+
+```{r load-dependencies}
+library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
+library(Biobase)
+library(here)
+```
+
+```{r output-variables}
+dataCacheDir <- here("vignettes", "data_cache/")
+inputFilenamePrefix <- "2020_12_23_newAnno_"
+outputFilenamePrefix <- "2020_12_23_newAnno_"
+```
+
+```{r updateEsets}
+files <- list.files(dataCacheDir, pattern = paste0(inputFilenamePrefix, ".+set.rds"))
+for (filename in files) {
+  eset <- readRDS(file.path(dataCacheDir, filename))
+  pd <- pData(eset)
+  y_chrom_present <- ifelse(pd$gender_imputed == "Male", TRUE, FALSE)
+  y_chrom_present_timepoint <- ifelse(pd$gender_imputed_timepoint == "Male", TRUE, FALSE)
+  failedYchromQC <- pd$failedGenderQC
+  pd <- cbind(pd, y_chrom_present, y_chrom_present_timepoint, failedYchromQC)
+  pData(eset) <- pd
+  saveRDS(eset, file.path(dataCacheDir, filename))
+}
+```

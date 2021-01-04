@@ -25,7 +25,9 @@ library(tidyverse)
 ```{r output-variables}
 outputDir <- "outputs/"
 dataCacheDir <- "data_cache/"
-timeStamp <- "2020_10_27_"
+if (!dir.exists(outputDir)) dir.create(outputDir)
+if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
+timeStamp <- "2020_12_23_newAnno_"
 ```
 
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
@@ -43,7 +45,7 @@ rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
 assays <- c("hai", "neut_ab_titer", "elisa")
 
-con <- CreateConnection("")
+con <- CreateConnection("", onTest = TRUE)
 ```
 
 ```{r load-meta-data}
@@ -90,7 +92,7 @@ geMatrices <- con$cache$GE_matrices
 geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
 geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = TRUE), ] 
 
-esetsFile <- list.files(path = dataCacheDir, pattern = "IS2_esets.rds", full.names = TRUE)
+esetsFile <- list.files(path = dataCacheDir, pattern = paste0(timeStamp, "IS2_esets.rds"), full.names = TRUE)
 if(length(esetsFile) == 0){
   esets <- lapply(
     geMatrices$name,

@@ -23,8 +23,8 @@ library(limma)
 ```{r output-variables}
 outputDir <- "outputs/"
 dataCacheDir <- "data_cache/"
-inputFilenamePrefix <- "2020_10_27_"
-outputFilenamePrefix <- "2020_10_27_"
+inputFilenamePrefix <- "2020_12_23_newAnno_"
+outputFilenamePrefix <- "2020_12_23_newAnno_"
 ```
 
 
@@ -152,7 +152,7 @@ for(ageGroupName in names(ageGroups)){
 }
 ```
 
-```{r create-diagnostic-plots}
+```{r create-diagnostic-plots, eval = TRUE}
 library(tidyverse)
 allEset <- readRDS(paste0(dataCacheDir, outputFilenamePrefix, "all_noNorm_noResponse_eset.rds"))
 genderQCPlot <- qualityControl.failedGenderImputation(allEset)
