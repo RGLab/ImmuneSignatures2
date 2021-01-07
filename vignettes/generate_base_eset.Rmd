@@ -12,14 +12,17 @@ knitr::opts_chunk$set(echo = FALSE, include = FALSE)
 ```
 
 ```{r load-dependencies}
-library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
-library(ImmuneSpaceR) 
-library(Rlabkey)
-library(Biobase)
-library(dplyr)
-library(data.table)
-library(limma)
-library(tidyverse)
+suppressPackageStartupMessages({
+  library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
+  library(ImmuneSpaceR) 
+  library(Rlabkey)
+  library(Biobase)
+  library(dplyr)
+  library(data.table)
+  library(limma)
+  library(tidyverse)
+})
+
 ```
 
 ```{r output-variables}
@@ -27,25 +30,15 @@ outputDir <- "outputs/"
 dataCacheDir <- "data_cache/"
 if (!dir.exists(outputDir)) dir.create(outputDir)
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
-timeStamp <- "2020_12_23_newAnno_"
+timeStamp <- "2021_1_5_test_"
 ```
 
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
 
 ```{r global-variables}
-studies <- c("SDY56, SDY61, SDY63, SDY67, SDY80, SDY180, SDY212, SDY224, SDY269, SDY270, SDY400, SDY404, SDY520, SDY640, SDY984, SDY1119, SDY1260, SDY1264, SDY1276, SDY1289, SDY1291, SDY1293, SDY1294, SDY1325, SDY1328, SDY1364, SDY1368, SDY1370, SDY1373, SDY1529")
-studies <- strsplit(studies, ", ")[[1]]
-
-# Removing cohorts from gene expression data:
-# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
-# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
-# SDY1364 - intraDermal, different vaccination method
-# SDY180 - Saline cohorts did not receive stimulation
-rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
-
 assays <- c("hai", "neut_ab_titer", "elisa")
 
-con <- CreateConnection("", onTest = TRUE)
+con <- CreateConnection("IS2", onTest = TRUE)
 ```
 
 ```{r load-meta-data}
@@ -70,7 +63,8 @@ sharedMetaData <- imputeAge(sharedMetaData)
 
 ```{r prepare-immune-response-data}
 immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
-  dt <- getImmuneResponseData(assay, con, studies)
+  dt <- con$getDataset(assay, original_view = TRUE)
+  dt <- dt[, -"lsid"]
   if(assay == "elisa"){
     dt <- rbind(dt, sdy1370_elisa)
   }
@@ -89,8 +83,6 @@ and each matrix is quantile normalized and log-transformed separately. The .rds 
 ```{r extract-within-study-normalized-gene-expression-data}
 # With a global CreateConnection object we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
-geMatrices <- geMatrices[ geMatrices$folder %in% studies, ]
-geMatrices <- geMatrices[ grep( rmCohorts, geMatrices$name, invert = TRUE), ] 
 
 esetsFile <- list.files(path = dataCacheDir, pattern = paste0(timeStamp, "IS2_esets.rds"), full.names = TRUE)
 if(length(esetsFile) == 0){
@@ -152,8 +144,9 @@ phenoDataSets <- addMatrixRelatedFields(phenoDataSets, geMatrices)
 geMetaData <- rbindlist(phenoDataSets)
 
 # Adds vaccine and age_imputed
-geMetaData <- merge(geMetaData, sharedMetaData, 
-                    by = c("participant_id", "cohort", "study_accession"))
+# First remove "Old" vs "Young" cohort name from sharedMetaData
+geMetaData <- merge(geMetaData, sharedMetaData[, -"cohort"], 
+                    by = c("participant_id", "study_accession"))
 
 geMetaData <- addFeatureAnnotationSetName(geMetaData, featureAnnotationMap)
 geMetaData <- addFeatureAnnotationSetVendor(geMetaData, featureAnnotation)
