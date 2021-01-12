@@ -4,4 +4,5 @@
 *.Rproj.*
 .*.Rnb.cached
 .Rbuildignore
-/vignettes/data_cache
+data_cache
+outputs

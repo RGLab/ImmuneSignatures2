@@ -15,7 +15,7 @@ library(here)
 ```
 
 ```{r output-variables}
-dataCacheDir <- here("vignettes", "data_cache/")
+dataCacheDir <- here("vignettes", "data_cache")
 inputFilenamePrefix <- "2020_12_23_newAnno_"
 outputFilenamePrefix <- "2020_12_23_newAnno_"
 ```

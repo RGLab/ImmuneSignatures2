@@ -1,6 +1,6 @@
 ---
 title: "ImmuneSignatures2: Generating Base ExpressionSet from ImmuneSpace Data"
-author: "Evan Henrich"
+author: "Evan Henrich and Helen Miller"
 output: html_document
 ---
 
@@ -21,13 +21,14 @@ suppressPackageStartupMessages({
   library(data.table)
   library(limma)
   library(tidyverse)
+  library(here)
 })
 
 ```
 
 ```{r output-variables}
-outputDir <- "outputs/"
-dataCacheDir <- "data_cache/"
+outputDir <- here("outputs")
+dataCacheDir <- here("data_cache")
 if (!dir.exists(outputDir)) dir.create(outputDir)
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
 timeStamp <- "2021_1_5_test_"
@@ -84,15 +85,15 @@ and each matrix is quantile normalized and log-transformed separately. The .rds 
 # With a global CreateConnection object we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
 
-esetsFile <- list.files(path = dataCacheDir, pattern = paste0(timeStamp, "IS2_esets.rds"), full.names = TRUE)
-if(length(esetsFile) == 0){
+esetsFile <- file.path(dataCacheDir, pattern = paste0(timeStamp, "IS2_esets.rds"))
+if(!file.exists(esetsFile)){
   esets <- lapply(
     geMatrices$name,
     con$getGEMatrix,
     outputType = "normalized",
     annotation = "latest")
   names(esets) <- geMatrices$name
-  esetsFile <- paste0(dataCacheDir, timeStamp, "IS2_esets.rds")
+  esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
   saveRDS(esets, file = esetsFile)
 }else{
   esets <- readRDS(esetsFile)
@@ -261,5 +262,5 @@ res <- testNoNormEset(noNormEset)
 if(!all(unlist(res))){
   stop("noNormEset does not meet expectations")
 }
-saveRDS(noNormEset, file = paste0(dataCacheDir, timeStamp, "noNormEset.rds"))
+saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
 ```

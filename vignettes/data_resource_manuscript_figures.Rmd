@@ -13,40 +13,37 @@ knitr::opts_chunk$set(echo = TRUE,
 
 # SETUP
 ```{r, libraries}
-suppressPackageStartupMessages(library(package = "knitr"))
-suppressPackageStartupMessages(library(package = "Biobase"))
-suppressPackageStartupMessages(library(package = "RColorBrewer"))
-suppressPackageStartupMessages(library(package = "tidyverse"))
-suppressPackageStartupMessages(library(package = "ggbeeswarm"))
-suppressPackageStartupMessages(library(package = "pvca")) # dleelab/pvca
-suppressPackageStartupMessages(library(package = "lme4"))
-suppressPackageStartupMessages(library(package = "cluster"))
-suppressPackageStartupMessages(library(package = "ComplexHeatmap")) # Bioc Install
-suppressPackageStartupMessages(library(package = "ImmuneSignatures2"))
-suppressPackageStartupMessages(library(package = "cowplot"))
+suppressPackageStartupMessages({
+  library(package = "knitr")
+  library(package = "Biobase")
+  library(package = "RColorBrewer")
+  library(package = "tidyverse")
+  library(package = "ggbeeswarm")
+  library(package = "pvca") # dleelab/pvca
+  library(package = "lme4")
+  library(package = "cluster")
+  library(package = "ComplexHeatmap") # Bioc Install
+  library(package = "ImmuneSignatures2")
+  library(package = "cowplot")
+  library(here)
+})
 ```
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- "data_cache/"
+dataCacheDir <- here("data_cache")
 datePrefix <- "2020_12_07_PostAnno"
 ```
 
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
 ```{r, read-esets}
-noRespGEFile <- list.files(path       = dataCacheDir,
-                           pattern    = paste0(datePrefix,"_extendedOld_norm_noResponse_eset.rds"),
-                           full.names = TRUE)
+noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_extendedOld_norm_noResponse_eset.rds"))
 old.NoResp <- readRDS(file = noRespGEFile)
 
-noRespGEFile <- list.files(path       = dataCacheDir,
-                           pattern    = paste0(datePrefix,"_young_norm_noResponse_eset.rds"),
-                           full.names = TRUE)
+noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_young_norm_noResponse_eset.rds"))
 young.NoResp <- readRDS(file = noRespGEFile)
 
-withRespGEFile <- list.files(path       = dataCacheDir,
-                             pattern    = paste0(datePrefix,"_young_norm_withResponse_eset.rds"),
-                             full.names = TRUE)
+withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_young_norm_withResponse_eset.rds"))
 young.WithResp <- readRDS(file = withRespGEFile)
 ```
 
@@ -257,7 +254,7 @@ pd.fig1d <- pd.fig1d[colnames(em.fig1d), ]
 ```
 
 ```{r, fig-1d-PVCA, echo=FALSE}
-pvcaCacheFile <- "data_cache/pvca.rds"
+pvcaCacheFile <- file.path(dataCacheDir, "pvca.rds")
 if(!file.exists(pvcaCacheFile)){
   fit <- PVCA(counts    = em.fig1d,
               meta      = pd.fig1d,
