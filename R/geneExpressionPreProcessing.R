@@ -372,13 +372,13 @@ imputeYchrom.useAllTimepoints <- function(eset){
   flagProblemTimepoints <- function(gender_reported, y_chrom_present_timepoint){
     if (length(unique(y_chrom_present_timepoint)) == 1) {
       return(FALSE)
-    } else if (length(gender_reported) == 1 & unique(gender_reported) %in% c("Female", "Male")) {
+    } else if (unique(gender_reported) %in% c("Female", "Male")) {
       # Imputed ychrom values differ by timepoint: Flag when ychrom does not align with
       # expected ychrom value based on gender
       expected_y_chrom <- ifelse(gender_reported == "Male", TRUE, FALSE)
       return(y_chrom_present_timepoint != expected_y_chrom)
     } else {
-      # ychrom varies by timepoint and gender_reported varies by timepoint:
+      # ychrom varies by timepoint and gender_reported not reported:
       # Check if clear majority of ychrom values
       res <- table(y_chrom_present_timepoint)
       majority <- names(res)[ res == max(res) ]
@@ -391,6 +391,8 @@ imputeYchrom.useAllTimepoints <- function(eset){
       }
     }
   }
+
+
 
   PD[ , y_chrom_present := summarizeYchrom(gender, y_chrom_present_timepoint), by = "participant_id"]
 

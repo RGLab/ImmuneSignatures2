@@ -114,7 +114,7 @@ testNoNormEset <- function(eset){
   chks$allPidsHaveImputedYchrom <- !any(is.na(pd$y_chrom_present) | pd$y_chrom_present == "NP")
 
   updatedGender <- pd[ grepl("male", pd$gender, ignore.case = TRUE), ]
-  updatedGender$gender_imputed <- ifelse(updatedGender$y_chrom_present, "Male",)
+  updatedGender$gender_imputed <- ifelse(updatedGender$y_chrom_present, "Male", "Female")
   updatedGender <- updatedGender[ updatedGender$gender != updatedGender$gender_imputed, ]
   pidsWithUpdatedGender <- length(unique(updatedGender$participant_id))
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40

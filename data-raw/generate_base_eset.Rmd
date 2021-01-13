@@ -227,7 +227,7 @@ dev.off()
 
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
-noNormEset <- imputeGender.useAllTimepoints(noNormEset)
+noNormEset <- imputeYchrom.useAllTimepoints(noNormEset)
 
 # Specific samples for SDY1370 were determined to be problematic by
 # looking at the coordination of y_chrom_present by timepoint
@@ -242,7 +242,7 @@ failedGenderQC
 dev.off()
 
 
-problemSamples <- noNormEset[ , noNormEset$failedGenderQC]
+problemSamples <- noNormEset[ , noNormEset$failedYchromQC]
 problemSubjectsPlot <- qualityControl.yChromPresentByMatrix(problemSamples, 
                                                      returnObject = "probSubjects")
 pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedYchromQCproblemSubjects.pdf")),
