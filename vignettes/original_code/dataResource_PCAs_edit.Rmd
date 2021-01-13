@@ -9,7 +9,7 @@ output: html_document
 ```{r libraries}
 library(gridExtra)
 library(pheatmap)
-library(BiostatsALL)
+library(BiostatsALL) #devtools::install_github("mssm-msf-2019/BiostatsALL")
 library(affy)
 library(ggplot2)
 library(preprocessCore)
@@ -142,7 +142,7 @@ impute.na <- function(x){
 
 
 ```{r load}
-dir.path<-'../data_cache/'
+dir.path<-here::here("vignettes", "data_cache/')
 eset <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_noNorm_noResponse_eset.rds"))
 eset.n <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_norm_noResponse_eset.rds"))
 ```

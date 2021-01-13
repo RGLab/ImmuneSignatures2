@@ -26,8 +26,8 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   #                         )
 
   noResponseCols <- c(expectedGeMetaDataColumns,
-                      "gender_imputed",
-                      "gender_imputed_timepoint",
+                      "y_chrom_present",
+                      "y_chrom_present_timepoint",
                       "failedGenderQC")
 
   staticResponseCols <- c(
@@ -76,6 +76,7 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) > 10000
   chks$exprs$noMissingGeneNames <- all(!is.na(rownames(em)) & rownames(em) != "")
 
+  # TODO: This checks for empty rows, not incomplete rows...
   incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
   chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
 

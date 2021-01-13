@@ -9,9 +9,6 @@ The purpose of this vignette is to generate a base expressionSet object with tra
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, include = FALSE)
-```
-
-```{r load-dependencies}
 suppressPackageStartupMessages({
   library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
   library(ImmuneSpaceR) 
@@ -23,10 +20,7 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-
-```
-
-```{r output-variables}
+# Global variables
 outputDir <- here("outputs", "virtualStudy_prod")
 dataCacheDir <- here("data_cache", "virtualStudy_prod")
 if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
@@ -63,7 +57,11 @@ sharedMetaData <- imputeAge(sharedMetaData)
 # Immune Response Data Retrieval
 
 ```{r prepare-immune-response-data}
-immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
+immdata_filename <- file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds"))
+if (file.exists(immdata_filename)) {
+  immdata_all <- readRDS(immdata_filename)
+} else {
+  immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- con$getDataset(assay, original_view = TRUE)
   dt <- dt[, -"lsid"]
   if(assay == "elisa"){
@@ -74,7 +72,8 @@ immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- createUniqueIdColumn(dt)
   dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
 })
-saveRDS(immdata_all, file = file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds")))
+saveRDS(immdata_all, file = immdata_filename)
+}
 ```
 
 # Gene Expression Data Retrieval
@@ -228,25 +227,25 @@ dev.off()
 
 # The following code assigns probable gender based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
-noNormEset <- imputeGender.useAllTimepoints(noNormEset)
+noNormEset <- imputeYchrom.useAllTimepoints(noNormEset)
 
 # Specific samples for SDY1370 were determined to be problematic by
-# looking at the coordination of gender_imputed by timepoint
+# looking at the coordination of y_chrom_present by timepoint
 problemSamples <- c("SUB192192.1370,","SUB192199.1370")
-noNormEset <- adjustProblemSamples(noNormEset, problemSamples)
+noNormEset$failedYchromQC[ noNormEset$participant_id %in% problemSamples] <- TRUE
 
-failedGenderQC <- qualityControl.failedGenderImputation(noNormEset)
-pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedGenderQCAllSubjects.pdf")),
+failedGenderQC <- qualityControl.failedYchromQC (noNormEset)
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedYchromQCAllSubjects.pdf")),
     width = 8.5,
     height = 11)
 failedGenderQC
 dev.off()
 
 
-problemSamples <- noNormEset[ , noNormEset$failedGenderQC]
-problemSubjectsPlot <- qualityControl.genderImputedByMatrix(problemSamples, 
+problemSamples <- noNormEset[ , noNormEset$failedYchromQC]
+problemSubjectsPlot <- qualityControl.yChromPresentByMatrix(problemSamples, 
                                                      returnObject = "probSubjects")
-pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedGenderQCproblemSubjects.pdf")),
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedYchromQCproblemSubjects.pdf")),
     width = 8.5,
     height = 11)
 problemSubjectsPlot
