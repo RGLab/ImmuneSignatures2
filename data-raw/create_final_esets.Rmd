@@ -22,10 +22,10 @@ library(here)
 ```
 
 ```{r output-variables}
-outputDir <- here("outputs")
-dataCacheDir <- here("data_cache")
-inputFilenamePrefix <- "2020_12_23_newAnno_"
-outputFilenamePrefix <- "2020_12_23_newAnno_"
+outputDir <- here("outputs", "virtualStudy_prod")
+dataCacheDir <- here("data_cache", "virtualStudy_prod")
+inputFilenamePrefix <- ""
+outputFilenamePrefix <- ""
 if (!dir.exists(outputDir)) stop("could not find", outputDir)
 if (!dir.exists(dataCacheDir)) stop("could not find", dataCacheDir)
 ```

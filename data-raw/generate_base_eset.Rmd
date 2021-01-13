@@ -27,11 +27,11 @@ suppressPackageStartupMessages({
 ```
 
 ```{r output-variables}
-outputDir <- here("outputs")
-dataCacheDir <- here("data_cache")
-if (!dir.exists(outputDir)) dir.create(outputDir)
+outputDir <- here("outputs", "virtualStudy_prod")
+dataCacheDir <- here("data_cache", "virtualStudy_prod")
+if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
-timeStamp <- "2021_1_5_test_"
+timeStamp <- ""
 ```
 
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
@@ -39,7 +39,7 @@ The ImmuneSignatures group selected a number of studies based on the diseases st
 ```{r global-variables}
 assays <- c("hai", "neut_ab_titer", "elisa")
 
-con <- CreateConnection("IS2", onTest = TRUE)
+con <- CreateConnection("IS2", onTest = FALSE)
 ```
 
 ```{r load-meta-data}
@@ -74,7 +74,7 @@ immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
   dt <- createUniqueIdColumn(dt)
   dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
 })
-saveRDS(immdata_all, file = paste0(dataCacheDir, timeStamp, "immdata_all.rds"))
+saveRDS(immdata_all, file = file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds")))
 ```
 
 # Gene Expression Data Retrieval
@@ -85,7 +85,7 @@ and each matrix is quantile normalized and log-transformed separately. The .rds 
 # With a global CreateConnection object we start with all available matrices.
 geMatrices <- con$cache$GE_matrices
 
-esetsFile <- file.path(dataCacheDir, pattern = paste0(timeStamp, "IS2_esets.rds"))
+esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
 if(!file.exists(esetsFile)){
   esets <- lapply(
     geMatrices$name,

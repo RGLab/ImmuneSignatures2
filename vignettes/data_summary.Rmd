@@ -42,7 +42,7 @@ summary <- data.table(cohorts = c(),
                       samples = c(),
                       vaccines = c(),
                       vaccine_types = c())
-esets <- list.files(here::here(dataCacheDir), pattern = "_eset.rds")
+esets <- list.files(here::here(dataCacheDir), pattern = "[E|e]set.rds")
 datasetSummaries <- lapply(esets, function(filename) {
   dataset <- readRDS(here::here(dataCacheDir, filename))
   
@@ -100,3 +100,32 @@ datasetSummaries <- lapply(esets_all, function(filename) {
 })
 knitr::kable(rbindlist(datasetSummaries))
 ```
+
+## Numbers for consort diagram
+
+### Source data from ImmPort
+```{r}
+# studies
+# participants
+# samples
+```
+
+### Data pre-processing in ImmuneSpace
+All numbers should match ImmPort numbers unless anything was dropped. 
+```{r}
+# studies
+# Participants
+# samples
+```
+
+### Creation of HIPC Signatures dataset
+This is the noNorm_eset 
+I. cohorts removal due to non-uniform gene expression dataset (esets removed in this step https://github.com/RGLab/ImmuneSignatures2/blob/52dfac6f0f81ff578072211558f2d625c9f9d815/vignettes/generate_base_eset.Rmd#L42)
+II. Samples removed due to differences in time design determination https://github.com/RGLab/ImmuneSignatures2/blob/e374129b34702770f7d9abb6e72033abf922dfb1/data-raw/generate_base_eset.Rmd#L119
+III. Participant removal with no baseline sample https://github.com/RGLab/ImmuneSignatures2/blob/e374129b34702770f7d9abb6e72033abf922dfb1/data-raw/generate_base_eset.Rmd#L216
+
+### Data passed QC/QA
+This is all_noNorm_noResponse_eset
+
+
+
