@@ -23,8 +23,8 @@ library(here)
 
 ```{r output-variables}
 outputDir <- here("outputs", "virtualStudy_prod")
-dataCacheDir <- here("data_cache", "virtualStudy_prod")
-inputFilenamePrefix <- ""
+dataCacheDir <- here("data_cache", "old")
+inputFilenamePrefix <- "2020_10_27_"
 outputFilenamePrefix <- ""
 if (!dir.exists(outputDir)) stop("could not find", outputDir)
 if (!dir.exists(dataCacheDir)) stop("could not find", dataCacheDir)
@@ -104,6 +104,7 @@ for(ageGroupName in names(ageGroups)){
       eset.corr.noResponse <- batchCorrect(eset.norm.noResponse)
     }
   eset.corr.noResponse <- removeAllNArows(eset.corr.noResponse)
+
   
   res <- testFinalEset(eset.corr.noResponse, 
                        expectResponse = FALSE, 
@@ -173,16 +174,16 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byStudy.
 qualityControl.samplePlot(young)
 dev.off()
 
-pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byGenderImputed.pdf")),
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_mds_byYchrom.pdf")),
     width = 8.5,
     height = 11)
-qualityControl.samplePlot(young, colorCol = "gender_imputed")
+qualityControl.samplePlot(young, colorCol = "y_chrom_present")
 dev.off()
 
-pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_pca_byGenderImputed.pdf")),
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "young_pca_byYchrom.pdf")),
     width = 8.5,
     height = 11)
-qualityControl.samplePlot(young, method = "PCA", colorCol = "gender_imputed")
+qualityControl.samplePlot(young, method = "PCA", colorCol = "y_chrom_present")
 dev.off()
 
 old <- readRDS(file.path(dataCacheDir, paste0(outputFilenamePrefix, "old_norm_noResponse_eset.rds")))
@@ -193,16 +194,16 @@ pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byStudy.pd
 qualityControl.samplePlot(old)
 dev.off()
 
-pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byGenderImputed.pdf")),
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_mds_byYchrom.pdf")),
     width = 8.5,
     height = 11)
-qualityControl.samplePlot(old, colorCol = "gender_imputed")
+qualityControl.samplePlot(old, colorCol = "y_chrom_present")
 dev.off()
 
-pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_pca_byGenderImputed.pdf")),
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "old_pca_byYchrom.pdf")),
     width = 8.5,
     height = 11)
-qualityControl.samplePlot(old, method = "PCA", colorCol = "gender_imputed")
+qualityControl.samplePlot(old, method = "PCA", colorCol = "y_chrom_present")
 dev.off()
 
 extendedOld <- readRDS(file.path(dataCacheDir, paste0(outputFilenamePrefix, "extendedOld_norm_noResponse_eset.rds")))

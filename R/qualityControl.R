@@ -49,7 +49,7 @@ qualityControl.samplePlot <- function(eset,
 #' @import ggbeeswarm tidyverse Biobase data.table
 #' @export
 #'
-qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatricesPlot"){
+qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatricesPlot"){
   yChromGenes <- yChromGenes[ yChromGenes %in% featureNames(eset) ]
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
@@ -66,7 +66,7 @@ qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatric
     colors <- colorRampPalette(colors)(length(unique(plotDF$participant_id)))
 
     fullPlot <- ggplot(data = plotDF,
-                       mapping = aes(x = gender_imputed, y = chry)) +
+                       mapping = aes(x = y_chrom_present, y = chry)) +
       geom_boxplot(outlier.color = "transparent", fill = "grey") +
       geom_jitter(height = 0, width = 0.25, mapping = aes(color = participant_id)) +
       labs(y = "Average probe intensities (chrY)") +
@@ -81,25 +81,25 @@ qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatric
 
   # find outlier (1.5 x IGR from Q1 and Q3)
   outlierDF <- plotDF %>%
-    group_by(study_accession, matrix, gender_imputed) %>%
+    group_by(study_accession, matrix, y_chrom_present) %>%
     mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
            dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
 
   quartileDF <- plotDF %>%
-    group_by(study_accession, matrix, gender_imputed) %>%
+    group_by(study_accession, matrix, y_chrom_present) %>%
     summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
               q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
-    mutate(gender_imputed = c("Female" = "Male", "Male" = "Female")[gender_imputed])
+    mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
                   y  = quartileDF,
-                  by = c("study_accession", "matrix", "gender_imputed")) %>%
+                  by = c("study_accession", "matrix", "y_chrom_present")) %>%
     mutate(flag = FALSE,
-           flag = ifelse(test = gender_imputed %in% "Female" & up & chry >= q1,
+           flag = ifelse(test = !y_chrom_present & up & chry >= q1,
                          yes  = TRUE,
                          no   = flag),
-           flag = ifelse(test = gender_imputed %in% "Male" & dn & chry <= q3,
+           flag = ifelse(test = y_chrom_present & dn & chry <= q3,
                          yes  = TRUE,
                          no   = flag))
 
@@ -107,7 +107,7 @@ qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatric
                   y     = select(flagDF, rowname, flag),
                   by    = "rowname",
                   all.x = TRUE) %>%
-    # if gender_imputed not specified, set flag as false
+    # if y_chrom_present not specified, set flag as false
     mutate(flag = ifelse(test = is.na(flag),
                          yes  = FALSE,
                          no   = flag))
@@ -116,7 +116,7 @@ qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatric
 
   if(returnObject == "allMatricesPlot"){
     fullPlot <- ggplot(data = plotDF,
-                       mapping = aes(x = gender_imputed, y = chry)) +
+                       mapping = aes(x = y_chrom_present, y = chry)) +
       geom_boxplot(outlier.color = "transparent", fill = "grey") +
       geom_jitter(height = 0, width = 0.25, mapping = aes(color = flag)) +
       labs(y = "Average probe intensities (chrY)") +
@@ -136,7 +136,7 @@ qualityControl.genderImputedByMatrix <- function(eset, returnObject = "allMatric
     plotTemp <- filter(plotDF, matrix %in% problemMatrix)
 
     prbSmplsPlot <- ggplot(data = plotTemp,
-                           mapping = aes(x = gender_imputed, y = chry)) +
+                           mapping = aes(x = y_chrom_present, y = chry)) +
       geom_boxplot(outlier.color = "transparent", fill = "grey") +
       geom_beeswarm(mapping = aes(color = flag), cex = 2.5, size = 0.8) +
       labs(y = "Average probe intensities (chrY)", x = "Sex") +
@@ -214,13 +214,13 @@ qualityControl.genderByMatrix <- function(eset){
           strip.text = element_text(size = 5))
 }
 
-#' Generate gender box plots after QC
+#' Generate ychrom box plots after QC
 #'
 #' @param eset expressionSet
 #' @import ggbeeswarm tidyverse Biobase data.table
 #' @export
 #'
-qualityControl.failedGenderImputation <- function(eset){
+qualityControl.failedYchromQC <- function(eset){
   yChromGenes <- yChromGenes[ yChromGenes %in% featureNames(eset) ]
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
@@ -230,20 +230,20 @@ qualityControl.failedGenderImputation <- function(eset){
   plotDF <- merge(plotDF, pData(eset), by.x = "rowname", by.y = "uid")
 
   outlierDF <- plotDF %>%
-    group_by(study_accession, matrix, gender_imputed) %>%
+    group_by(study_accession, matrix, y_chrom_present) %>%
     mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
            dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
 
   quartileDF <- plotDF %>%
-    group_by(study_accession, matrix, gender_imputed) %>%
+    group_by(study_accession, matrix, y_chrom_present) %>%
     summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
               q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
-    mutate(gender_imputed = c("Female" = "Male", "Male" = "Female")[gender_imputed])
+    mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
                   y  = quartileDF,
-                  by = c("study_accession", "matrix", "gender_imputed"))
+                  by = c("study_accession", "matrix", "y_chrom_present"))
 
   plotDF <- merge(x     = plotDF,
                   y     = select(flagDF, rowname),
@@ -251,9 +251,9 @@ qualityControl.failedGenderImputation <- function(eset){
                   all.x = TRUE)
 
   fullPlot <- ggplot(data = plotDF,
-                     mapping = aes(x = gender_imputed, y = chry)) +
+                     mapping = aes(x = y_chrom_present, y = chry)) +
     geom_boxplot(outlier.color = "transparent", fill = "grey") +
-    geom_jitter(height = 0, width = 0.25, mapping = aes(color = failedGenderQC)) +
+    geom_jitter(height = 0, width = 0.25, mapping = aes(color = failedYchromQC)) +
     labs(y = "Average probe intensities (chrY)") +
     scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
     facet_wrap(facets = ~study_accession+matrix, scale = "free") +

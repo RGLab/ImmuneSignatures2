@@ -188,6 +188,8 @@ addCoalescedFeatureSetName <- function(dt){
 #' @param eset expressionSet
 #' @export
 #'
+
+# TODO: should this change to complete.cases?
 removeAllNArows <- function(eset){
   em <- Biobase::exprs(eset)
   allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
@@ -273,99 +275,24 @@ summarizeByGeneSymbol <- function(esets){
   return(summarizedEsets)
 }
 
-#' Impute gender based on expression of Y chromosome-related genes
-#'
-#' @param eset expressionSet
-#' @export
-#'
-imputeYchrom.useBaseline <- function(eset){
-
-  # Create subset eset with only one sample per participantId, using d0 timepoint preferably
-  # Removing technical replicates (only one)
-  e0 <- eset[, eset$time_post_last_vax <= 0 ]
-  pd <- data.table(pData(e0))
-  pdBaseline <- pd[ , maxBaseline := max(time_post_last_vax) , by = "participant_id" ]
-  pdBaseline <- pdBaseline[ time_post_last_vax == maxBaseline ]
-  pdBaseline <- pdBaseline[ !duplicated(participant_id) ]
-  e0 <- e0[, e0$uid %in% pdBaseline$uid ]
-
-  PD0 <- data.table(pData(e0))
-  PD0[, y_chrom_imputed := NA]
-
-  yChromGenes <- intersect(featureNames(e0), yChromGenes)
-  yChromGenes <- yChromGenes[ which(rowSums(is.na(exprs(e0)[yChromGenes,])) == 0) ]
-
-  # SDY1119 TD2 OLD - only one pid, SDY1276 cohorts are separated by gender
-  matrices <- unique(as.character(e0$matrix))
-  for(matrix in matrices){
-    if(!grepl("SDY1276", matrix)){
-      smpls <- sampleNames(e0)[ which((e0$matrix == matrix)) ]
-      if(length(smpls) >= 2){
-        yChromEset <- e0[yChromGenes, smpls]
-
-        # Get clusters from reduced dimensional projection to eliminate
-        # issues
-        mds <- plotMDS(yChromEset)
-        mdsClust <- kmeans(mds$x, 2)
-        mdsCall <- mdsClust$cluster
-
-        # Figure out which of original clusters has higher overall values
-        # for expression of yChromGenes
-        clustANames <- names(mdsCall)[ mdsCall == 1 ]
-
-        clustAexprs <- yChromEset[ , yChromEset$uid %in% clustANames]
-        clustAMeans <- mean(rowMeans(exprs(clustAexprs)))
-
-        clustBexprs <- yChromEset[ , !yChromEset$uid %in% clustANames]
-        clustBMeans <- mean(rowMeans(exprs(clustBexprs)))
-
-        if(clustAMeans > clustBMeans){
-          mdsFinal <- ifelse(mdsCall == 1, "Male", "Female")
-        }else{
-          mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
-        }
-
-        PD0$y_chrom_imputed[match(names(mdsFinal), PD0$uid)] <- mdsFinal
-      }
-    }
-  }
-# TODO: Do something smart here
-  ychromImputationFailed <- which(is.na(PD0$y_chrom_imputed))
-  PD0$y_chrom_imputed[ychromImputationFailed] <- PD0$gender[ychromImputationFailed]
-
-  # Check that all PD0 samples have y_chrom_imputed of TRUE or FALSE
-  if (!all(PD0$y_chrom_imputed %in% c(TRUE, FALSE))) {
-    stop("y chromosome imputation did not work.")
-  }
-
-  # Update eset with imputed y chromosome and age
-  PD <- merge(pData(eset),
-              subset(PD0, select = c('participant_id','y_chrom_imputed')),
-              by = c('participant_id'),
-              all.x = TRUE)
-  rownames(PD) <- as.character(PD$uid)
-  orderMatch <- order( match(rownames(PD), colnames(exprs(eset))) )
-  pData(eset) <- PD[ orderMatch, ]
-
-  return(eset)
-}
-
 #' Impute presence of y chromosome based on expression of Y chromosome-related genes
+#' and flag for QC if values do not match
 #'
 #' @param eset expressionSet
 #' @export
 #'
 imputeYchrom.useAllTimepoints <- function(eset){
   PD <- data.table(pData(eset))
-  PD[, y_chrom_imputed_timepoint := NA]
+  PD[, y_chrom_present_timepoint := NA]
 
   yGenes <- intersect(featureNames(eset), yChromGenes)
   yGenes <- yGenes[ which(rowSums(is.na(exprs(eset)[yGenes,])) == 0) ]
 
-  # SDY1119 TD2 OLD - only one pid, SDY1276 cohorts are separated by gender
   matrices <- unique(as.character(eset$matrix))
   for(matrix in matrices){
     print(matrix)
+
+    # SDY1119 TD2 OLD - only one pid, SDY1276 cohorts are separated by gender
     if(!grepl("SDY1276", matrix)){
       smpls <- which(eset$matrix == matrix)
       if(length(smpls) > 2){
@@ -373,7 +300,7 @@ imputeYchrom.useAllTimepoints <- function(eset){
 
         # Get clusters from reduced dimensional projection to eliminate
         # issues
-        mds <- plotMDS(yChromEset)
+        mds <- limma::plotMDS(yChromEset)
         mdsClust <- kmeans(mds$x, 2)
         mdsCall <- mdsClust$cluster
 
@@ -388,102 +315,89 @@ imputeYchrom.useAllTimepoints <- function(eset){
         clustBMeans <- mean(colMeans(exprs(clustBexprs)))
 
         if(clustAMeans > clustBMeans){
-          mdsFinal <- ifelse(mdsCall == 1, "Male", "Female")
+          y_chrom_present <- ifelse(mdsCall == 1, TRUE, FALSE)
         }else{
-          mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
+          y_chrom_present <- ifelse(mdsCall == 1, FALSE, TRUE)
         }
 
-        PD$y_chrom_imputed_timepoint[ match(names(mdsFinal), PD$uid) ] <- mdsFinal
+        PD$y_chrom_present_timepoint[ match(names(y_chrom_present), PD$uid) ] <- y_chrom_present
       }
     }
   }
 
-  # TODO: Do something smart here
+  # If ychrom is not imputed based on expression level, impute from reported gender
+  ychromImputationNotDone <- which(is.na(PD$y_chrom_present_timepoint))
+  PD$y_chrom_present_timepoint[ychromImputationNotDone] <-
+    ifelse(PD$gender[ychromImputationNotDone] == "Male", TRUE, FALSE)
 
-  ychromImputationNotDone <- which(is.na(PD$y_chrom_imputed_timepoint))
-  PD$y_chrom_imputed_timepoint[ychromImputationNotDone] <- PD$gender[ychromImputationNotDone]
+  # if y_chrom_present in agreement for all timepoints, use that
+  # If y_chrom_present not in agreement for all timepoints:
+  # 1. Has gender_reported and all gender_reported in agreement: derive from gender_reported
+  # 2. No gender_reported, use majority y_chrom_present
 
-  # has gender_reported, only change y_chrom_imputed if all in agreement
-  # no gender_reported, use majority y_chrom_imputed if disagreement, if
-  # no majority then use unspecified original gender_reported
-  summarizeGender <- function(gender_reported, y_chrom_imputed_timepoint){
-    originalGender <- unique(gender_reported)
-    assignedGender <- unique(y_chrom_imputed_timepoint)
-    if(originalGender %in% c("Female","Male")){
-      if(length(assignedGender) == 1){
-        return(assignedGender)
-      }else{
-        return(originalGender)
-      }
-    }else{
-      if(length(assignedGender) > 1){
-        res <- table(y_chrom_imputed_timepoint)
+  summarizeYchrom <- function(gender_reported, y_chrom_present_timepoint){
+    reported_gender <- unique(gender_reported)
+    y_chrom_present <- unique(y_chrom_present_timepoint)
+
+    if (length(y_chrom_present) == 1) {
+      # y_chrom_present in agreement for all timepoints
+      return(y_chrom_present)
+    } else {
+      # y_chrom_present not in agreement for all timepoints
+      if (length(reported_gender) == 1 & reported_gender %in% c("Male", "Female")) {
+        # Has gender_reported an all in agreement
+        y_chrom_present <- ifelse(reported_gender == "Male", TRUE, FALSE)
+        return(y_chrom_present)
+      } else {
+        # No gender_reported or not in agreement
+        res <- table(y_chrom_present_timepoint)
         majority <- names(res)[ res == max(res) ]
         if(length(majority) == 1){
+          # Clear majority
           return(majority)
         }else{
-          return(originalGender)
+          # No clear majority
+          return(y_chrom_present_timepoint)
         }
-      }else{
-        return(assignedGender)
       }
     }
   }
 
   # flag problem samples with following logic:
-  # 1a. has gender_reported, timepoints differ - FAIL QC if disagree with reported
-  # 1b. has gender_reported, all timepoints imputed same - all PASS, even if differ from reported
-  # 2a. No gender_reported, clear majority of timepoints - FAIL QC if disagree with majority
-  # 2b. No gender_reported, no clear majority - ALL FAIL
-  # 2c. No gender_reported, all timepoints agree - ALL PASS
-  flagProblemTimepoints <- function(gender_reported, y_chrom_imputed_timepoint){
-    if(unique(gender_reported) %in% c("Female", "Male")){
-      if(length(unique(y_chrom_imputed_timepoint)) > 1){
-        return(y_chrom_imputed_timepoint != gender_reported)
-      }else{
-        return(FALSE)
-      }
-    }else{
-      if(length(unique(y_chrom_imputed_timepoint)) > 1){
-        res <- table(y_chrom_imputed_timepoint)
-        majority <- names(res)[ res == max(res) ]
-        if(length(majority) == 1){
-          return(y_chrom_imputed_timepoint != majority)
-        }else{
-          return(TRUE)
-        }
-      }else{
-        return(FALSE)
+  # 1. All values for y_chrom_present are in agreement: all pass
+  # 2. y_chrom_present varies by timepoint:
+  #   2a. has gender_reported: derive ychrom from gender_reported and pass if in agreement
+  #   2b. no gender_reported and clear majority for ychrom: pass if in agreement with majority
+  #   2c. no gender_reported and no clear majority for ychrom: all fail.
+  flagProblemTimepoints <- function(gender_reported, y_chrom_present_timepoint){
+    if (length(unique(y_chrom_present_timepoint)) == 1) {
+      return(FALSE)
+    } else if (length(gender_reported) == 1 & unique(gender_reported) %in% c("Female", "Male")) {
+      # Imputed ychrom values differ by timepoint: Flag when ychrom does not align with
+      # expected ychrom value based on gender
+      expected_y_chrom <- ifelse(gender_reported == "Male", TRUE, FALSE)
+      return(y_chrom_present_timepoint != expected_y_chrom)
+    } else {
+      # ychrom varies by timepoint and gender_reported varies by timepoint:
+      # Check if clear majority of ychrom values
+      res <- table(y_chrom_present_timepoint)
+      majority <- names(res)[ res == max(res) ]
+      if (length(majority) == 1) {
+        # Clear majority: fail QC if disagrees with majority
+        return(y_chrom_present_timepoint != majority)
+      } else {
+        # No clear majority: all fail.
+        return(TRUE)
       }
     }
   }
 
-  PD[ , y_chrom_imputed := summarizeGender(gender, y_chrom_imputed_timepoint), by = "participant_id"]
+  PD[ , y_chrom_present := summarizeYchrom(gender, y_chrom_present_timepoint), by = "participant_id"]
 
-  PD[ , failedGenderQC := flagProblemTimepoints(gender, y_chrom_imputed_timepoint), by = "participant_id"]
+  PD[ , failedYchromQC := flagProblemTimepoints(gender, y_chrom_present_timepoint), by = "participant_id"]
 
   pData(eset) <- PD
 
   return(eset)
 }
 
-#' Remove selected participants from expression set
-#'
-#' @param eset expressionSet
-#' @param problemSamples vector of participant IDs to flag as failedGenderQC
-#' @export
-#'
-adjustProblemSamples <- function(eset, problemSamples){
-  eset$failedGenderQC[ eset$participant_id %in% problemSamples] <- TRUE
-  return(eset)
-}
-
-#' Remove selected participants from expression set
-#'
-#' @param eset expressionSet
-#' @param participantIdsToRm vector of participant IDs to remove
-#' @export
-#'
-removeSubjectsWithoutGenderConsensus <- function(eset, participantIdsToRm){
-  eset <- eset[ , !eset$participant_id %in% participantIdsToRm]
-}

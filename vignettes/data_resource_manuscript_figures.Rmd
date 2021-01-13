@@ -38,22 +38,29 @@ suppressPackageStartupMessages({
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache")
-datePrefix <- "2020_12_07_PostAnno"
+dataCacheDir <- here("data_cache", "virtualStudy_prod")
+datePrefix <- ""
 ```
 
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
 ```{r, read-esets}
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_extendedOld_norm_noResponse_eset.rds"))
-old.NoResp <- readRDS(file = noRespGEFile)
+subsetToCompleteGenes <- function(eset) {
+  # only include complete cases
+  # TODO: Check in with IS2 folks about this... SHould I update the datsets?
+  completeGenes <- complete.cases(exprs(eset))
+  eset[completeGenes]
+}
 
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_young_norm_noResponse_eset.rds"))
-young.NoResp <- readRDS(file = noRespGEFile)
+noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"extendedOld_norm_noResponse_eset.rds"))
+old.NoResp <- subsetToCompleteGenes(readRDS(file = noRespGEFile))
 
-withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"_young_norm_withResponse_eset.rds"))
-young.WithResp <- readRDS(file = withRespGEFile)
+
+noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_noResponse_eset.rds"))
+young.NoResp <- subsetToCompleteGenes(readRDS(file = noRespGEFile))
+
+withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_withResponse_eset.rds"))
+young.WithResp <- subsetToCompleteGenes(readRDS(file = withRespGEFile))
 ```
-
 
 ```{r, set-standard-colors, echo=FALSE}
 # Fig 1
@@ -251,10 +258,10 @@ kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
 em.fig1d <- exprs(young.NoResp)
 pd.fig1d <- pData(young.NoResp) %>%
   mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  select(uid, y_chrom_present, ethnicity, Vaccine, study_time_collected,
+  select(uid, y_chrom_imputed, ethnicity, Vaccine, study_time_collected,
 	 age_imputed) %>%
   rename(
-    `Y_chromosome` = y_chrom_present, 
+    Ychrom = y_chrom_imputed, 
     Ethnicity = ethnicity,
     Timepoint = study_time_collected,
     Age       = age_imputed) %>%

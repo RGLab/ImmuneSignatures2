@@ -111,15 +111,16 @@ testNoNormEset <- function(eset){
   pidsToRm <- setdiff(allPids, pidsWithBaseline)
   chks$allPidsHaveBaseline <- length(pidsToRm) == 0
 
-  chks$allPidsHaveImputedGender <- !any(is.na(pd$gender_imputed) | pd$gender_imputed == "NP")
+  chks$allPidsHaveImputedYchrom <- !any(is.na(pd$y_chrom_present) | pd$y_chrom_present == "NP")
 
   updatedGender <- pd[ grepl("male", pd$gender, ignore.case = TRUE), ]
+  updatedGender$gender_imputed <- ifelse(updatedGender$y_chrom_present, "Male",)
   updatedGender <- updatedGender[ updatedGender$gender != updatedGender$gender_imputed, ]
   pidsWithUpdatedGender <- length(unique(updatedGender$participant_id))
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
 
-  problemSamples <- qualityControl.genderImputedByMatrix(noNormEset, returnObject = "probSamplesDT")
-  chks$expectedGenderProblemSamples <- nrow(problemSamples) == 65
+  problemSamples <- qualityControl.yChromPresentByMatrix(noNormEset, returnObject = "probSamplesDT")
+  chks$expectedYchromProblemSamples <- nrow(problemSamples) == 65
 
   chks$allStudiesPresent <- length(unique(pd$study_accession)) == 30
 
