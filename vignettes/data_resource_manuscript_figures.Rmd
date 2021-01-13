@@ -1,7 +1,14 @@
 ---
 title: "ImmuneSignatures2: Reproduction of figures for Data Resource Manuscript"
-output: html_document
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    df_print: paged
+    code_folding: hide
 date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  chunk_output_type: inline
 ---
 
 ```{r setup, include=FALSE}
@@ -66,6 +73,7 @@ vaccine2color <- getPalette(n = length(vaccines)) %>%
 
 # FIGURES
 
+## Figure 1
 ### Figure 1a: Proportion of subjects of various self reported race and imputed y chrom values per pathogen*vaccine type
 *Authors:* Joanna Arce
 
@@ -92,7 +100,7 @@ pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
 # Filter to unique subjects
 pdata_df_uniqueSubjects <- distinct(pdata_no_malaria, 
                                     participant_id, 
-                                    gender_imputed, 
+                                    y_chrom_present, 
                                     race, 
                                     pathogen, 
                                     vaccine_type)
@@ -113,7 +121,7 @@ getCounts <- function(pd, colnm, prefix){
   return(counts_df)
 }
 
-sex_counts_df <- getCounts(pdata_df_uniqueSubjects, "gender_imputed", "SEX_")
+sex_counts_df <- getCounts(pdata_df_uniqueSubjects, "y_chrom_present", "YCHROM_")
 race_counts_df <- getCounts(pdata_df_uniqueSubjects, "race", "RACE_")
 
 total_counts <- rbind(sex_counts_df, race_counts_df)
@@ -129,8 +137,8 @@ p <- ggplot(total_counts) +
            color = "black", stat = "identity", lwd = .2) +
   geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
   facet_wrap(vars(pathogen_vacc), nrow = 2) +
-  scale_y_discrete(limits = rev(c("SEX_Male", 
-                                  "SEX_Female",
+  scale_y_discrete(limits = rev(c("YCHROM_TRUE", 
+                                  "YCHROM_FALSE",
                                   "RACE_White", 
                                   "RACE_Black or African American", 
                                   "RACE_Asian", 
@@ -202,7 +210,7 @@ ggplot(data = df.fig1b,
 *Author: * Slim Fourati
 ```{r, fig-1c, fig.width=6.8, fig.height=7}
 df.fig1c <- pData(young.NoResp) %>%
-  select(participant_id, pathogen, vaccine_type, age_imputed, gender_imputed) %>%
+  select(participant_id, pathogen, vaccine_type, age_imputed, y_chrom_present) %>%
   distinct() %>%
   mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")"))
 
@@ -218,7 +226,7 @@ ggplot(data = df.fig1c,
        mapping = aes(x = vaccine,
 		                 y = age_imputed)) +
   geom_boxplot(fill = "transparent", outlier.color = "transparent") +
-  geom_beeswarm(mapping = aes(color = vaccine, shape = gender_imputed),
+  geom_beeswarm(mapping = aes(color = vaccine, shape = y_chrom_present),
 		            cex = 0.3) +
   scale_color_manual(name   = "Pathogen (Vaccine type)",
                      values = vaccine2color) +
@@ -243,12 +251,13 @@ kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
 em.fig1d <- exprs(young.NoResp)
 pd.fig1d <- pData(young.NoResp) %>%
   mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  select(uid, gender_imputed, ethnicity, Vaccine, study_time_collected,
+  select(uid, y_chrom_present, ethnicity, Vaccine, study_time_collected,
 	 age_imputed) %>%
-  rename(Gender    = gender_imputed,
-	 Ethnicity = ethnicity,
-	 Timepoint = study_time_collected,
-	 Age       = age_imputed) %>%
+  rename(
+    `Y_chromosome` = y_chrom_present, 
+    Ethnicity = ethnicity,
+    Timepoint = study_time_collected,
+    Age       = age_imputed) %>%
   column_to_rownames(var = "uid")
 pd.fig1d <- pd.fig1d[colnames(em.fig1d), ]
 ```
@@ -287,7 +296,7 @@ ggplot(data    = df.fig1d,
 
 
 
-### Perform Sample Level Enrichment Analysis on hallmark+BTM genesets
+## Perform Sample Level Enrichment Analysis on hallmark+BTM genesets
 *Author: * Slim Fourati
 
 Pre-Processing:
@@ -350,7 +359,7 @@ inflamGS <- c("HALLMARK_INFLAMMATORY_RESPONSE",
               "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
 ```
 
-### Figure 2: Heatmap of SLEA zscore on pre-vaccination samples
+## Figure 2: Heatmap of SLEA zscore on pre-vaccination samples
 *Author: * Slim Fourati
 ```{r, fig2, fig.width=8, fig.height=6}
 zscoreTemp <- exprs(sleaSet)[, sleaSet$study_time_collected <= 0]
@@ -440,6 +449,7 @@ Heatmap(matrix                      = zscoreTemp,
 sleaSet$gr <- df.fig2$gr [match(sleaSet$participant_id, df.fig2$participant_id)]
 ```
 
+## Figure s2
 ### Figure s2a: Determine optimal number of cluster using the Gap statistic
 *Author: * Slim Fourati
 ```{r, fig-s2a}
@@ -475,7 +485,7 @@ df.fig2 %>%
 df.fig2 %>%
    select(gr,
           study_time_collected,
-          gender,
+          gender, # TODO: Use ychrom_present? 
           race,
           ethnicity,
           exposure_material_reported,
@@ -557,6 +567,8 @@ ggplot(data = df.fig2sb,
         theme_bw()
 ```
 
+## Figure 3
+
 ### Figure 3 Helper Functions
 ```{r fig3-helper-functions}
 getSleaPDSubset.byGS <- function(geneset){
@@ -622,8 +634,8 @@ plotSLEASubsetByTime.byGene <- function(df){
 ### Figure 3a: Plot SLEA z-score of inflammatory genesets over time
 *Author: * Slim Fourati
 ```{r fig-3a, fig.width=6.92, fig.height=2.96, warning=FALSE}
-pd.fig3a <- getSleaPDSubset(inflamGS)
-plotSLEASubsetByTime(pd.fig3a, "Inflammatory pathways (SLEA z-score)")
+pd.fig3a <- getSleaPDSubset.byGS(inflamGS)
+plotSLEASubsetByTime.byGS(pd.fig3a, "Inflammatory pathways (SLEA z-score)")
 ```
 
 ### Figure s3a: Plot canonical inflammatory genes over time
@@ -639,8 +651,8 @@ plotSLEASubsetByTime.byGene(df.figs3a)
 ```{r fig-s3b, fig.width=6.92, fig.height=2.96, warning=FALSE}
 interferonGS  <- c("HALLMARK_INTERFERON_ALPHA_RESPONSE",
                    "HALLMARK_INTERFERON_GAMMA_RESPONSE")
-pd.figs3b <- getSleaPDSubset(interferonGS)
-plotSLEASubsetByTime(pd.figs3b, "Interferon-stimulated genes (SLEA z-score)")
+pd.figs3b <- getSleaPDSubset.byGS(interferonGS)
+plotSLEASubsetByTime.byGS(pd.figs3b, "Interferon-stimulated genes (SLEA z-score)")
 ```
 
 ### Figure s3b (cont): Plot canonical interferon-regulated genes over time
@@ -657,8 +669,8 @@ plotSLEASubsetByTime.byGene(df.figs3b2)
 bcellGS <- c("enriched in B cells (I) (M47.0)",
              "enriched in B cells (V) (M47.4)",
              "plasma cells & B cells, immunoglobulins (M156.0)")
-pd.fig3c <- getSleaPDSubset(bcellGS)
-plotSLEASubsetByTime(pd.fig3c, "B cells (SLEA z-score)")
+pd.fig3c <- getSleaPDSubset.byGS(bcellGS)
+plotSLEASubsetByTime.byGS(pd.fig3c, "B cells (SLEA z-score)")
 ```
 
 ### Figure s3c: Plot canonical B cell markers over time
@@ -668,6 +680,8 @@ bcellGenes <- c("CD79A", "CD79B", "BANK1")
 df.figs3c <- getSleaPDSubset.byGenes(bcellGenes)
 plotSLEASubsetByTime.byGene(df.figs3c)
 ```
+
+## Figure 4
 
 ### Figure 4a: Plot MFC based on inflamDF
 *Author: * Slim Fourati

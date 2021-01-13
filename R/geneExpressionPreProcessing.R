@@ -278,7 +278,7 @@ summarizeByGeneSymbol <- function(esets){
 #' @param eset expressionSet
 #' @export
 #'
-imputeGender.useBaseline <- function(eset){
+imputeYchrom.useBaseline <- function(eset){
 
   # Create subset eset with only one sample per participantId, using d0 timepoint preferably
   # Removing technical replicates (only one)
@@ -290,7 +290,7 @@ imputeGender.useBaseline <- function(eset){
   e0 <- e0[, e0$uid %in% pdBaseline$uid ]
 
   PD0 <- data.table(pData(e0))
-  PD0[, gender_imputed := NA]
+  PD0[, y_chrom_imputed := NA]
 
   yChromGenes <- intersect(featureNames(e0), yChromGenes)
   yChromGenes <- yChromGenes[ which(rowSums(is.na(exprs(e0)[yChromGenes,])) == 0) ]
@@ -325,22 +325,22 @@ imputeGender.useBaseline <- function(eset){
           mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
         }
 
-        PD0$gender_imputed[match(names(mdsFinal), PD0$uid)] <- mdsFinal
+        PD0$y_chrom_imputed[match(names(mdsFinal), PD0$uid)] <- mdsFinal
       }
     }
   }
+# TODO: Do something smart here
+  ychromImputationFailed <- which(is.na(PD0$y_chrom_imputed))
+  PD0$y_chrom_imputed[ychromImputationFailed] <- PD0$gender[ychromImputationFailed]
 
-  genderImputationFailed <- which(is.na(PD0$gender_imputed))
-  PD0$gender_imputed[genderImputationFailed] <- PD0$gender[genderImputationFailed]
-
-  # Check that all PD0 samples have gender_imputed of "Female" or "Male"
-  if (!all(PD0$gender_imputed %in% c("Female", "Male"))) {
-    stop("gender imputation did not work.")
+  # Check that all PD0 samples have y_chrom_imputed of TRUE or FALSE
+  if (!all(PD0$y_chrom_imputed %in% c(TRUE, FALSE))) {
+    stop("y chromosome imputation did not work.")
   }
 
-  # Update eset with imputed gender and age
+  # Update eset with imputed y chromosome and age
   PD <- merge(pData(eset),
-              subset(PD0, select = c('participant_id','gender_imputed')),
+              subset(PD0, select = c('participant_id','y_chrom_imputed')),
               by = c('participant_id'),
               all.x = TRUE)
   rownames(PD) <- as.character(PD$uid)
@@ -350,14 +350,14 @@ imputeGender.useBaseline <- function(eset){
   return(eset)
 }
 
-#' Impute gender based on expression of Y chromosome-related genes
+#' Impute presence of y chromosome based on expression of Y chromosome-related genes
 #'
 #' @param eset expressionSet
 #' @export
 #'
-imputeGender.useAllTimepoints <- function(eset){
+imputeYchrom.useAllTimepoints <- function(eset){
   PD <- data.table(pData(eset))
-  PD[, gender_imputed_timepoint := NA]
+  PD[, y_chrom_imputed_timepoint := NA]
 
   yGenes <- intersect(featureNames(eset), yChromGenes)
   yGenes <- yGenes[ which(rowSums(is.na(exprs(eset)[yGenes,])) == 0) ]
@@ -393,21 +393,22 @@ imputeGender.useAllTimepoints <- function(eset){
           mdsFinal <- ifelse(mdsCall == 1, "Female", "Male")
         }
 
-        PD$gender_imputed_timepoint[ match(names(mdsFinal), PD$uid) ] <- mdsFinal
+        PD$y_chrom_imputed_timepoint[ match(names(mdsFinal), PD$uid) ] <- mdsFinal
       }
     }
   }
 
+  # TODO: Do something smart here
 
-  genderImputationNotDone <- which(is.na(PD$gender_imputed_timepoint))
-  PD$gender_imputed_timepoint[genderImputationNotDone] <- PD$gender[genderImputationNotDone]
+  ychromImputationNotDone <- which(is.na(PD$y_chrom_imputed_timepoint))
+  PD$y_chrom_imputed_timepoint[ychromImputationNotDone] <- PD$gender[ychromImputationNotDone]
 
-  # has gender_reported, only change gender_imputed if all in agreement
-  # no gender_reported, use majority assigned gender if disagreement, if
+  # has gender_reported, only change y_chrom_imputed if all in agreement
+  # no gender_reported, use majority y_chrom_imputed if disagreement, if
   # no majority then use unspecified original gender_reported
-  summarizeGender <- function(gender_reported, gender_imputed_timepoint){
+  summarizeGender <- function(gender_reported, y_chrom_imputed_timepoint){
     originalGender <- unique(gender_reported)
-    assignedGender <- unique(gender_imputed_timepoint)
+    assignedGender <- unique(y_chrom_imputed_timepoint)
     if(originalGender %in% c("Female","Male")){
       if(length(assignedGender) == 1){
         return(assignedGender)
@@ -416,7 +417,7 @@ imputeGender.useAllTimepoints <- function(eset){
       }
     }else{
       if(length(assignedGender) > 1){
-        res <- table(gender_imputed_timepoint)
+        res <- table(y_chrom_imputed_timepoint)
         majority <- names(res)[ res == max(res) ]
         if(length(majority) == 1){
           return(majority)
@@ -435,19 +436,19 @@ imputeGender.useAllTimepoints <- function(eset){
   # 2a. No gender_reported, clear majority of timepoints - FAIL QC if disagree with majority
   # 2b. No gender_reported, no clear majority - ALL FAIL
   # 2c. No gender_reported, all timepoints agree - ALL PASS
-  flagProblemTimepoints <- function(gender_reported, gender_imputed_timepoint){
+  flagProblemTimepoints <- function(gender_reported, y_chrom_imputed_timepoint){
     if(unique(gender_reported) %in% c("Female", "Male")){
-      if(length(unique(gender_imputed_timepoint)) > 1){
-        return(gender_imputed_timepoint != gender_reported)
+      if(length(unique(y_chrom_imputed_timepoint)) > 1){
+        return(y_chrom_imputed_timepoint != gender_reported)
       }else{
         return(FALSE)
       }
     }else{
-      if(length(unique(gender_imputed_timepoint)) > 1){
-        res <- table(gender_imputed_timepoint)
+      if(length(unique(y_chrom_imputed_timepoint)) > 1){
+        res <- table(y_chrom_imputed_timepoint)
         majority <- names(res)[ res == max(res) ]
         if(length(majority) == 1){
-          return(gender_imputed_timepoint != majority)
+          return(y_chrom_imputed_timepoint != majority)
         }else{
           return(TRUE)
         }
@@ -457,9 +458,9 @@ imputeGender.useAllTimepoints <- function(eset){
     }
   }
 
-  PD[ , gender_imputed := summarizeGender(gender, gender_imputed_timepoint), by = "participant_id"]
+  PD[ , y_chrom_imputed := summarizeGender(gender, y_chrom_imputed_timepoint), by = "participant_id"]
 
-  PD[ , failedGenderQC := flagProblemTimepoints(gender, gender_imputed_timepoint), by = "participant_id"]
+  PD[ , failedGenderQC := flagProblemTimepoints(gender, y_chrom_imputed_timepoint), by = "participant_id"]
 
   pData(eset) <- PD
 

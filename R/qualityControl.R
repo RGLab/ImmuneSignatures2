@@ -42,7 +42,7 @@ qualityControl.samplePlot <- function(eset,
   }
 }
 
-#' Generate box plots showing gender imputed after QC
+#' Generate box plots showing ychrom imputed after QC
 #'
 #' @param eset expressionSet
 #' @param returnObject options are allMatricesPlot (default), probSamplesPlot, probSamplesDT
