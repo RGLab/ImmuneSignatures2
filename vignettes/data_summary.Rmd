@@ -36,12 +36,6 @@ IS2_esets <- readRDS(here::here(dataCacheDir, "2020_10_27_IS2_esets.rds"))
 For all versions of data
 
 ```{r subjects}
-summary <- data.table(cohorts = c(),
-                      subjects = c(),
-                      studies = c(),
-                      samples = c(),
-                      vaccines = c(),
-                      vaccine_types = c())
 esets <- list.files(here::here(dataCacheDir), pattern = "[E|e]set.rds")
 datasetSummaries <- lapply(esets, function(filename) {
   dataset <- readRDS(here::here(dataCacheDir, filename))

@@ -82,19 +82,6 @@ addTimePostLastVax <- function(dt){
   return(dt)
 }
 
-#' Ensure every subject has baseline gene expression data
-#'
-#' @param eset expressionSet object
-#' @export
-#'
-removeSubjectsWithoutBaseline <- function(eset){
-  pd <- pData(eset)
-  allPids <- unique(pd$participant_id)
-  pidsWithBaseline <- unique(pd$participant_id[ pd$time_post_last_vax >= -7 & pd$time_post_last_vax <= 0 ])
-  pidsToRm <- setdiff(allPids, pidsWithBaseline)
-  eset <- eset[ , !eset$participant_id %in% pidsToRm ]
-}
-
 #' Add matrix, featureset, and cell_type fields to pData objects
 #'
 #' @param phenoDataSets list of pData objects

@@ -1,14 +1,19 @@
 ---
 title: "ImmuneSignatures2: Generating Base ExpressionSet from ImmuneSpace Data"
 author: "Evan Henrich and Helen Miller"
-output: html_document
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    df_print: paged
+    code_folding: hide
 ---
 
 # Overview
 The purpose of this vignette is to generate a base expressionSet object with transcriptomic and immune response data for a number of studies from the ImmuneSpace portal, www.immunespace.org.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
 suppressPackageStartupMessages({
   library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
   library(ImmuneSpaceR) 
@@ -20,7 +25,7 @@ suppressPackageStartupMessages({
   library(tidyverse)
   library(here)
 })
-# Global variables
+# Output variables
 outputDir <- here("outputs", "virtualStudy_prod")
 dataCacheDir <- here("data_cache", "virtualStudy_prod")
 if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
@@ -31,7 +36,50 @@ timeStamp <- ""
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
 
 ```{r global-variables}
+# Removing cohorts from gene expression data:
+# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
+# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
+# SDY1364 - intraDermal, different vaccination method
+# SDY180 - Saline cohorts did not receive stimulation
+rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
+
 assays <- c("hai", "neut_ab_titer", "elisa")
+
+summarizeEset <- function(eset) {
+  d <- pData(eset)
+  study_count <- length(unique(d$study_accession))
+  arm_count <- length(unique(d$arm_accession))
+  cohort_count <- length(unique(d$cohort))
+  cohort_count <- max(arm_count, cohort_count)
+  # subject_count <- length(unique(gsub("\\.\\d+", "", d$participant_id)))
+  subject_count <- length(unique(d$participant_id))
+  sample_count <- length(unique(d$biosample_accession))
+  summary_dataset <- data.table(
+    studies = study_count,
+    cohorts = cohort_count, 
+    subjects = subject_count, 
+    samples = sample_count)
+  return(summary_dataset)
+}
+
+summarizeEsetList <- function(esetList) {
+  pdList <- lapply(esetList, pData)
+  d <- rbindlist(pdList)
+  study_count <- length(unique(d$study_accession))
+  arm_count <- length(unique(d$arm_accession))
+  cohort_count <- length(unique(d$cohort))
+  cohort_count <- max(arm_count, cohort_count)
+  # subject_count <- length(unique(gsub("\\.\\d+", "", d$participant_id)))
+  subject_count <- length(unique(d$participant_id))
+  sample_count <- length(unique(d$biosample_accession))
+  summary_dataset <- data.table(
+    studies = study_count,
+    cohorts = cohort_count, 
+    subjects = subject_count, 
+    samples = sample_count)
+  return(summary_dataset)
+}
+
 
 con <- CreateConnection("IS2", onTest = FALSE)
 ```
@@ -82,7 +130,9 @@ and each matrix is quantile normalized and log-transformed separately. The .rds 
 
 ```{r extract-within-study-normalized-gene-expression-data}
 # With a global CreateConnection object we start with all available matrices.
-geMatrices <- con$cache$GE_matrices
+geMatrices_all <- con$cache$GE_matrices
+geMatrices <- geMatrices_all[ grep( rmCohorts, geMatrices_all$name, invert = TRUE), ] 
+droppedMatrices <- geMatrices_all[ grep( rmCohorts, geMatrices_all$name, invert = FALSE), ] 
 
 esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
 if(!file.exists(esetsFile)){
@@ -92,12 +142,28 @@ if(!file.exists(esetsFile)){
     outputType = "normalized",
     annotation = "latest")
   names(esets) <- geMatrices$name
-  esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
   saveRDS(esets, file = esetsFile)
 }else{
   esets <- readRDS(esetsFile)
 }
+
+# Get dropped matrices for summary
+droppedEsetsFile <- file.path(dataCacheDir, paste0(timeStamp, "dropped_IS2_esets.rds"))
+if(!file.exists(droppedEsetsFile)){
+  droppedEsets <- lapply(
+    droppedMatrices$name,
+    con$getGEMatrix,
+    outputType = "normalized",
+    annotation = "latest")
+  names(droppedEsets) <- droppedMatrices$name
+  saveRDS(droppedEsets, file = droppedEsetsFile)
+}else{
+  droppedEsets <- readRDS(droppedEsetsFile)
+}
 ```
+
+There are `r nrow(geMatrices_all)` matrices in the IS2 virtual study. `r nrow(droppedMatrices)` matrices from `r length(unique(droppedMatrices$cohort))` are removed based on inconsistent sampling or design. Additional summaries below: 
+
 
 ```{r check-extracted-ge-data}
 results <- testExtractedGEData(esets)
@@ -105,7 +171,25 @@ results <- testExtractedGEData(esets)
 if( !all(unlist(results)) ){
     stop("Normalized matrices do not meet dim and NA value expectations")
 }
+
 ```
+
+Full dataset: 
+```{r summarize-all}
+summarizeEsetList(c(esets, droppedEsets))
+```
+
+Dropped cohorts: 
+```{r summarize-dropped}
+summarizeEsetList(droppedEsets)
+```
+
+Analysis cohorts: 
+```{r summarize-kept}
+summarizeEsetList(esets)
+```
+
+# Fix problem samples due to difference in time design
 
 There are some samples that are removed prior to the summarization of the transcriptomic data from the probe level to the gene symbol level.  The reason for removal is noted for each study.
 
@@ -114,6 +198,8 @@ esets <- lapply(esets, function(eset){
   pData(eset) <- addStudy(pData(eset))
   return(eset)
 })
+
+esets_pre <- esets
 
 # SDY1325 - Day 35, 7 days post booster but no day 28 data to create new baseline
 esets <- removeTimepointFromEset(esets, "SDY1325", 35)
@@ -134,6 +220,18 @@ esets <- lapply(esets, function(eset){
   pData(eset) <- pd
   return(eset)
 })
+
+summarizeEsetList(esets)
+
+# Get subjects affected
+pdata_pre <- rbindlist(lapply(esets_pre, pData))
+pdata_post <- rbindlist(lapply(esets, pData))
+subject_counts_pre <- pdata_pre[, .(n_post = .N), participant_id]
+subject_counts_post <- pdata_post[, .(n_pre = .N), participant_id]
+subject_counts <- merge(subject_counts_pre, subject_counts_post)
+subject_counts[n_pre != n_post][, .N]
+rm(esets_pre)
+
 ```
 
 
@@ -175,6 +273,8 @@ if(!metaDataResults){
 }
 ```
 
+# Create expressionset 
+
 Gene expression data is summarized from the probe level (for microarray data) and gene-alias level (RNAseq) to the canonical Gene-Symbol level using mappings from the Human Gene Ontology Network (HUGO).  The probes / gene-aliases are summarized by selecting the probe or gene-alias with the maximum mean value (no log transformation) across all samples within the matrix (cohort * cell_type).
 
 ```{r summarize-gene-expression-data-by-gene-symbol}
@@ -193,6 +293,7 @@ if (!all.equal(geMetaData$biosample_accession, colnames(allGE))) {
 }
 colnames(allGE) <- c(geMetaData$uid)
 allGE[, rn := gs ]
+
 ```
 
 ```{r pre-norm-gene-expression-tests}
@@ -212,12 +313,25 @@ noNormEset <- new("ExpressionSet",
                    phenoData = new('AnnotatedDataFrame', 
                                geMetaData))
 
-noNormEset <- removeSubjectsWithoutBaseline(noNormEset)
+summarizeEset(noNormEset)
 ```
 
-Gender imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either male or female based on the male group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
+Remove subjects without baseline
 
-```{r gender-imputation, include=TRUE}
+```{r remove-subjects-without-baseline}
+pd <- pData(noNormEset)
+allPids <- unique(pd$participant_id)
+pidsWithBaseline <- unique(pd$participant_id[ pd$time_post_last_vax >= -7 & pd$time_post_last_vax <= 0 ])
+pidsToRm <- setdiff(allPids, pidsWithBaseline)
+noNormEset <- noNormEset[ , !noNormEset$participant_id %in% pidsToRm ]
+
+summarizeEset(noNormEset)
+```
+
+# Y-chromosome imputation
+Y-chromosome imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either y-chromosome positive or negative based on the positive group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
+
+```{r gender-imputation, include=FALSE}
 allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
 pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preGenderImpute.pdf")),
     width = 8.5,
@@ -225,20 +339,21 @@ pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preGenderImpute.pdf"
 allMatricesPlot
 dev.off()
 
-# The following code assigns probable gender based on clustering
+# The following code assigns probable y chromosome presence based on clustering
 # of samples given expression values for 13 Y-Chromosome genes.
 noNormEset <- imputeYchrom.useAllTimepoints(noNormEset)
 
+# Flag additional problem samples
 # Specific samples for SDY1370 were determined to be problematic by
 # looking at the coordination of y_chrom_present by timepoint
 problemSamples <- c("SUB192192.1370,","SUB192199.1370")
 noNormEset$failedYchromQC[ noNormEset$participant_id %in% problemSamples] <- TRUE
 
-failedGenderQC <- qualityControl.failedYchromQC (noNormEset)
+failedYchromQC <- qualityControl.failedYchromQC(noNormEset)
 pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_failedYchromQCAllSubjects.pdf")),
     width = 8.5,
     height = 11)
-failedGenderQC
+failedYchromQC
 dev.off()
 
 

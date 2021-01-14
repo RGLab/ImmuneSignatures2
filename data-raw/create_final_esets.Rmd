@@ -156,14 +156,81 @@ for(ageGroupName in names(ageGroups)){
 }
 ```
 
+
+## Subject summaries by dataset
+Looking at all versions of the data
+
+```{r summarize-datasets}
+esets <- list.files(here::here(dataCacheDir), pattern = "_eset.rds")
+datasetSummaries <- lapply(esets, function(filename) {
+  dataset <- readRDS(file.path(dataCacheDir, filename))
+  
+  pdata_all <- phenoData(dataset)
+  d <- pdata_all@data
+  cohort_count <- length(unique(d$arm_accession))
+  # subject_count <- length(unique(gsub("\\.\\d+", "", d$participant_id)))
+  subject_count <- length(unique(d$participant_id))
+  sample_count <- length(unique(d$biosample_accession))
+  summary_dataset <- data.table(
+    dataset = filename,
+    cohorts = cohort_count, 
+    subjects = subject_count, 
+    samples = sample_count)
+  return(summary_dataset)
+})
+knitr::kable(rbindlist(datasetSummaries))
+```
+
+## Study summaries by dataset
+
+Only looking at full datasets (not divided by age)
+
+```{r studies}
+esets_all <- list.files(here::here(dataCacheDir), pattern = "_all_")
+dimstudy <- labkey.selectRows("https://test.immunespace.org/", 
+                              folderPath = "HIPC/IS2", 
+                              schemaName = "immport", 
+                              queryName = "dimstudy", 
+                              colSelect = c("study", "program"),
+                              colNameOpt = "rname")
+datasetSummaries <- lapply(esets_all, function(filename) {
+  dataset <- readRDS(file.path(dataCacheDir, filename))
+  
+  pdata_all <- phenoData(dataset)
+  d <- data.table(pdata_all@data)
+  d <- merge(d, dimstudy, by.x = "study_accession", by.y = "study")
+  cohort_count <- length(unique(d$arm_accession))
+  study_count <- length(unique(d$study_accession))
+  vaccine_count <- length(unique(d$vaccine))
+  vaccine_type_count <- length(unique(d$vaccine_type))
+  pathogen_count <- length(unique(d$pathogen))
+  
+  studyProgram <- unique(d[, .(study_accession, program)])
+  studyProgram[, hipc := grepl("HIPC", program)]
+  hipc_studies <- sum(studyProgram$hipc)
+  not_hipc_studies <- sum(!studyProgram$hipc)
+  summary_datset <- data.table(
+    dataset = filename,
+    studies = study_count, 
+    vaccines = vaccine_count, 
+    vaccine_types = vaccine_type_count,
+    pathogens = pathogen_count,
+    hipc_studies = hipc_studies,
+    not_hipc_studies = not_hipc_studies)
+})
+knitr::kable(rbindlist(datasetSummaries))
+```
+
+
+
 ```{r create-diagnostic-plots, eval = TRUE}
 library(tidyverse)
 allEset <- readRDS(file.path(dataCacheDir, paste0(outputFilenamePrefix, "all_noNorm_noResponse_eset.rds")))
-genderQCPlot <- qualityControl.failedGenderImputation(allEset)
-pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "genderQC.pdf")),
+ychromQCPlot <- qualityControl.failedYchromQC(allEset)
+pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "ychromQC.pdf")),
     width = 8.5,
     height = 11)
-genderQCPlot
+ychromQCPlot
 dev.off()
 
 young <- readRDS(file.path(dataCacheDir, paste0(outputFilenamePrefix, "young_norm_noResponse_eset.rds")))
