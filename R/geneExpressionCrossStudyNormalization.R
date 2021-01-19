@@ -52,13 +52,13 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 batchCorrect <- function(eset){
   eset.baseline <- eset[, eset$time_post_last_vax <= 0 ]
 
-  # samples that failed Gender QC are not used for generating coefficients,
+  # samples that failed Y-chromosome QC are not used for generating coefficients,
   # but are left in the dataset for analysts to use / rm
-  eset.baseline.passedGenderQC <- eset.baseline[ , !eset.baseline$failedGenderQC ]
+  eset.baseline.passedYchromQC <- eset.baseline[ , !eset.baseline$failedYchromQC ]
 
   model.formula <- getModelFormula()
 
-  fit.vals <- getLmFitValues(model.formula, eset.baseline.passedGenderQC)
+  fit.vals <- getLmFitValues(model.formula, eset.baseline.passedYchromQC)
 
   # create another model matrix with all estimable vars for all timepoints
   mm.all <- model.matrix(model.formula, data = pData(eset))
@@ -94,16 +94,16 @@ batchCorrect.importedModel <- function(modelEset, targetEset){
   modelEset <- esets$model
   targetEset <- esets$target
 
-  # Ensure baseline and passing gender QC only for determining coefficients
+  # Ensure baseline and passing Y-chromosome QC only for determining coefficients
   modelEset.baseline <- modelEset[, modelEset$time_post_last_vax <= 0 ]
-  modelEset.baseline.passedGenderQC <- modelEset.baseline[, !modelEset.baseline$failedGenderQC ]
+  modelEset.baseline.passedYchromQC <- modelEset.baseline[, !modelEset.baseline$failedYchromQC ]
 
   model.formula <- getModelFormula()
-  fit.vals <- getLmFitValues(model.formula, modelEset.baseline.passedGenderQC)
+  fit.vals <- getLmFitValues(model.formula, modelEset.baseline.passedYchromQC)
 
   exprs.target <- exprs(targetEset)
   geneIntersect <- intersect(rownames(exprs.target),
-                             rownames(exprs(modelEset.baseline.passedGenderQC)))
+                             rownames(exprs(modelEset.baseline.passedYchromQC)))
   exprs.target.subset <- exprs.target[ geneIntersect, ]
 
   # Find common components of the model matrix for target and the modelEset.baseline

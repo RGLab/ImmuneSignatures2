@@ -430,9 +430,9 @@ consort_numbers[step == "remove subjects without baseline",
 # Y-chromosome imputation
 Y-chromosome imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either y-chromosome positive or negative based on the positive group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
 
-```{r gender-imputation, include=FALSE}
+```{r ychrom-imputation, include=FALSE}
 allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
-pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preGenderImpute.pdf")),
+pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preYchromImpute.pdf")),
     width = 8.5,
     height = 11)
 allMatricesPlot
@@ -476,5 +476,5 @@ if(!all(unlist(res))){
   stop("noNormEset does not meet expectations")
 }
 saveRDS(consort_numbers, file.path(dataCacheDir, "consort_numbers.rds"))
-# saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
+saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
 ```

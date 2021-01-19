@@ -96,7 +96,7 @@ testAllGEMetaDataPreNorm <- function(geMetaData){
   return(chks)
 }
 
-#' Test non-normalized base expression set for reasonable gender imputation and
+#' Test non-normalized base expression set for reasonable y-chromosome imputation and
 #' removal of participants without baseline data
 #'
 #' @param eset non-normalized expression set with all participants
