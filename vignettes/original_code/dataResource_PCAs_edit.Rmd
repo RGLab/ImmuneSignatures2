@@ -9,14 +9,14 @@ output: html_document
 ```{r libraries}
 library(gridExtra)
 library(pheatmap)
-library(BiostatsALL) #devtools::install_github("mssm-msf-2019/BiostatsALL")
+#library(BiostatsALL) #devtools::install_github("mssm-msf-2019/BiostatsALL")
 library(affy)
 library(ggplot2)
 library(preprocessCore)
 library(limma)
 library(plyr)
 library(sigaR)
-library(MergeMaid)
+# library(MergeMaid)
 library(stringr)
 ```
 
@@ -31,7 +31,7 @@ addPDataFeatures <- function(eset){
 
 subsetToBaseline <- function(eset){
   eset.baseline <- eset[, eset$study_time_collected == 0 ]
-  boxplot(exprs(eset.baseline), las = 2)
+  # boxplot(exprs(eset.baseline), las = 2)
   return(eset.baseline)
 }
 
@@ -142,22 +142,22 @@ impute.na <- function(x){
 
 
 ```{r load}
-dir.path<-here::here("vignettes", "data_cache/')
-eset <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_noNorm_noResponse_eset.rds"))
-eset.n <- readRDS(paste0(dir.path,"2020_12_07_PostAnno_all_norm_noResponse_eset.rds"))
+dir.path <- here::here("data_cache")
+eset <- readRDS(file.path(dir.path,"2020_12_23_newAnno_all_noNorm_noResponse_eset.rds"))
+eset.n <- readRDS(file.path(dir.path,"2020_12_23_newAnno_all_norm_noResponse_eset.rds"))
 ```
 
 ```{r global-variables}
 Nfeatures.pca <- 5000
 race.vars <- c('Hispanic','White','Black','Asian')
-standard.vars <- c('gender_imputed','cell_type')
+standard.vars <- c('y_chrom_present','cell_type')
 scale_shape_values <- c(12,20,21:23,10,11,13:19)
 pvca_threshold <- 0.8
 ```
 
 
 ```{r annotation colors}
-load("/Users/maytesuarezfarinas/Desktop/DHIPC/SignaturesIOF_Rproj/adj_path_vt_colors.rda")
+# load("/Users/maytesuarezfarinas/Desktop/DHIPC/SignaturesIOF_Rproj/adj_path_vt_colors.rda")
 
 # add for batch
 sc <- c("magenta","purple","orangered3","firebrick2","gray","green","lightblue4","yellow2",
@@ -165,12 +165,12 @@ sc <- c("magenta","purple","orangered3","firebrick2","gray","green","lightblue4"
         'red','gold','dodgerblue','darkgray','lightsalmon1','darkgreen','royalblue3','orchid4',
         'tan3','sandybrown','moccasin','pink','magenta','black','green','blue','violetred','snow4')
 
-ann.colors <- list(gender_imputed = c('red','blue'),
+ann.colors <- list(y_chrom_present = c('red','blue'),
                    study_accession = sc,
                    study_accession2 = c(sc,'black'),
                    featureSetName2 = sc,
                    vaccine = sc[1:length(unique(eset$vaccine))])
-ann.colors <- c(adj_path_vt_colors, ann.colors)
+# ann.colors <- c(adj_path_vt_colors, ann.colors)
 
 path <- c('Meningitis'  = "#80B1D3",
           "Ebola"       = 'gold',
@@ -224,18 +224,20 @@ plotByPlatform.withNorm <- plotPCA(pcas.withNorm.baseline,
                               color.var='featureSetName2',
                               var.shape='age_group',
                               var.size='size')
+plotByPlatform.noNorm
 ```
 
 ```{r pca-baseline-old-with-normalization}
 eset.n.baseline.old <- eset.n[selectedGenes.withNorm, eset.n$age_group == "old"]
 pcas.withNorm.old <- getPCAs(eset.n.baseline.old)
-pca.withNorm.old$db$size <- factor(1)
+pcas.withNorm.old$db$size <- factor(1)
 
 p1 <- plotPCA(pcas.withNorm.old,
               title = paste('PCANorm+Batch old'),
               color.var = 'featureSetName2', 
               var.shape = 'cell_type',
               var.size = 'size')
+p1
 
 pcas.withNorm.old$db$time.disc <- cut(pcas.withNorm.old$db$study_time_collected, c(-8,-7,0,7,28,Inf))
 
@@ -245,16 +247,18 @@ p1 <- plotPCA(pcas.withNorm.old,
               var.shape = 'adjuvant',
               var.size = 'time.disc')
 p1 <- p1 + scale_shape_manual(values = scale_shape_values)
+p1
 
-p1 <- plotPCA(pca.db.n.y,
+p1 <- plotPCA(pcas.withNorm.old,
               title = 'PCANorm+Batch Old',
               color.var = 'pathogen',
               var.shape = 'adjuvant',
               var.size = 'size')
 p1 <- p1 + scale_shape_manual(values = scale_shape_values)
+p1
 ```
 
-```{r PVCA original data baseline}
+```{r PVCA original data baseline, eval = FALSE}
 eset.baseline.withNormFeatures <- eset.baseline[selectedGenes.withNorm,]
 
 eigen.baseline <- getEigen(eset.baseline[selectedGenes.noNorm,]) # should this be withNorm?
@@ -278,7 +282,7 @@ p <- my.plot.pvca(pvca.baseline,
                   race.vars = race.vars)
 ```
 
-```{r PVCA  all data }
+```{r PVCA  all data, eval = FALSE}
 eset.n.selected <- eset.n[selectedGenes.withNorm,]
 eigen.all <- getEigen(eset.n.selected)
 
@@ -306,7 +310,7 @@ pv <- arrange(data.frame(Factor=a$label, perc=a$dat[1,]), desc(perc))
 print(subset(pv, perc > 0.01))
 ```
 
-```{r pvca-young}
+```{r pvca-young, eval = FALSE}
 pvca.byAge <- function(age_group){
   eset.n.selected <- eset.n[ selectedGenes.withNorm, eset.n$age_group == age_group]
   eigen <- getEigen(eset.n.selected)
