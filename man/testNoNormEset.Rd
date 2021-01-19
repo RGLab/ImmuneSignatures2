@@ -2,7 +2,7 @@
 % Please edit documentation in R/geneExpressionTests.R
 \name{testNoNormEset}
 \alias{testNoNormEset}
-\title{Test non-normalized base expression set for reasonable gender imputation and
+\title{Test non-normalized base expression set for reasonable y-chromosome imputation and
 removal of participants without baseline data}
 \usage{
 testNoNormEset(eset)
@@ -11,6 +11,6 @@ testNoNormEset(eset)
 \item{eset}{non-normalized expression set with all participants}
 }
 \description{
-Test non-normalized base expression set for reasonable gender imputation and
+Test non-normalized base expression set for reasonable y-chromosome imputation and
 removal of participants without baseline data
 }
