@@ -36,6 +36,31 @@ timeStamp <- ""
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
 
 ```{r global-variables}
+# Set up list for keeping track of consort numbers
+consort_numbers <- data.table(
+  step = c("immunespace total transcriptomic samples", 
+           "immunespace curated dataset",
+           "drop cohorts",
+           "drop samples due to difference in time design",
+           "remove subjects without baseline", 
+           "QC (remove saline samples)",
+           "Normalize: remove studies without young cohort", 
+           "Young adult dataset", 
+           "Older adult dataset"),
+  studies_remaining = as.numeric(NA),
+  studies_affected = as.numeric(NA),
+  studies_dropped = as.numeric(NA),
+  cohorts_remaining = as.numeric(NA),
+  cohorts_affected = as.numeric(NA),
+  cohorts_dropped = as.numeric(NA),
+  subjects_remaining = as.numeric(NA),
+  subjects_affected = as.numeric(NA),
+  subjects_dropped = as.numeric(NA),
+  samples_remaining = as.numeric(NA),
+  samples_affected = as.numeric(NA),
+  samples_dropped = as.numeric(NA)
+  )
+
 # Removing cohorts from gene expression data:
 # SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
 # SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
@@ -62,13 +87,15 @@ summarizeEset <- function(eset) {
   return(summary_dataset)
 }
 
-summarizeEsetList <- function(esetList) {
+summarizeEsetList <- function(esetList, con) {
   pdList <- lapply(esetList, pData)
   d <- rbindlist(pdList)
+  if (!"arm_accession" %in% names(d)) {
+    gef <- con$getDataset("gene_expression_files", original_view = TRUE)
+    d <- merge(d, unique(gef[, .(participant_id, arm_accession, study_accession)]), all.x = TRUE, all.y = FALSE)
+  }
   study_count <- length(unique(d$study_accession))
-  arm_count <- length(unique(d$arm_accession))
-  cohort_count <- length(unique(d$cohort))
-  cohort_count <- max(arm_count, cohort_count)
+  cohort_count <- length(unique(d$arm_accession))
   # subject_count <- length(unique(gsub("\\.\\d+", "", d$participant_id)))
   subject_count <- length(unique(d$participant_id))
   sample_count <- length(unique(d$biosample_accession))
@@ -82,6 +109,19 @@ summarizeEsetList <- function(esetList) {
 
 
 con <- CreateConnection("IS2", onTest = FALSE)
+```
+
+```{r get-total-numbers}
+con_all <- CreateConnection("", onTest = FALSE)
+gef <- con_all$getDataset("gene_expression_files", original_view = TRUE)
+consort_numbers[step == "immunespace total transcriptomic samples", 
+                `:=`(
+                  studies_remaining = length(unique(gef$study_accession)),
+                  cohorts_remaining = length(unique(gef$arm_accession)),
+                  subjects_remaining = length(unique(gef$participant_id)),
+                  samples_remaining = length(unique(gef$biosample_accession))
+                )]
+rm(con_all, gef)
 ```
 
 ```{r load-meta-data}
@@ -176,17 +216,35 @@ if( !all(unlist(results)) ){
 
 Full dataset: 
 ```{r summarize-all}
-summarizeEsetList(c(esets, droppedEsets))
+full_summary <- summarizeEsetList(c(esets, droppedEsets), con)
+consort_numbers[step == "immunespace curated dataset", 
+                `:=`(studies_remaining = full_summary$studies,
+                     cohorts_remaining = full_summary$cohorts,
+                     subjects_remaining = full_summary$subjects,
+                     samples_remaining = full_summary$samples)]
 ```
 
 Dropped cohorts: 
 ```{r summarize-dropped}
-summarizeEsetList(droppedEsets)
+dropped_summary <- summarizeEsetList(droppedEsets, con)
 ```
 
 Analysis cohorts: 
 ```{r summarize-kept}
-summarizeEsetList(esets)
+remaining_summary <- summarizeEsetList(esets, con)
+consort_numbers[step == "drop cohorts", 
+                `:=`(studies_remaining = remaining_summary$studies,
+                     cohorts_remaining = remaining_summary$cohorts,
+                     subjects_remaining = remaining_summary$subjects,
+                     samples_remaining = remaining_summary$samples, 
+                     studies_affected = dropped_summary$studies,
+                     cohorts_affected = dropped_summary$cohorts,
+                     subjects_affected = dropped_summary$subjects,
+                     samples_affected = dropped_summary$samples,
+                     studies_dropped = full_summary$studies - remaining_summary$studies,
+                     cohorts_dropped = full_summary$cohorts - remaining_summary$cohorts,
+                     subjects_dropped = full_summary$subjects - remaining_summary$subjects,
+                     samples_dropped = full_summary$samples - remaining_summary$samples)]
 ```
 
 # Fix problem samples due to difference in time design
@@ -221,15 +279,31 @@ esets <- lapply(esets, function(eset){
   return(eset)
 })
 
-summarizeEsetList(esets)
+result_summary <- summarizeEsetList(esets, con)
+result_summary
 
 # Get subjects affected
 pdata_pre <- rbindlist(lapply(esets_pre, pData))
 pdata_post <- rbindlist(lapply(esets, pData))
-subject_counts_pre <- pdata_pre[, .(n_post = .N), participant_id]
-subject_counts_post <- pdata_post[, .(n_pre = .N), participant_id]
+subject_counts_pre <- pdata_pre[, .(n_pre = .N), participant_id]
+subject_counts_post <- pdata_post[, .(n_post = .N), .(participant_id, study_accession)]
 subject_counts <- merge(subject_counts_pre, subject_counts_post)
-subject_counts[n_pre != n_post][, .N]
+subject_counts <- merge(subject_counts, geneExpressionFiles[, .(arm_accession, participant_id)])
+
+consort_numbers[step == "drop samples due to difference in time design", 
+                `:=`(studies_remaining = result_summary$studies,
+                     cohorts_remaining = result_summary$cohorts,
+                     subjects_remaining = result_summary$subjects,
+                     samples_remaining = result_summary$samples,
+                     studies_affected = 4,
+                     cohorts_affected = nrow(subject_counts[n_pre != n_post][, .N, arm_accession]),
+                     subjects_affected = unique(subject_counts[n_pre != n_post])[, .N],
+                     samples_affected = remaining_summary$samples - result_summary$samples,
+                     studies_dropped = remaining_summary$studies - result_summary$studies,
+                     cohorts_dropped = remaining_summary$cohorts - result_summary$cohorts,
+                     subjects_dropped = remaining_summary$subjects - result_summary$subjects,
+                     samples_dropped = remaining_summary$samples - result_summary$samples)]
+
 rm(esets_pre)
 
 ```
@@ -320,12 +394,37 @@ Remove subjects without baseline
 
 ```{r remove-subjects-without-baseline}
 pd <- pData(noNormEset)
+pdata_pre <- data.table(pd)
+
 allPids <- unique(pd$participant_id)
 pidsWithBaseline <- unique(pd$participant_id[ pd$time_post_last_vax >= -7 & pd$time_post_last_vax <= 0 ])
 pidsToRm <- setdiff(allPids, pidsWithBaseline)
 noNormEset <- noNormEset[ , !noNormEset$participant_id %in% pidsToRm ]
 
-summarizeEset(noNormEset)
+
+# Add consort numbers
+post_baseline_summary <- summarizeEset(noNormEset)
+pdata_post <- data.table(pData(noNormEset))
+arm_counts_pre <- pdata_pre[, .(n_pre = .N), .(study_accession, arm_accession)]
+arm_counts_post <- pdata_post[, .(n_post = .N), .(study_accession, arm_accession)]
+arm_counts <- merge(arm_counts_pre, arm_counts_post, 
+                        by = c("study_accession", "arm_accession"),
+                        all = TRUE)
+
+consort_numbers[step == "remove subjects without baseline", 
+                `:=`(studies_remaining = post_baseline_summary$studies,
+                     cohorts_remaining = post_baseline_summary$cohorts,
+                     subjects_remaining = post_baseline_summary$subjects,
+                     samples_remaining = post_baseline_summary$samples,
+                     studies_affected = nrow(unique(arm_counts[n_pre != n_post])[, .N, study_accession]),
+                     cohorts_affected = unique(arm_counts[n_pre != n_post])[, .N],
+                     subjects_affected = result_summary$subjects - post_baseline_summary$subjects,
+                     samples_affected = result_summary$samples - post_baseline_summary$samples,
+                     studies_dropped = result_summary$studies - post_baseline_summary$studies,
+                     cohorts_dropped = result_summary$cohorts - post_baseline_summary$cohorts,
+                     subjects_dropped = result_summary$subjects - post_baseline_summary$subjects,
+                     samples_dropped = result_summary$samples - post_baseline_summary$samples)]
+
 ```
 
 # Y-chromosome imputation
@@ -376,5 +475,6 @@ res <- testNoNormEset(noNormEset)
 if(!all(unlist(res))){
   stop("noNormEset does not meet expectations")
 }
-saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
+saveRDS(consort_numbers, file.path(dataCacheDir, "consort_numbers.rds"))
+# saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
 ```
