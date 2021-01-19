@@ -38,8 +38,8 @@ suppressPackageStartupMessages({
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache", "virtualStudy_prod")
-datePrefix <- ""
+dataCacheDir <- here("data_cache")
+datePrefix <- "2020_12_23_newAnno_"
 ```
 
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
@@ -258,10 +258,10 @@ kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
 em.fig1d <- exprs(young.NoResp)
 pd.fig1d <- pData(young.NoResp) %>%
   mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  select(uid, y_chrom_imputed, ethnicity, Vaccine, study_time_collected,
+  select(uid, y_chrom_present, ethnicity, Vaccine, study_time_collected,
 	 age_imputed) %>%
   rename(
-    Ychrom = y_chrom_imputed, 
+    Ychrom = y_chrom_present, 
     Ethnicity = ethnicity,
     Timepoint = study_time_collected,
     Age       = age_imputed) %>%
