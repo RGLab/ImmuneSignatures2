@@ -175,9 +175,12 @@ addCoalescedFeatureSetName <- function(dt){
 #' @param eset expressionSet
 #' @export
 #'
+
+# TODO: should this change to complete.cases?
 removeAllNArows <- function(eset){
   em <- Biobase::exprs(eset)
-  eset <- eset[ complete.cases(em), ]
+  allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
+  eset <- eset[ !allNARows, ]
 }
 
 #' Subset to just columns needed for cross-study normalization and batch-correction
