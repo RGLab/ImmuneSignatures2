@@ -1,0 +1,38 @@
+---
+title: "ImmuneSignatures2: Reproduction of analysis and figures for Temporal manuscript"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    df_print: paged
+    code_folding: hide
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE,
+                      warning = FALSE)
+```
+
+```{r, libraries}
+suppressPackageStartupMessages({
+  library(package = "Biobase")
+  library(package = "ImmuneSignatures2")
+})
+```
+
+
+```{r, global-variables, echo=FALSE}
+dataCacheDir <- here("data_cache")
+datePrefix <- "2020_12_23_newAnno_"
+```
+
+# Figure 1
+
+## Figure 1a
+__caption and description...__
+
+

@@ -7,6 +7,10 @@ output:
     toc_float: true
     df_print: paged
     code_folding: hide
+params: 
+  outputDir: !r here::here("outputs", "virtualStudy_prod_2021_1_19")
+  dataCacheDir: !r here::here("data_cache", "virtualStudy_prod_2021_1_19")
+  timestamp: "2021_1_19_"
 ---
 
 # Overview
@@ -23,14 +27,13 @@ suppressPackageStartupMessages({
   library(data.table)
   library(limma)
   library(tidyverse)
-  library(here)
 })
 # Output variables
-outputDir <- here("outputs", "virtualStudy_prod")
-dataCacheDir <- here("data_cache", "virtualStudy_prod")
+outputDir <- params$outputDir
+dataCacheDir <- params$dataCacheDir
 if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
-timeStamp <- ""
+timeStamp <- params$timestamp
 ```
 
 The ImmuneSignatures group selected a number of studies based on the diseases studied, study design and data availability.  For some studies there were cohorts that were excluded due to different vaccination methods, lack of stimulation, or different cell types.
@@ -150,17 +153,17 @@ if (file.exists(immdata_filename)) {
   immdata_all <- readRDS(immdata_filename)
 } else {
   immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
-  dt <- con$getDataset(assay, original_view = TRUE)
-  dt <- dt[, -"lsid"]
-  if(assay == "elisa"){
-    dt <- rbind(dt, sdy1370_elisa)
-  }
-  dt$assay <- assay
-  dt <- correctHrs(dt)
-  dt <- createUniqueIdColumn(dt)
-  dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
-})
-saveRDS(immdata_all, file = immdata_filename)
+    dt <- con$getDataset(assay, original_view = TRUE)
+    dt <- dt[, -"lsid"]
+    if(assay == "elisa"){
+      dt <- rbind(dt, sdy1370_elisa)
+    }
+    dt$assay <- assay
+    dt <- correctHrs(dt)
+    dt <- createUniqueIdColumn(dt)
+    dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
+  })
+  saveRDS(immdata_all, file = immdata_filename)
 }
 ```
 
@@ -227,6 +230,7 @@ consort_numbers[step == "immunespace curated dataset",
 Dropped cohorts: 
 ```{r summarize-dropped}
 dropped_summary <- summarizeEsetList(droppedEsets, con)
+dropped_summary
 ```
 
 Analysis cohorts: 
@@ -245,6 +249,7 @@ consort_numbers[step == "drop cohorts",
                      cohorts_dropped = full_summary$cohorts - remaining_summary$cohorts,
                      subjects_dropped = full_summary$subjects - remaining_summary$subjects,
                      samples_dropped = full_summary$samples - remaining_summary$samples)]
+remaining_summary
 ```
 
 # Fix problem samples due to difference in time design
@@ -430,7 +435,7 @@ consort_numbers[step == "remove subjects without baseline",
 # Y-chromosome imputation
 Y-chromosome imputation is performed by using Y-Chromosome associated genes to cluster each cohort into two groups and then assigning groups to either y-chromosome positive or negative based on the positive group having a higher mean expression value for selected genes.  Due to some outliers with extreme values, the Y-chromosome gene expression values are mapped to a lower two-dimensional representation first before clustering.
 
-```{r ychrom-imputation, include=FALSE}
+```{r ychrom-imputation}
 allMatricesPlot <- qualityControl.genderByMatrix(noNormEset)
 pdf(file = file.path(outputDir, paste0(timeStamp, "baseEset_preYchromImpute.pdf")),
     width = 8.5,

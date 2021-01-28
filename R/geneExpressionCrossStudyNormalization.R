@@ -171,7 +171,7 @@ getLmFitValues <- function(model.formula, eset.baseline){
 #' @export
 #'
 getModelFormula <- function(){
-  model.vars <- c('y_chrom_imputed','cell_type','featureSetName','geBatchName','featureSetVendor')
+  model.vars <- c('y_chrom_present','cell_type','featureSetName','geBatchName','featureSetVendor')
   model.formula <- as.formula(paste0('~', paste0(model.vars, collapse='+')))
 }
 

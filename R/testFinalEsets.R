@@ -76,13 +76,17 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) > 10000
   chks$exprs$noMissingGeneNames <- all(!is.na(rownames(em)) & rownames(em) != "")
 
-  # TODO: This checks for empty rows, not incomplete rows...
-  incompleteRows <- apply(em, 1, function(x){ all(is.na(x)) })
-  chks$exprs$noIncompleteRows <- sum(incompleteRows) == 0
+  emptyRows <- apply(em, 1, function(x){ all(is.na(x)) })
+  chks$exprs$noEmptyRows <- sum(emptyRows) == 0
 
   # IS1 genes not expected in cross-study normalized esets
   if(!isTRUE(expectNormalization)){
     chks$exprs$IS1genes <- all(c("ACTB", "MVP") %in% unique(rownames(em)))
+  }
+
+  # Normalized GEM should only have complete.cases
+  if(isTRUE(expectNormalization)) {
+    chks$exprs$noIncompleteRows <- all(complete.cases(em))
   }
 
   # Integration

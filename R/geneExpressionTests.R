@@ -119,7 +119,7 @@ testNoNormEset <- function(eset){
   pidsWithUpdatedGender <- length(unique(updatedGender$participant_id))
   chks$reasonableGenderImputation <- pidsWithUpdatedGender < 40
 
-  problemSamples <- qualityControl.yChromPresentByMatrix(noNormEset, returnObject = "probSamplesDT")
+  problemSamples <- qualityControl.yChromPresentByMatrix(eset, returnObject = "probSamplesDT")
   chks$expectedYchromProblemSamples <- nrow(problemSamples) == 65
 
   chks$allStudiesPresent <- length(unique(pd$study_accession)) == 30

@@ -1,5 +1,5 @@
 ---
-title: "ImmuneSignatures2: Reproduction of figures for Data Resource Manuscript"
+title: "ImmuneSignatures2: Reproduction of analysis and figures for pre-vaccination manuscript"
 output: 
   html_document: 
     toc: true
@@ -17,8 +17,6 @@ knitr::opts_chunk$set(echo = TRUE,
                       warning = FALSE)
 ```
 
-
-# SETUP
 ```{r, libraries}
 suppressPackageStartupMessages({
   library(package = "knitr")
@@ -38,11 +36,14 @@ suppressPackageStartupMessages({
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache", "virtualStudy_prod_2021_1_19")
-datePrefix <- "2021_1_19_"
+dataCacheDir <- here("data_cache")
+datePrefix <- "2020_12_23_newAnno_"
 ```
 
+# Setup
+
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
+
 ```{r, read-esets}
 subsetToCompleteGenes <- function(eset) {
   # only include complete cases
@@ -62,6 +63,7 @@ withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_withResp
 young.WithResp <- subsetToCompleteGenes(readRDS(file = withRespGEFile))
 ```
 
+
 ```{r, set-standard-colors, echo=FALSE}
 # Fig 1
 set3colors <- brewer.pal("Set3", n = 12)
@@ -78,283 +80,16 @@ vaccine2color <- getPalette(n = length(vaccines)) %>%
   setNames(nm = sort(vaccines))
 ```
 
-# FIGURES
+
+# Figures
 
 ## Figure 1
 
-### A: 
-HIPC Signatures Study creation Pipeline and Study Demographics. 
-
-### B: 
-Proportion of subjects of various self reported race and imputed y chrom values per pathogen*vaccine type
-*Authors:* Joanna Arce
-
-Combine the data for a full dataset with all ages
-```{r create-pdata}
-getPdata <- function(eset){
-  pd <- as_tibble(pData(eset))
-  pd <- pd %>% dplyr::select(uid, everything())
-  pd$age_reported <- as.numeric(pd$age_reported)
-  return(pd)
-}
-
-pdata_young <- getPdata(young.NoResp)
-pdata_old <- getPdata(old.NoResp)
-
-pdata_df <- rbind(pdata_young, pdata_old)
-```
-
-Pre-processing
-```{r}
-# Remove malaria - why?
-pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
-
-# Filter to unique subjects
-pdata_df_uniqueSubjects <- distinct(pdata_no_malaria, 
-                                    participant_id, 
-                                    y_chrom_present, 
-                                    race, 
-                                    pathogen, 
-                                    vaccine_type)
-
-# Create new column for pathogen and vaccine
-pdata_df_uniqueSubjects <- mutate(pdata_df_uniqueSubjects, 
-                                  pathogen_vacc = paste0(pathogen, "\n(", vaccine_type, ")"))
-
-getCounts <- function(pd, colnm, prefix){
-  counts_df <- arrange(dplyr::count(pd, .data[[colnm]], pathogen_vacc), n)
-  counts_df$pathogen_total <- sapply(1:nrow(counts_df), function(i){
-    return(sum(filter(counts_df, pathogen_vacc == counts_df$pathogen_vacc[i])$n))
-  })
-  counts_df$pathogen_vacc <- paste0(counts_df$pathogen_vacc, "\nn = ", counts_df$pathogen_total)
-  counts_df$n <- counts_df$n/counts_df$pathogen_total
-  colnames(counts_df) <- c("category", "pathogen_vacc", "freq")
-  counts_df$category <- paste0(prefix, counts_df$category)
-  return(counts_df)
-}
-
-sex_counts_df <- getCounts(pdata_df_uniqueSubjects, "y_chrom_present", "YCHROM_")
-race_counts_df <- getCounts(pdata_df_uniqueSubjects, "race", "RACE_")
-
-total_counts <- rbind(sex_counts_df, race_counts_df)
-names(colors.fig1a) <- c(unique(total_counts$pathogen_vacc)[c(2, 11, 3, 12, 8)],
-                       "Malaria (Recombinant protein)",
-                       unique(total_counts$pathogen_vacc)[c(7, 6, 5, 1, 4, 9, 10)])
-```
+### Figure 1a
+__caption__
+...any other description...
 
 
-```{r plot}
-p <- ggplot(total_counts) +
-  geom_bar(aes(x = freq, y = category, fill = pathogen_vacc), 
-           color = "black", stat = "identity", lwd = .2) +
-  geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
-  facet_wrap(vars(pathogen_vacc), nrow = 2) +
-  scale_y_discrete(limits = rev(c("YCHROM_TRUE", 
-                                  "YCHROM_FALSE",
-                                  "RACE_White", 
-                                  "RACE_Black or African American", 
-                                  "RACE_Asian", 
-                                  "RACE_American Indian or Alaska Native", 
-                                  "RACE_Other", 
-                                  "RACE_Not Specified", 
-                                  "RACE_Unknown")),
-                   labels = rev(c("Male", 
-                                  "Female",
-                                  "White", 
-                                  "Black or African American", 
-                                  "Asian", 
-                                  "American Indian or Alaska Native", 
-                                  "Other", 
-                                  "Not Specified", 
-                                  "Unknown"))) +
-  scale_x_continuous(breaks = c(0, .2, .4, .6, .8, 1), 
-                     labels = c(0, 20, 40, 60, 80, 100)) +
-  scale_fill_manual(values = colors.fig1a) +
-  guides(fill = FALSE) +
-  xlab("Distribution (%)") +
-  ylab(NULL) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90))
-
-p
-```
-
-## Consort diagram
-
-## Figure 2: QC
-
-TODO: Add PCA for PBMC and whole blood
-- save individual plots and upload those
-
-### A. 
-QC metrics
-
-### B. 
-PCA - baseline (Have this code from Mayte)
-
-### C. 
-PCA - normalized by batch (Have this code from Mayte)
-
-### D.
-PCA - young vs old PCA (Have this code from Mayte)
-
-### E. 
-y_chrom expression by timepoint (TODO) -- Bram: check his code
-
-### F. 
-RAPTOR age vs reported age -- young (TODO)
-
-### G. 
-RAPTOR age vs reported age -- old (TODO)
-
-
-## Figure 3
-Overview HIPC Signatures Transcriptomics Data Compilation (young and old). 
-
-### A. 
-Number of samples (check again) are summarized in transcriptomics (TX), hemaglutination inhibition assay (HAI), neutralizing antibody assay (NAB) and ELISA assays (ELISA) 
-
-(TODO)
-
-### B. 
-
-Venn diagram: Each area- proportional Euler diagram represents the total number of participants with corresponding data types.
-
-(TODO)
-
-### C.
-Box plot corresponds to the participants age per pathogen and vaccine type. Individual colors signifies the vaccine type each participants received while the shape of the point represents the sex of the participants. Imputation on sex based on Y chromosome genes was performed on participants with potential misassignment while age imputations were performed on datasets with missing age information (SDY......). 
-
-(Have what looks like an old version of this)
-
-### D: 
-Plot number of samples as a function of day of sampling
-*Authors:* Slim Fourati, Joanna Arce
-```{r, fig-1b, fig.width=6.29, fig.height=4.84}
-# any sampling data after 20 days coded as >20
-df.fig1b <- pData(young.NoResp) %>%
-  select(uid, study_time_collected, pathogen, vaccine_type) %>%
-  arrange(study_time_collected) %>%
-  mutate(study_time_collected = signif(study_time_collected, digits = 3),
-	 study_time_collected.factor = ifelse(test = study_time_collected > 20,
-					      yes  = ">20",
-					      no   = study_time_collected),
-	 study_time_collected.factor =
-	   factor(study_time_collected.factor,
-		  levels = unique(study_time_collected.factor)),
-	 vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  group_by(study_time_collected.factor, vaccine) %>%
-  summarize(n = n())
-
-ggplot(data = df.fig1b,
-       mapping = aes(x = study_time_collected.factor,
-		                 y = n)) +
-  geom_bar(stat = "identity", mapping = aes(fill = vaccine)) +
-  labs(x = "Days post-vaccination", y = "Number of samples") +
-  scale_y_continuous(limits = c(0, 800),
-		                 breaks = seq(from = 0, to = 800, by = 100)) + 
-  scale_fill_manual(name   = "Pathogen (Vaccine type)",
-		                values = vaccine2color) +
-  theme_bw() +
-  theme(panel.grid         = element_blank(),
-      	panel.grid.major.y = element_line(color = "lightgrey"),
-      	axis.text          = element_text(color = "black"),
-      	axis.text.x        = element_text(angle = 45, hjust = 1),
-      	legend.pos         = "bottom",
-      	legend.text        = element_text(size = 7),
-      	legend.key.height  = unit(0.02, units = "npc"),
-      	legend.key.width   = unit(0.015, units = "npc")) +
-  guides(fill = guide_legend(ncol = 2))
-```
-
-### Figure 3c: Plot age as a function of vaccine investigated
-*Author: * Slim Fourati
-```{r, fig-1c, fig.width=6.8, fig.height=7}
-df.fig1c <- pData(young.NoResp) %>%
-  select(participant_id, pathogen, vaccine_type, age_imputed, y_chrom_present) %>%
-  distinct() %>%
-  mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")"))
-
-# remove vaccine where all the participant have the same age
-flag <- df.fig1c %>%
-  group_by(vaccine) %>%
-  summarize(nbUniqueAge = length(unique(age_imputed))) %>%
-  filter(nbUniqueAge > 1)
-
-df.fig1c <- filter(df.fig1c, vaccine %in% flag$vaccine)
-
-ggplot(data = df.fig1c,
-       mapping = aes(x = vaccine,
-		                 y = age_imputed)) +
-  geom_boxplot(fill = "transparent", outlier.color = "transparent") +
-  geom_beeswarm(mapping = aes(color = vaccine, shape = y_chrom_present),
-		            cex = 0.3) +
-  scale_color_manual(name   = "Pathogen (Vaccine type)",
-                     values = vaccine2color) +
-  labs(x = "Pathogen (Vaccine type)", y = "Age") + 
-  theme_bw() +
-  theme(panel.grid         = element_blank(),
-      	panel.grid.major.y = element_line(color = "lightgrey"),
-      	axis.text          = element_text(color = "black"),
-      	axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
-      	legend.text        = element_text(size = 7),
-      	legend.key.height  = unit(0.02, units = "npc"),
-      	legend.key.width   = unit(0.015, units = "npc")) +
-  guides(fill = guide_legend(ncol = 1))
-
-# test for difference between vaccine
-kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
-```
-
-### Figure 1d: Proportion of Variance Explained
-<!-- TODO: Where does this go?  -->
-*Author: * Slim Fourati
-```{r, fig-1d-data-prep}
-em.fig1d <- exprs(young.NoResp)
-pd.fig1d <- pData(young.NoResp) %>%
-  mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  select(uid, y_chrom_present, ethnicity, Vaccine, study_time_collected,
-	 age_imputed) %>%
-  rename(
-    Ychrom = y_chrom_present, 
-    Ethnicity = ethnicity,
-    Timepoint = study_time_collected,
-    Age       = age_imputed) %>%
-  column_to_rownames(var = "uid")
-pd.fig1d <- pd.fig1d[colnames(em.fig1d), ]
-```
-
-```{r, fig-1d-PVCA, echo=FALSE}
-pvcaCacheFile <- file.path(dataCacheDir, "pvca.rds")
-if(!file.exists(pvcaCacheFile)){
-  fit <- PVCA(counts    = em.fig1d,
-              meta      = pd.fig1d,
-              threshold = 0.6,
-              inter     = FALSE)
-  saveRDS(fit, pvcaCacheFile)
-}else{
-  fit <- readRDS(pvcaCacheFile)
-}
-```
-
-```{r, fig-1d-plot, fig.width=4, fig.height=7}
-df.fig1d <- data.frame(explained = as.vector(fit),
-                       effect    = names(fit)) %>%
-  arrange(explained) %>%
-  mutate(effect = factor(effect, levels = effect))
-
-ggplot(data    = df.fig1d,
-       mapping = aes(x = effect, y = explained)) +
-  geom_bar(stat = "identity") +
-  geom_text(aes(label = signif(explained, digits = 3)),
-            nudge_y   = 0.01,
-            size      = 3) +
-  labs(x = NULL, y = "Proportion of the variance explained") + 
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90,
-                                   vjust = 0.5,
-                                   hjust = 1))
-```
 
 
 

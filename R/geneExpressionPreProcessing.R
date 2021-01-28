@@ -175,8 +175,6 @@ addCoalescedFeatureSetName <- function(dt){
 #' @param eset expressionSet
 #' @export
 #'
-
-# TODO: should this change to complete.cases?
 removeAllNArows <- function(eset){
   em <- Biobase::exprs(eset)
   allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
