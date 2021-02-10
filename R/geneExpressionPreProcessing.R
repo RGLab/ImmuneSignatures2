@@ -205,8 +205,9 @@ summarizeByGeneSymbol <- function(esets){
     exprs <- data.table(Biobase::exprs(esets[[i]]), keep.rownames = TRUE)
     goodRows <- apply(exprs[,-1], 1, function(row){ all(!is.na(row)) })
     exprs <- exprs[ goodRows ]
-    calcAvgWithoutLog <- function(row){ sum(2^row) / length(row) }
-    exprs[ , prb_avg := apply(exprs[,-1], 1, calcAvgWithoutLog) ]
+    # calcAvgWithoutLog <- function(row){ sum(2^row) / length(row) }
+    # exprs[ , prb_avg := apply(exprs[,-1], 1, calcAvgWithoutLog) ]
+    exprs[ , prb_avg := apply(exprs[,-1], 1, mean)]
 
     # Ensure that feature data is accurate and ordered correctly before
     # assigning a gene_symbol

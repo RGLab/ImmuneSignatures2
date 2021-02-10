@@ -171,9 +171,10 @@ getLmFitValues <- function(model.formula, eset.baseline){
 #' @export
 #'
 getModelFormula <- function(){
-  model.vars <- c('y_chrom_present','cell_type','featureSetName','geBatchName','featureSetVendor')
+  model.vars <- c('y_chrom_present','cell_type','featureSetVendor','featureSetName2','geBatchName')
   model.formula <- as.formula(paste0('~', paste0(model.vars, collapse='+')))
 }
+
 
 #' Get linear model fit values for each gene
 #'
