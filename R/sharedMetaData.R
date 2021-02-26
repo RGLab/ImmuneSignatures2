@@ -38,7 +38,7 @@ addGeBatchName <- function(dt){
 
   dt$geBatchName <- apply(dt, 1, function(x){
     if(x[['arm_accession']] %in% byCohort){
-      return(paste(x[['study_accession']], x[['cohort']], sep = "_"))
+      return(paste(x[['study_accession']], x[['arm_accession']], sep = "_"))
     }else if(x[['arm_accession']] %in% names(byGroup)){
       grpName <- byGroup[ match(x[['arm_accession']], names(byGroup))]
       return(paste(x[['study_accession']], grpName, sep = "_"))
