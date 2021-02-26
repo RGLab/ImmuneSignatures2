@@ -4,7 +4,7 @@
 \alias{batchCorrect.importedModel}
 \title{Adjust baseline expression data to account for study_accession, featureSetName, and cell_type}
 \usage{
-batchCorrect.importedModel(modelEset, targetEset)
+batchCorrect.importedModel(modelEset, targetEset, model.vars)
 }
 \arguments{
 \item{modelEset}{expressionSet used to create linear model}

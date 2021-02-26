@@ -4,7 +4,7 @@
 \alias{getModelFormula}
 \title{Get linear model fit values for each gene}
 \usage{
-getModelFormula()
+getModelFormula(model.vars)
 }
 \description{
 Get linear model fit values for each gene

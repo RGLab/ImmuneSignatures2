@@ -49,14 +49,14 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 #' @param eset expressionSet
 #' @export
 #'
-batchCorrect <- function(eset){
+batchCorrect <- function(eset, model.vars){
   eset.baseline <- eset[, eset$time_post_last_vax <= 0 ]
 
   # samples that failed Y-chromosome QC are not used for generating coefficients,
   # but are left in the dataset for analysts to use / rm
   eset.baseline.passedYchromQC <- eset.baseline[ , !eset.baseline$failedYchromQC ]
 
-  model.formula <- getModelFormula()
+  model.formula <- getModelFormula(model.vars)
 
   fit.vals <- getLmFitValues(model.formula, eset.baseline.passedYchromQC)
 
@@ -83,7 +83,7 @@ batchCorrect <- function(eset){
 #' @param targetEset expressionSet that is corrected given model fit values
 #' @export
 #'
-batchCorrect.importedModel <- function(modelEset, targetEset){
+batchCorrect.importedModel <- function(modelEset, targetEset, model.vars){
   esets <- c(model = modelEset, target = targetEset)
   factorsToRelevel <- c("cell_type",
                         "featureSetVendor",
@@ -98,7 +98,7 @@ batchCorrect.importedModel <- function(modelEset, targetEset){
   modelEset.baseline <- modelEset[, modelEset$time_post_last_vax <= 0 ]
   modelEset.baseline.passedYchromQC <- modelEset.baseline[, !modelEset.baseline$failedYchromQC ]
 
-  model.formula <- getModelFormula()
+  model.formula <- getModelFormula(model.vars)
   fit.vals <- getLmFitValues(model.formula, modelEset.baseline.passedYchromQC)
 
   exprs.target <- exprs(targetEset)
@@ -128,6 +128,7 @@ batchCorrect.importedModel <- function(modelEset, targetEset){
 
   # create new expression matrix
   exprs.target.corr <- exprs.target.subset - correctionValues
+
 
   # ensure phenotypic data is ordered correctly as this is not checked
   # when inserted directly - i.e. pData(x) <- pd
@@ -170,8 +171,7 @@ getLmFitValues <- function(model.formula, eset.baseline){
 #'
 #' @export
 #'
-getModelFormula <- function(){
-  model.vars <- c('y_chrom_present','cell_type','featureSetVendor','featureSetName2','geBatchName')
+getModelFormula <- function(model.vars){
   model.formula <- as.formula(paste0('~', paste0(model.vars, collapse='+')))
 }
 

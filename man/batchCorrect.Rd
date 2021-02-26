@@ -5,7 +5,7 @@
 \title{Adjust expression data using correction coefficients based on baseline data
 to account for study_accession, featureSetName, and cell_type}
 \usage{
-batchCorrect(eset)
+batchCorrect(eset, model.vars)
 }
 \arguments{
 \item{eset}{expressionSet}
