@@ -2,9 +2,9 @@
 title: "PCA Plots"
 output: html_document
 params: 
-  outputDir: !r here::here("outputs", "pca_plots", "2020_12_23_newAnno")
-  dataCacheDir: !r here::here("data_cache")
-  timestamp: "2021_12_23_newAnno"
+  outputDir: !r here::here("outputs", "2021_02_11", "pca_testBatchCorrection")
+  dataCacheDir: !r here::here("data_cache", "2021_02_11")
+  timestamp: "test_batch_correction_"
 ---
 
 # Create PCA plots
@@ -106,32 +106,48 @@ my.plot.pvca <- function(pvcaObj,
 
 
 impute.na<-function(x){x[is.na(x)]<-mean(x,na.rm=T); return(x)}
+
+Nfeatures.pca<-5000
+
+race.vars <- c('Hispanic','White','Black','Asian')
 ```
 
 ```{r load}
 eset_noNorm <- readRDS(file.path(dataDir, paste0(prefix, "all_noNorm_noResponse_eset.rds")))
 # eset_crossStudyNorm <- readRDS(file.path(dataDir, paste0(prefix, "all_norm_noBatchCorrect_eset.rds")))
-eset_batchCorrected <- readRDS(file.path(dataDir, paste0(prefix, "all_norm_noResponse_eset.rds")))
+# eset_batchCorrected <- readRDS(file.path(dataDir, paste0(prefix, "all_norm_noResponse_eset.rds")))
+# eset_noCelltype <- readRDS(file.path(dataDir, paste0(prefix, "all_norm_nocelltype_noResponse_eset.rds")))
 
-Nfeatures.pca<-5000
+# eset_old <- readRDS(file.path(dataDir, paste0(prefix, "old_norm_noResponse_eset.rds")))
+# eset_all <- readRDS(file.path(dataDir, paste0(prefix, "all_norm_noResponse_eset.rds")))
+# eset_young <- readRDS(file.path(dataDir, paste0(prefix, "young_norm_noResponse_eset.rds")))
 
-eset_noNorm$pathogen_adjuvant <- interaction(eset_noNorm$pathogen, eset_noNorm$adjuvant)
-eset_noNorm$time <- eset_noNorm$study_time_collected
-eset_noNorm$age_group <- ifelse(eset_noNorm$age_imputed < 50,'young','old')
-eset_noNorm$sex <- eset_noNorm$y_chrom_present
+
+# Nfeatures.pca<-5000
+
+# eset_noNorm$pathogen_adjuvant <- interaction(eset_noNorm$pathogen, eset_noNorm$adjuvant)
+# eset_noNorm$time <- eset_noNorm$study_time_collected
+# eset_noNorm$age_group <- ifelse(eset_noNorm$age_imputed < 50,'young','old')
+# eset_noNorm$sex <- eset_noNorm$y_chrom_present
 
 # eset_crossStudyNorm$pathogen_adjuvant <- interaction(eset_crossStudyNorm$pathogen, eset_crossStudyNorm$adjuvant)
 # eset_crossStudyNorm$time <- eset_crossStudyNorm$study_time_collected
 # eset_crossStudyNorm$sex <- eset_crossStudyNorm$y_chrom_present
 # eset_crossStudyNorm$age_group <- ifelse(eset_crossStudyNorm$age_imputed < 50,'young','old')
 
-eset_batchCorrected$pathogen_adjuvant <- interaction(eset_batchCorrected$pathogen, eset_batchCorrected$adjuvant)
-eset_batchCorrected$time <- eset_batchCorrected$study_time_collected
-eset_batchCorrected$sex <- eset_batchCorrected$y_chrom_present
-eset_batchCorrected$age_group <- ifelse(eset_batchCorrected$age_imputed < 50,'young','old')
-race.vars <- c('Hispanic','White','Black','Asian')
+# eset_batchCorrected$pathogen_adjuvant <- interaction(eset_batchCorrected$pathogen, eset_batchCorrected$adjuvant)
+# eset_batchCorrected$time <- eset_batchCorrected$study_time_collected
+# eset_batchCorrected$sex <- eset_batchCorrected$y_chrom_present
+# eset_batchCorrected$age_group <- ifelse(eset_batchCorrected$age_imputed < 50,'young','old')
+# 
+# eset_noCelltype$pathogen_adjuvant <- interaction(eset_noCelltype$pathogen, eset_noCelltype$adjuvant)
+# eset_noCelltype$time <- eset_noCelltype$study_time_collected
+# eset_noCelltype$sex <- eset_noCelltype$y_chrom_present
+# eset_noCelltype$age_group <- ifelse(eset_noCelltype$age_imputed < 50,'young','old')
+# 
+# 
+# race.vars <- c('Hispanic','White','Black','Asian')
 ```
-
 
 ```{r annotation colors}
 load(here::here("vignettes", "original_code", "adj_path_vt_colors.rda"))
@@ -150,7 +166,6 @@ path<-c(Meningitis="#80B1D3","Ebola"='gold',
 ann.colors$pathogen<-c(path, ann.colors$pathogen[setdiff(names(ann.colors$pathogen), names(path))])
 Nfeatures.pca<-5000
 ```
-
 
 ```{r make-the-plots}
 eset_noNorm_baseline <- eset_noNorm[, eset_noNorm$study_time_collected == 0]
@@ -217,6 +232,35 @@ make_the_plots <- function(esetType) {
 }
 ```
 
+```{r debug}
+library(data.table)
+eset_young <- readRDS("~/Projects/ImmuneSignatures2/data_cache/2021_02_11/2021_02_11_young_norm_noResponse_eset.rds")
+eset_young$age_group <-  ifelse(eset_young$age_imputed < 50,'young','old')
+make_the_plots("young")
+
+eset_old <- readRDS("~/Projects/ImmuneSignatures2/data_cache/2021_02_11/2021_02_11_old_norm_noResponse_eset.rds")
+eset_old$age_group <- "old"
+make_the_plots("old")
+
+pd_old <- pData(eset_old)
+setDT(pd_old)
+pd_young[, .N, .(featureSetName, featureSetName2)]
+pd_young <- pData(eset_young)
+setDT(pd_young)
+pd_young[featureSetName2 == "HGU133_plus_PM", .N, .(study_accession)]
+
+### Before batchGate ###
+
+eset_young_pre <- readRDS("~/Projects/ImmuneSignatures2/data_cache/old/2020_10_27_young_norm_noResponse_eset.rds")
+eset_old_pre <- readRDS("~/Projects/ImmuneSignatures2/data_cache/old/2020_10_27_old_norm_noResponse_eset.rds")
+eset_young_pre$age_group <- "young"
+eset_old_pre$age_group <- "old"
+make_the_plots("young_pre")
+make_the_plots("old_pre")
+
+```
+
+----
 
 # All cohorts, before cross-study normalization
 ```{r noNorm}
@@ -228,11 +272,15 @@ make_the_plots("noNorm")
 # make_the_plots("crossStudyNorm")
 ```
 
+# All cohorts, batch corrected without cell type
+```{r noCellType}
+make_the_plots("noCelltype")
+```
+
 # All cohorts, after batch correction
 ```{r bachCorrected}
 make_the_plots("batchCorrected")
 ```
-
 
 # Young only, after batch correction
 subjects age 18-50
@@ -252,14 +300,25 @@ make_the_plots("young_batchCorrected")
 Subjects age 50-91
 
 ```{r old}
-eset_old_batchCorrected <- readRDS(file.path(dataDir, paste0(prefix, "old_norm_noResponse_eset.rds")))
+eset_old2_batchCorrected <- readRDS(file.path(dataDir, paste0(prefix, "old_norm_noResponse_eset.rds")))
 
-eset_old_batchCorrected$pathogen_adjuvant <- interaction(eset_old_batchCorrected$pathogen, eset_old_batchCorrected$adjuvant)
-eset_old_batchCorrected$time <- eset_old_batchCorrected$study_time_collected
-eset_old_batchCorrected$sex <- eset_old_batchCorrected$y_chrom_present
-eset_old_batchCorrected$age_group <- ifelse(eset_old_batchCorrected$age_imputed < 50,'young','old')
-race.vars <- c('Hispanic','White','Black','Asian')
+eset_old2_batchCorrected$pathogen_adjuvant <- interaction(eset_old2_batchCorrected$pathogen, eset_old2_batchCorrected$adjuvant)
+eset_old2_batchCorrected$time <- eset_old2_batchCorrected$study_time_collected
+eset_old2_batchCorrected$sex <- eset_old2_batchCorrected$y_chrom_present
+eset_old2_batchCorrected$age_group <- ifelse(eset_old2_batchCorrected$age_imputed < 50,'young','old')
 
-make_the_plots("old_batchCorrected")
+make_the_plots("old2_batchCorrected")
+```
+
+# all, subsetted young vs old
+
+```{r all_old}
+eset_all_old <- eset_batchCorrected[,eset_batchCorrected$age_impute >= 60 ]
+make_the_plots("all_old")
+```
+
+```{r all_young}
+eset_all_young <- eset_batchCorrected[,eset_batchCorrected$age_imputed < 60 ]
+make_the_plots("all_young")
 ```
 

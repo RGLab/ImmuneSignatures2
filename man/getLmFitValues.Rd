@@ -4,7 +4,7 @@
 \alias{getLmFitValues}
 \title{Get linear model fit values for each gene}
 \usage{
-getLmFitValues(model.formula, eset.baseline)
+getLmFitValues(model.formula, eset.baseline, coefs2adjust)
 }
 \arguments{
 \item{model.formula}{model formula}

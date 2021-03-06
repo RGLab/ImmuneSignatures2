@@ -3,9 +3,9 @@ title: "ImmuneSignatures2: Create Final ExpressionSets from Base ExpressionSet"
 author: "Evan Henrich and Helen Miller"
 output: html_document
 params: 
-  outputDir: !r here::here("outputs", "virtualStudy_prod_2021_1_19")
-  dataCacheDir: !r here::here("data_cache", "virtualStudy_prod_2021_1_19")
-  timestamp: "2021_1_19_"
+  outputDir: !r here::here("outputs", "2021_02_11")
+  dataCacheDir: !r here::here("data_cache", "2021_02_11")
+  timestamp: "2021_02_11_"
 ---
 
 # Overview
@@ -30,10 +30,10 @@ outputDir <- params$outputDir
 dataCacheDir <- params$dataCacheDir
 inputFilenamePrefix <- params$timestamp
 outputFilenamePrefix <- params$timestamp
+outputFilenamePrefix <- "test_batch_correction_"
 if (!dir.exists(outputDir)) stop("could not find", outputDir)
 if (!dir.exists(dataCacheDir)) stop("could not find", dataCacheDir)
 ```
-
 
 ```{r global-variables}
 postVaxDayRanges <- list(
@@ -90,6 +90,14 @@ for(ageGroupName in names(ageGroups)){
   saveRDS(eset.noNorm.noResponse, filename)
   
   # With Cross-Study Normalization, No Immune Response Calls
+  # when ageGroup = "all", need to include age_group in covariates
+  # Re-run with updates
+  # Add age group variable, make sure that "young" comes first in factor levels
+  # Re-do PCA for: 
+  # old (batch corrected separately)
+  # all (subsetted by young vs old)
+  # Why are we not just doing everything together then subsetting? 
+  # TODO: Also add age imputation (from Jeremy) and label as age_imputed_byGE
   if(grepl("old", ageGroupName, ignore.case = TRUE)){
       eset.young.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["young"]])
       eset.young.norm <- removeAllNArows(eset.young.norm)
@@ -100,13 +108,50 @@ for(ageGroupName in names(ageGroups)){
       # Remove studies that do not have young cohorts and cannot be modeled
       eset.old.norm <- eset.old.norm[, !eset.old.norm$study_accession %in% c("SDY1368","SDY67") ]
       
-      eset.corr.noResponse <- batchCorrect.importedModel(modelEset = eset.young.norm,
-                                                         targetEset = eset.old.norm)
-    }else{
-      eset.norm.noResponse <- filterEsetByAge(eset.all.norm, ages)
-      eset.norm.noResponse <- removeAllNArows(eset.norm.noResponse)
-      eset.corr.noResponse <- batchCorrect(eset.norm.noResponse)
+      eset.corr.noResponse <- batchCorrect.importedModel(
+        modelEset = eset.young.norm,
+        targetEset = eset.old.norm,
+        batch.vars=c('cell_type',
+                     'featureSetVendor',
+                     'featureSetName2',
+                     'geBatchName'),
+        covariates = c('y_chrom_present')) 
+  }else{
+    eset.norm.noResponse <- filterEsetByAge(eset.all.norm, ages)
+    eset.norm.noResponse <- removeAllNArows(eset.norm.noResponse)
+    eset.norm.noResponse$age_group <- 
+      factor(ifelse(eset.norm.noResponse$age_imputed < 50, "young", "extendedOld"), 
+             levels = c("young", "extendedOld"))
+    eset.corr.noResponse <- batchCorrect(
+      eset.norm.noResponse, 
+      batch.vars = c('cell_type',
+                     'featureSetVendor',
+                     'featureSetName2',
+                     'geBatchName'),
+      covariates = c('y_chrom_present', 
+                     'age_group'))
+    
+    if (ageGroupName == "all") {
+      eset.corr.noResponse_nocelltype <- batchCorrect(
+        eset.norm.noResponse, 
+        batch.vars = c('featureSetVendor',
+                       'featureSetName2',
+                       'geBatchName'),
+        covariates = c('y_chrom_present',
+                       'age_group',
+                       'cell_type'))
+      
+      eset.corr.noResponse_nocelltype <- removeAllNArows(eset.corr.noResponse_nocelltype)
+      eset.corr.noResponse_nocelltype <-
+        eset.corr.noResponse_nocelltype[complete.cases(exprs(eset.corr.noResponse_nocelltype)), ]
+      fileSuffix <- paste0(ageGroupName, "_norm_nocelltype_noResponse_eset.rds")
+      filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fileSuffix))
+      saveRDS(eset.corr.noResponse_nocelltype, filename)
+      # TODO: Make PCA from eset.corr.noResponse_nocelltype, only for baseline. 
     }
+    
+  }
+  
   eset.corr.noResponse <- removeAllNArows(eset.corr.noResponse)
   eset.corr.noResponse <- eset.corr.noResponse[complete.cases(exprs(eset.corr.noResponse)), ]
   
@@ -116,7 +161,11 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-  fullSuffix <- paste0(ageGroupName, "_norm_noResponse_eset.rds")
+  if (grepl("old", ageGroupName)) {
+    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_eset.rds")
+  } else {
+    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_eset.rds")
+  }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.noResponse, filename)
   
@@ -154,7 +203,11 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-  fullSuffix <- paste0(ageGroupName, "_norm_withResponse_eset.rds")
+    if (grepl("old", ageGroupName)) {
+    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_withResponse_eset.rds")
+  } else {
+    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_withResponse_eset.rds")
+  }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.withResponse, filename)
 }

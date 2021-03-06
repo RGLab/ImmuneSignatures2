@@ -49,16 +49,19 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 #' @param eset expressionSet
 #' @export
 #'
-batchCorrect <- function(eset, model.vars){
+batchCorrect <- function(eset, batch.vars, covariates){
   eset.baseline <- eset[, eset$time_post_last_vax <= 0 ]
 
+  model.vars <- c(batch.vars, covariates)
   # samples that failed Y-chromosome QC are not used for generating coefficients,
   # but are left in the dataset for analysts to use / rm
   eset.baseline.passedYchromQC <- eset.baseline[ , !eset.baseline$failedYchromQC ]
 
   model.formula <- getModelFormula(model.vars)
 
-  fit.vals <- getLmFitValues(model.formula, eset.baseline.passedYchromQC)
+  fit.vals <- getLmFitValues(model.formula,
+                             eset.baseline.passedYchromQC,
+                             coefs2adjust = batch.vars)
 
   # create another model matrix with all estimable vars for all timepoints
   mm.all <- model.matrix(model.formula, data = pData(eset))
@@ -74,7 +77,7 @@ batchCorrect <- function(eset, model.vars){
                    exprs = as.matrix(tmpExprs, rownames = rownames(tmpExprs)),
                    phenoData = new('AnnotatedDataFrame', pData(eset))
   )
-
+  return(eset.corr)
 }
 
 #' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
@@ -83,12 +86,11 @@ batchCorrect <- function(eset, model.vars){
 #' @param targetEset expressionSet that is corrected given model fit values
 #' @export
 #'
-batchCorrect.importedModel <- function(modelEset, targetEset, model.vars){
+batchCorrect.importedModel <- function(modelEset, targetEset, batch.vars, covariates){
+  model.vars <- c(batch.vars, covariates)
   esets <- c(model = modelEset, target = targetEset)
-  factorsToRelevel <- c("cell_type",
-                        "featureSetVendor",
-                        "geBatchName",
-                        "featureSetName")
+  factorsToRelevel <- c(model.vars)
+  # Make sure "young" comes first
   esets <- relevelEsets(esets, factorsToRelevel)
 
   modelEset <- esets$model
@@ -99,7 +101,9 @@ batchCorrect.importedModel <- function(modelEset, targetEset, model.vars){
   modelEset.baseline.passedYchromQC <- modelEset.baseline[, !modelEset.baseline$failedYchromQC ]
 
   model.formula <- getModelFormula(model.vars)
-  fit.vals <- getLmFitValues(model.formula, modelEset.baseline.passedYchromQC)
+  fit.vals <- getLmFitValues(model.formula,
+                             modelEset.baseline.passedYchromQC,
+                             coefs2adjust =  batch.vars)
 
   exprs.target <- exprs(targetEset)
   geneIntersect <- intersect(rownames(exprs.target),
@@ -148,7 +152,7 @@ batchCorrect.importedModel <- function(modelEset, targetEset, model.vars){
 #' @param model.formula model formula
 #' @export
 #'
-getLmFitValues <- function(model.formula, eset.baseline){
+getLmFitValues <- function(model.formula, eset.baseline, coefs2adjust){
   mm <- model.matrix(model.formula, data = pData(eset.baseline))
 
   # Remove model matrix variables that are not estimable
@@ -160,7 +164,7 @@ getLmFitValues <- function(model.formula, eset.baseline){
 
   # Select only study, featureAnnotationSet, and cell type as variables to use
   # (do not use gender)
-  coefs2adjust <- grep('Batch|featureSetName|featureSetVendor|cell_type',
+  coefs2adjust <- grep(paste0(coefs2adjust, collapse = "|"),
                        colnames(mm.est), value = TRUE)
 
   # subset the coefficient values of the linear fit output by coefficients to adjust as well
