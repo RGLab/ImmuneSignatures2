@@ -6,6 +6,10 @@ output: html_document
 ---
 ### PCA /PVCA
 
+TODO: PVCA
+* match variables that we corrected
+* Before and after norm for baseline
+
 ```{r setup}
 knitr::opts_chunk$set(echo =TRUE, 
                       message = FALSE,
@@ -251,7 +255,7 @@ source(here::here("vignettes", "original_code", "functions pvca.R"))
 
 features.pca.n<-featureNames(eset.n)[which((rowMeans(is.na(exprs(eset.n)))==0)&(apply(exprs(eset.n),1,sd)>0))]
 
-pvca0_file <- here::here("outputs", "2021_1_20_pvca_0.rda")
+pvca0_file <- here::here("outputs", "2021_03_08_pvca_0.rda")
 if (!file.exists(pvca0_file)) {
 
 eigen.0<-getEigen(eset0[features.pca.0,])

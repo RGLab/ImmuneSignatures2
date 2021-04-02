@@ -9,7 +9,7 @@ output: html_document
 ```{r libraries}
 library(gridExtra)
 library(pheatmap)
-#library(BiostatsALL) #devtools::install_github("mssm-msf-2019/BiostatsALL")
+library(BiostatsALL) #devtools::install_github("mssm-msf-2019/BiostatsALL")
 library(affy)
 library(ggplot2)
 library(preprocessCore)
@@ -123,7 +123,8 @@ my.plot.pvca <- function (pvcaObj,
           labs(x = "Effects", 
                y = "Weighted average proportion variance", 
                title = paste("PVCA ", title)) + 
-          scale_x_discrete(labels = function(x) str_wrap(x, width = 8))
+          scale_x_discrete(labels = function(x) str_wrap(x, width = 8))  + 
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
   
   if (!is.null(fname)) {
     ggsave(file = paste0(fname, ".pdf"), height = ht, width = wd, 
@@ -142,9 +143,9 @@ impute.na <- function(x){
 
 
 ```{r load}
-dir.path <- here::here("data_cache")
-eset <- readRDS(file.path(dir.path,"2020_12_23_newAnno_all_noNorm_noResponse_eset.rds"))
-eset.n <- readRDS(file.path(dir.path,"2020_12_23_newAnno_all_norm_noResponse_eset.rds"))
+dir.path <- here::here("data_cache", "2021_03_08")
+eset <- readRDS(file.path(dir.path, "2021_03_08_all_noNorm_eset.rds"))
+eset.n <- readRDS(file.path(dir.path,"2021_03_08_all_norm_eset.rds"))
 ```
 
 ```{r global-variables}
@@ -259,6 +260,7 @@ p1
 ```
 
 ```{r PVCA original data baseline, eval = FALSE}
+source("./functions pvca.R")
 eset.baseline.withNormFeatures <- eset.baseline[selectedGenes.withNorm,]
 
 eigen.baseline <- getEigen(eset.baseline[selectedGenes.noNorm,]) # should this be withNorm?
@@ -271,15 +273,17 @@ batch.vars <- c(standard.vars,
 pvca.baseline <- pvcaBatchAssess.MSF2(eset.baseline.withNormFeatures, 
                                       eigenData = eigen.baseline,
                                       batch.factors = batch.vars,
-                                      include.inter = sc( 'age_group:cell_type',
-                                                     'gender_imputed:cell_type'),
+                                      include.inter = c( 'age_group:cell_type',
+                                                     'y_chrom_present:cell_type'),
                                       threshold = pvca_threshold)
 
 p <- my.plot.pvca(pvca.baseline,
                   fname = paste0('PVCA_4paper_baseline_all'),
                   ht = 3,
                   wd = 6.2, 
-                  race.vars = race.vars)
+                  race.vars = race.vars) + 
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+ggsave("pvca_baseline_all.pdf", plot = p)
 ```
 
 ```{r PVCA  all data, eval = FALSE}
@@ -300,12 +304,13 @@ a <- pvcaBatchAssess.MSF2(eset.n.selected,
                           include.inter = 'none',
                           threshold = pvca_threshold)
 
-my.plot.pvca(a,
+p <- my.plot.pvca(a,
              fname = paste0('PVCA_AfterNorm4paper-all_data'),
              ht = 3,
              wd = 6.2, 
-             race.vars = race.vars)
-
+             race.vars = race.vars)+ 
+  theme(axis.text.x = element_text(angle = 25, hjust = 1))
+ggsave("pvca_afternorm.pdf", plot = p)
 pv <- arrange(data.frame(Factor=a$label, perc=a$dat[1,]), desc(perc))
 print(subset(pv, perc > 0.01))
 ```
@@ -325,7 +330,7 @@ pvca.byAge <- function(age_group){
                             eigenData = eigen,
                             batch.factors = batch.vars,
                             include.inter = c('pathogen_adjuvant:time',
-                                              'gender_imputed:pathogen_adjuvant:time'),
+                                              'y_chrom_present:pathogen_adjuvant:time'),
                             threshold = pvca_threshold)
                               
   

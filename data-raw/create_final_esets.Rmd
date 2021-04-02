@@ -90,14 +90,7 @@ for(ageGroupName in names(ageGroups)){
   saveRDS(eset.noNorm.noResponse, filename)
   
   # With Cross-Study Normalization, No Immune Response Calls
-  # when ageGroup = "all", need to include age_group in covariates
-  # Re-run with updates
-  # Add age group variable, make sure that "young" comes first in factor levels
-  # Re-do PCA for: 
-  # old (batch corrected separately)
-  # all (subsetted by young vs old)
-  # Why are we not just doing everything together then subsetting? 
-  # TODO: Also add age imputation (from Jeremy) and label as age_imputed_byGE
+  
   if(grepl("old", ageGroupName, ignore.case = TRUE)){
       eset.young.norm <- filterEsetByAge(eset.all.norm, ages = ageGroups[["young"]])
       eset.young.norm <- removeAllNArows(eset.young.norm)
@@ -147,7 +140,6 @@ for(ageGroupName in names(ageGroups)){
       fileSuffix <- paste0(ageGroupName, "_norm_nocelltype_noResponse_eset.rds")
       filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fileSuffix))
       saveRDS(eset.corr.noResponse_nocelltype, filename)
-      # TODO: Make PCA from eset.corr.noResponse_nocelltype, only for baseline. 
     }
     
   }

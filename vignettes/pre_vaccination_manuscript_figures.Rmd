@@ -36,8 +36,8 @@ suppressPackageStartupMessages({
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache")
-datePrefix <- "2020_12_23_newAnno_"
+dataCacheDir <- here("data_cache", "2021_03_08")
+datePrefix <- "2021_03_08_"
 ```
 
 # Setup
@@ -45,22 +45,11 @@ datePrefix <- "2020_12_23_newAnno_"
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
 
 ```{r, read-esets}
-subsetToCompleteGenes <- function(eset) {
-  # only include complete cases
-  # TODO: Check in with IS2 folks about this... SHould I update the datsets?
-  completeGenes <- complete.cases(exprs(eset))
-  eset[completeGenes]
-}
+old.NoResp <- readRDS(file.path(dataCacheDir, paste0(datePrefix,"extendedOld_norm_batchCorrectedFromYoung_eset.rds")))
 
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"extendedOld_norm_noResponse_eset.rds"))
-old.NoResp <- subsetToCompleteGenes(readRDS(file = noRespGEFile))
+young.NoResp <- readRDS(file.path(dataCacheDir, paste0(datePrefix,"young_norm_eset.rds")))
 
-
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_noResponse_eset.rds"))
-young.NoResp <- subsetToCompleteGenes(readRDS(file = noRespGEFile))
-
-withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_withResponse_eset.rds"))
-young.WithResp <- subsetToCompleteGenes(readRDS(file = withRespGEFile))
+young.WithResp <- readRDS(file.path(dataCacheDir, paste0(datePrefix,"young_norm_withResponse_eset.rds")))
 ```
 
 

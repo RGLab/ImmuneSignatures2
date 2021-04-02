@@ -11,7 +11,7 @@ params:
   timestamp: "2021_03_08_"
 ---
 
-# Description: This file takes two separate eset files (currently 2020_08_10) and implements the RAPToR package to impute age for studies without age_reported. All possible feature combinations are tried, and the highest R^2 values (calculated for studies with age_reported against their RAPToR imputed ages) are returned.
+# Description: This file takes two separate eset files (currently 2021_02_11) and implements the RAPToR package to impute age for studies without age_reported. All possible feature combinations are tried, and the highest R^2 values (calculated for studies with age_reported against their RAPToR imputed ages) are returned.
 
 Load packages
 ```{r}
@@ -20,28 +20,31 @@ library(RAPToR)
 library(Biobase)
 library(tidyverse)
 
+set.seed(123)
+
 dataCacheDir <- params$dataCacheDir
 outputDir <- file.path(params$dataCacheDir, "age_imputed")
 timestamp <- params$timestamp
 if (!dir.exists(dataCacheDir)) stop(dataCacheDir, " does not exist")
 if (!dir.exists(outputDir)) dir.create(outputDir)
-
 # Paths to virtual studies: Currently using the normalized, noResponse esets (to include more studies)
 # path_to_young_eset <- "~/Documents/Coding/Data/HIPC/2020_08_10_young_norm_noResponse_eset.rds"
 # path_to_old_eset <- "~/Documents/Coding/Data/HIPC/2020_08_10_extendedOld_norm_noResponse_eset.rds"
 path_to_young_eset <- file.path(here::here(dataCacheDir), paste0(timestamp, "young_norm_eset.rds"))
-path_to_old_eset <- file.path(here::here(dataCacheDir), paste0(timestamp, "old_norm_batchCorrectedFromYoung_eset.rds"))
+path_to_old_eset <- file.path(here::here(dataCacheDir), paste0(timestamp, "extendedOld_norm_batchCorrectedFromYoung_eset.rds"))
 
 # Best functions: (found from IOF_RAPToR_age_imputation_all_functions.rmd)
-best_young_funct <- "X ~ s(age_reported, bs='cr') + gender_imputed + featureSetName2 + cell_type"
-best_old_funct <- "X ~ s(age_reported, bs='cr') + gender_imputed + featureSetVendor + matrix"
+functions_young <- readRDS(file.path(outputDir, paste0(timestamp, "raptor_young_functs.rds")))
+functions_old <- readRDS(file.path(outputDir, paste0(timestamp, "raptor_extendedOld_functs.rds")))
+
+functions_young <- arrange(functions_young, -r.squared)
+functions_old <- arrange(functions_old, -r.squared)
+
+best_young_funct <- functions_young$Funct[1]
+best_old_funct <- functions_old$Funct[1]
+print(paste0("YOUNG: ", best_young_funct))
+print(paste0("OLD: ", best_old_funct))
 ```
-
-
-
-
-
-
 
 
 # Imputing via young best function:
@@ -75,12 +78,12 @@ p <- pdata_df
 X <- exprs_mat
 
 # only use pre-vaccination for reference dataset:
-pre_vacc_ind <- which(p$study_time_collected == 0)
+pre_vacc_ind <- which(p$time_post_last_vax == 0)
 p <- p[pre_vacc_ind,]
 X <- X[,pre_vacc_ind]
 
 # Choose which samples to use for reference dataset:
-studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
+studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1293","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
 test_sample_indices <- which(p$study_accession %in% studies_without_ages)
 ref_sample_indices <- which(!p$study_accession %in% studies_without_ages)
 
@@ -106,19 +109,19 @@ nc <- sum(summary(pca)$importance[3, ] < .999) + 1 # Number of significant compo
 funct <- best_young_funct
 m <- ge_im(X = X, p = p, formula = funct, nc = nc)
 
-# Build interpolation data
-n.inter = 500
-ndat <- data.frame(
-  age_reported = seq(min(p$age_reported),
-            max(p$age_reported), l = n.inter),
-  cohort = sample(unique(p$cohort),n.inter,replace = TRUE),
-  matrix = sample(unique(p$matrix),n.inter,replace = TRUE),
-  gender_imputed = sample(c("Male","Female"), n.inter, replace = TRUE),
-  study_accession = sample(unique(p$study_accession),n.inter,replace = TRUE),
-  featureSetName2 = sample(unique(IS2_eset@phenoData@data$featureSetName2[ref_sample_indices]),n.inter,replace = TRUE),
-  featureSetVendor = sample(unique(IS2_eset@phenoData@data$featureSetVendor[ref_sample_indices]),n.inter,replace = TRUE),
-  cell_type = sample(unique(IS2_eset@phenoData@data$cell_type[ref_sample_indices]),n.inter,replace = TRUE)
-)
+  # Build interpolation data
+  n.inter = 500
+  ndat <- data.frame(
+    age_reported = seq(min(p$age_reported),
+              max(p$age_reported), l = n.inter),
+    arm_accession = sample(unique(p$arm_accession), n.inter, replace = TRUE), 
+    y_chrom_present = sample(c(TRUE, FALSE), n.inter, replace = TRUE),
+    matrix = sample(unique(p$matrix),n.inter,replace = TRUE),
+    study_accession = sample(unique(p$study_accession),n.inter,replace = TRUE),
+    race = sample(unique(p$race), n.inter, replace = TRUE),
+    ethnicity = sample(unique(p$ethnicity), n.inter, replace = TRUE),
+    cohort = sample(unique(p$cohort),n.inter,replace = TRUE)
+  )
 
 # get interpolated GE matrix, as a reference
 r_X <- list(interpGE = stats::predict(m, ndat), time.series = ndat$age_reported)
@@ -131,6 +134,27 @@ all_ae_X_young <- ae(exprs_mat[,pre_vacc_ind], r_X$interpGE, r_X$time.series)
 
 
 
+# Results for young
+
+```{r}
+# test
+ae_X_young <- ae(X, r_X$interpGE, r_X$time.series)
+
+# Get regression:
+results_young <- tibble(actual = p$age_reported, estimates = ae_X_young$age.estimates[,1])
+lm_fit_young <- lm(actual ~ estimates, data=results_young)
+# Plot:
+p <- ggplot(results_young) +
+  #geom_histogram(aes(x = estimates)) +
+  geom_point(aes(x = actual, y = estimates)) +
+  geom_smooth(aes(x = actual, y = actual), method='lm') +
+  xlab("age_reported") +
+  ylab("estimated age (from RAPToR)") +
+  xlim(18, 50) +
+  ylim(18, 50) +
+  ggtitle(paste0("RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_young)$r.squared, 3)))
+ggsave(file.path(outputDir, "young_results.pdf"), plot = p)
+```
 
 
 
@@ -165,12 +189,12 @@ p <- pdata_df
 X <- exprs_mat
 
 # only use pre-vaccination for reference dataset:
-pre_vacc_ind <- which(p$study_time_collected == 0)
+pre_vacc_ind <- which(p$time_post_last_vax == 0)
 p <- p[pre_vacc_ind,]
 X <- X[,pre_vacc_ind]
 
 # Choose which samples to use for reference dataset:
-studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
+studies_without_ages <- unique(p$study_accession)[unique(p$study_accession) %in% c("SDY1260", "SDY1264","SDY1293","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")]
 test_sample_indices <- which(p$study_accession %in% studies_without_ages)
 ref_sample_indices <- which(!p$study_accession %in% studies_without_ages)
 
@@ -200,14 +224,14 @@ m <- ge_im(X = X, p = p, formula = funct, nc = nc)
 n.inter = 500
 ndat <- data.frame(
   age_reported = seq(min(p$age_reported),
-            max(p$age_reported), l = n.inter),
-  cohort = sample(unique(p$cohort),n.inter,replace = TRUE),
+                     max(p$age_reported), l = n.inter),
+  arm_accession = sample(unique(p$arm_accession), n.inter, replace = TRUE), 
+  y_chrom_present = sample(c(TRUE, FALSE), n.inter, replace = TRUE),
   matrix = sample(unique(p$matrix),n.inter,replace = TRUE),
-  gender_imputed = sample(c("Male","Female"), n.inter, replace = TRUE),
   study_accession = sample(unique(p$study_accession),n.inter,replace = TRUE),
-  featureSetName2 = sample(unique(IS2_eset@phenoData@data$featureSetName2[ref_sample_indices]),n.inter,replace = TRUE),
-  featureSetVendor = sample(unique(IS2_eset@phenoData@data$featureSetVendor[ref_sample_indices]),n.inter,replace = TRUE),
-  cell_type = sample(unique(IS2_eset@phenoData@data$cell_type[ref_sample_indices]),n.inter,replace = TRUE)
+  race = sample(unique(p$race), n.inter, replace = TRUE),
+  ethnicity = sample(unique(p$ethnicity), n.inter, replace = TRUE),
+  cohort = sample(unique(p$cohort),n.inter,replace = TRUE)
 )
 
 # get interpolated GE matrix, as a reference
@@ -217,6 +241,27 @@ r_X <- list(interpGE = stats::predict(m, ndat), time.series = ndat$age_reported)
 all_ae_X_old <- ae(exprs_mat[,pre_vacc_ind], r_X$interpGE, r_X$time.series)
 ```
 
+# Results for old
+
+```{r}
+# test
+ae_X_old <- ae(X, r_X$interpGE, r_X$time.series)
+
+# Get regression:
+results_old <- tibble(actual = p$age_reported, estimates = ae_X_old$age.estimates[,1])
+lm_fit_old <- lm(actual ~ estimates, data=results_old)
+# Plot:
+p <- ggplot(results_old) +
+  #geom_histogram(aes(x = estimates)) +
+  geom_point(aes(x = actual, y = estimates)) +
+  geom_smooth(aes(x = actual, y = actual), method='lm') +
+  xlab("age_reported") +
+  ylab("estimated age (from RAPToR)") +
+  xlim(50, 100) +
+  ylim(50, 100) +
+  ggtitle(paste0("RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_old)$r.squared, 3)))
+ggsave(file.path(outputDir, "extendedOld_results.pdf"), plot = p)
+```
 
 
 
@@ -228,14 +273,14 @@ young_dict <- tibble(uid = names(all_ae_X_young$age.estimates[,1]), raptor_age =
 young_dict$participant_id <- sapply(1:nrow(young_dict), function(i){
   return(pdata_df_young$participant_id[which(young_dict$uid[i] == pdata_df_young$uid)])
 })
-#saveRDS(young_dict, file = "~/Documents/Coding/HIPC/IOF/young_RAPToR_age_dictionary.rds")
+saveRDS(young_dict, file = file.path(outputDir, paste0(timestamp, "young_RAPToR_age_dictionary.rds")))
 
 
 old_dict <- tibble(uid = names(all_ae_X_old$age.estimates[,1]), raptor_age = unname(all_ae_X_old$age.estimates[,1]))
 old_dict$participant_id <- sapply(1:nrow(old_dict), function(i){
   return(pdata_df_old$participant_id[which(old_dict$uid[i] == pdata_df_old$uid)])
 })
-#saveRDS(old_dict, file = "~/Documents/Coding/HIPC/IOF/oldExtended_RAPToR_age_dictionary.rds")
+saveRDS(old_dict, file = file.path(outputDir, paste0(timestamp, "oldExtended_RAPToR_age_dictionary.rds")))
 ```
 
 Add to virtual study:
@@ -245,11 +290,8 @@ RAPToR_age <- c()
 for(i in 1:nrow(IS2_eset_noResponse_norm_young@phenoData@data))
 {
   # If study doesn't have age_reported, use imputed age:
-  if(IS2_eset_noResponse_norm_young@phenoData@data$study_accession[i] %in% c("SDY1260", "SDY1264","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")){
+  if(IS2_eset_noResponse_norm_young@phenoData@data$study_accession[i] %in% c("SDY1260", "SDY1264","SDY1293", "SDY1294","SDY1364","SDY1370","SDY1373","SDY984")){
     ages <- young_dict$raptor_age[young_dict$participant_id == IS2_eset_noResponse_norm_young@phenoData@data$participant_id[i]]
-    if(i == 1432){
-      print(ages)
-    }
     if(length(ages) > 1){
       RAPToR_age <- c(RAPToR_age, ages[1])
     }
@@ -259,9 +301,6 @@ for(i in 1:nrow(IS2_eset_noResponse_norm_young@phenoData@data))
   } 
   else {
       RAPToR_age <- c(RAPToR_age, IS2_eset_noResponse_norm_young@phenoData@data$age_reported[i])
-  }
-  if(length(RAPToR_age) != i){
-    print(H)
   }
 }
 IS2_eset_noResponse_norm_young@phenoData@data$raptor_age <- RAPToR_age
@@ -273,8 +312,8 @@ RAPToR_age <- c()
 for(i in 1:nrow(IS2_eset_noResponse_norm_old@phenoData@data))
 {
   # If study doesn't have age_reported, use imputed age:
-  if(IS2_eset_noResponse_norm_old@phenoData@data$study_accession[i] %in% c("SDY1260", "SDY1264","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")){
-    ages <- young_dict$raptor_age[old_dict$participant_id == IS2_eset_noResponse_norm_old@phenoData@data$participant_id[i]]
+  if(IS2_eset_noResponse_norm_old@phenoData@data$study_accession[i] %in% c("SDY1260", "SDY1264","SDY1293","SDY1294","SDY1364","SDY1370","SDY1373","SDY984")){
+    ages <- old_dict$raptor_age[old_dict$participant_id == IS2_eset_noResponse_norm_old@phenoData@data$participant_id[i]]
     if(length(ages) > 1){
       RAPToR_age <- c(RAPToR_age, ages[1])
     }
@@ -289,3 +328,8 @@ IS2_eset_noResponse_norm_old@phenoData@data$raptor_age <- RAPToR_age
 saveRDS(IS2_eset_noResponse_norm_old, file.path(outputDir, paste0(timestamp, "extendedOld_norm_noResponse_ageImputation_eset.rds")))
 ```
 
+# Plot results
+
+```{r}
+
+```
