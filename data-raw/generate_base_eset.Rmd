@@ -23,7 +23,6 @@ suppressPackageStartupMessages({
   library(ImmuneSpaceR) 
   library(Rlabkey)
   library(Biobase)
-  library(dplyr)
   library(data.table)
   library(limma)
   library(tidyverse)
