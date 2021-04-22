@@ -73,7 +73,7 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
   # exprs
   em <- Biobase::exprs(eset)
 
-  chks$exprs$genesWithCompleteCases <- sum(complete.cases(em)) > 10000
+  chks$exprs$genesWithCompleteCases <- sum(stats::complete.cases(em)) > 10000
   chks$exprs$noMissingGeneNames <- all(!is.na(rownames(em)) & rownames(em) != "")
 
   emptyRows <- apply(em, 1, function(x){ all(is.na(x)) })
@@ -86,7 +86,7 @@ testFinalEset <- function(eset, expectResponse, expectNormalization, ages){
 
   # Normalized GEM should only have complete.cases
   if(isTRUE(expectNormalization)) {
-    chks$exprs$noIncompleteRows <- all(complete.cases(em))
+    chks$exprs$noIncompleteRows <- all(stats::complete.cases(em))
   }
 
   # Integration

@@ -16,7 +16,7 @@ suppressPackageStartupMessages(library(package = "tidyverse"))
 
 Set session options
 ```{r, session-options}
-workDir <- dirname(getwd())
+dataCacheDir <- here::here("data_cache", "2021_03_08")
 opts_chunk$set(tidy = FALSE, fig.path = "Figure/")
 options(stringsAsFactors = FALSE,
         width            = 80)

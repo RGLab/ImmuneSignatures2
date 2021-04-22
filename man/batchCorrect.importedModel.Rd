@@ -10,6 +10,10 @@ batchCorrect.importedModel(modelEset, targetEset, batch.vars, covariates)
 \item{modelEset}{expressionSet used to create linear model}
 
 \item{targetEset}{expressionSet that is corrected given model fit values}
+
+\item{batch.vars}{variables to correct for}
+
+\item{covariates}{additional variables to include in the model}
 }
 \description{
 Adjust baseline expression data to account for study_accession, featureSetName, and cell_type

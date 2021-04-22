@@ -1,0 +1,111 @@
+---
+title: "R Notebook"
+author: "Jeremy Gygi"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+Adapting Jeremy's code to 'ts' instead of '\cr\
+Edited by: Joann, 2020-07-17
+
+Load packages
+```{r}
+library(stats) #prcomp
+library(RAPToR)
+library(Biobase) #pData
+library(tidyverse)
+```
+
+
+Load / Separate Data
+```{r}
+# Load data
+IS2_eset_withResponse_norm_young <- readRDS(file = "~/Dropbox (BCH)/HIPC/IOF/IS2/RDA/CURRENT/CURRENT_2020_07_17/")
+
+# Subset data: 
+pdata_df <- as_tibble(pData(IS2_eset_withResponse_norm_young@phenoData))
+pdata_df <- pdata_df %>% dplyr::select(uid, everything())
+pdata_df$age_reported <- as.numeric(pdata_df$age_reported)
+pdata_df$age_imputed <- as.numeric(pdata_df$age_imputed)
+# exprs_mat -> rows = genes, cols = samples
+exprs_mat <- exprs(IS2_eset_withResponse_norm_young)
+```
+
+
+Make Reference Dataset
+```{r}
+# Reference Dataset: 
+# X - gene expression data [genes X samples]
+# p - phenotypic data [samples X pheno_feat]
+
+# pheno data (e.g time, batch)
+p <- pdata_df
+
+# gene expression data
+X <- exprs_mat
+
+# only use pre-vaccination for reference dataset:
+pre_vacc_ind <- which(p$study_time_collected == 0)
+p <- p[pre_vacc_ind,]
+X <- X[,pre_vacc_ind]
+
+# Choose which samples to use for reference dataset:
+studies_without_ages <- unique(p$study_accession)[!unique(p$study_accession) %in% c("SDY1119","SDY1276","SDY1289","SDY1291","SDY1328","SDY1529","SDY180", "SDY212","SDY269","SDY270","SDY80")]
+test_sample_indices <- which(p$study_accession %in% studies_without_ages)
+ref_sample_indices <- which(!p$study_accession %in% studies_without_ages)
+
+# Make test sets:
+p_test <- p[test_sample_indices,]
+p <- p[ref_sample_indices,]
+
+# Remove missing gene values
+missing_indices <- sapply(1:nrow(X), function(j){
+    return(any(is.na(X[j,])))
+  })
+X <- X[!missing_indices,]
+X_test <- X[,test_sample_indices]
+X <- X[,ref_sample_indices]
+```
+
+```{r}
+# Number of components
+# NOTE: Can be very time consuming. I ran this and got around 400 - 500 consistently
+pca <- stats::prcomp(X, rank = 20)
+nc <- sum(summary(pca)$importance[3, ] < .999) + 1
+#nc <- 400
+
+# Build model(s)
+m <- ge_im(X = X, p = p, formula = "X ~ s(age_reported, bs = 'ts')", nc = nc)
+
+# Build interpolation data
+n.inter = 100
+ndat <- data.frame(age_reported = seq(min(p$age_reported), max(p$age_reported), l = n.inter),
+                   gender = sample(c("Male","Female"), n.inter, replace = TRUE),
+                   cohort = sample(unique(p$cohort), n.inter, replace = TRUE)
+                   )
+
+# get interpolated GE matrix, as a reference
+r_X <- list(interpGE = predict(m, ndat), time.series = ndat$age_reported)
+
+# test
+ae_X <- ae(X, r_X$interpGE, r_X$time.series)
+
+# Get regression:
+results <- tibble(actual = p$age_reported, estimates = ae_X$age.estimates[,1])
+lm_fit <- lm(actual ~ estimates, data=results)
+```
+
+```{r}
+# Plot:
+ggplot(results) +
+  #geom_histogram(aes(x = estimates)) +
+  geom_point(aes(x = actual, y = estimates)) +
+  geom_smooth(aes(x = actual, y = actual), method='lm') +
+  xlab("age_reported") +
+  ylab("estimated age (from RAPToR)") +
+  xlim(0, 50) +
+  ylim(0, 50) +
+  ggtitle(paste0("RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit)$r.squared, 3)))
+```

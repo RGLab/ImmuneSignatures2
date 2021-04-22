@@ -9,7 +9,7 @@ addVaccineFields(dt, vaccines)
 \arguments{
 \item{dt}{meta-data data.table}
 
-\item{vaccineData}{vaccine data data.table}
+\item{vaccines}{vaccine data data.table}
 }
 \description{
 Add fields from vaccine data to meta-data

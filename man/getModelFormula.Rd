@@ -2,10 +2,13 @@
 % Please edit documentation in R/geneExpressionCrossStudyNormalization.R
 \name{getModelFormula}
 \alias{getModelFormula}
-\title{Get linear model fit values for each gene}
+\title{Get linear model formula}
 \usage{
 getModelFormula(model.vars)
 }
+\arguments{
+\item{model.vars}{vector of variables}
+}
 \description{
-Get linear model fit values for each gene
+Get linear model formula
 }

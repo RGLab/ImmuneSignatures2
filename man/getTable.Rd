@@ -13,7 +13,7 @@ getTable(con, schemaName, queryName, ...)
 
 \item{queryName}{query name in ImmuneSpace DB}
 
-\item{biosamples}{biosample_accession id vector}
+\item{...}{additional arguments passed to labkey.selectRows.}
 }
 \description{
 Get a backend table not easily accessible through ImmuneSpaceR

@@ -79,7 +79,7 @@ addIrpBatchName <- function(dt){
 #' Add fields from vaccine data to meta-data
 #'
 #' @param dt meta-data data.table
-#' @param vaccineData vaccine data data.table
+#' @param vaccines vaccine data data.table
 #' @export
 #'
 addVaccineFields <- function(dt, vaccines){

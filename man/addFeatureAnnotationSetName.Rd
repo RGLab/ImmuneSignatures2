@@ -9,7 +9,7 @@ addFeatureAnnotationSetName(geMetaData, featureAnnotationMap)
 \arguments{
 \item{geMetaData}{single data.table containing all gene expression meta-data}
 
-\item{fasMap}{feature annotation set map table from ImmuneSpace DB}
+\item{featureAnnotationMap}{feature annotation set map table from ImmuneSpace DB}
 }
 \description{
 Add name of feature annotation set name used to generate gene expression matrix

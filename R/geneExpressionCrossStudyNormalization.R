@@ -1,6 +1,8 @@
 #' Cross-Study normalize an expressionSet object based on a single
 #' vendor's subset of expression data to define the target distribution
 #'
+#' @import Biobase
+#' @importFrom methods new
 #' @param eset expressionSet
 #' @param targetDistributionVendor Microarray or RNAseq vendor to use for generating target distribution
 #' @param targetDistributionExcludedStudies studies to exclude when generating the target distribution
@@ -12,7 +14,7 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 
   # Ensure we only use features with complete.cases, as normalize.quantiles.robust
   # doesn't handle NAs well - shrinks quantiles
-  eset.target <- eset.target[ complete.cases(exprs(eset.target)), ]
+  eset.target <- eset.target[ stats::complete.cases(exprs(eset.target)), ]
 
   # perform normalization on selected features (14827) and samples (1973)
   normTargetExprs <- preprocessCore::normalize.quantiles.robust(exprs(eset.target), use.log2 = TRUE)
@@ -45,8 +47,10 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 
 #' Adjust expression data using correction coefficients based on baseline data
 #' to account for study_accession, featureSetName, and cell_type
-#'
+#' @importFrom methods new
 #' @param eset expressionSet
+#' @param batch.vars variables to correct for
+#' @param covariates additional variables to include in the model
 #' @export
 #'
 batchCorrect <- function(eset, batch.vars, covariates){
@@ -64,7 +68,7 @@ batchCorrect <- function(eset, batch.vars, covariates){
                              coefs2adjust = batch.vars)
 
   # create another model matrix with all estimable vars for all timepoints
-  mm.all <- model.matrix(model.formula, data = pData(eset))
+  mm.all <- stats::model.matrix(model.formula, data = pData(eset))
   mm.all.subset <- mm.all[, (colnames(mm.all) %in% colnames(fit.vals))]
 
   # adjust the expression values for each sample and feature
@@ -82,8 +86,11 @@ batchCorrect <- function(eset, batch.vars, covariates){
 
 #' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
 #'
+#' @importFrom methods new
 #' @param modelEset expressionSet used to create linear model
 #' @param targetEset expressionSet that is corrected given model fit values
+#' @param batch.vars variables to correct for
+#' @param covariates additional variables to include in the model
 #' @export
 #'
 batchCorrect.importedModel <- function(modelEset, targetEset, batch.vars, covariates){
@@ -111,7 +118,7 @@ batchCorrect.importedModel <- function(modelEset, targetEset, batch.vars, covari
   exprs.target.subset <- exprs.target[ geneIntersect, ]
 
   # Find common components of the model matrix for target and the modelEset.baseline
-  mm.target <- model.matrix(model.formula, data = pData(targetEset))
+  mm.target <- stats::model.matrix(model.formula, data = pData(targetEset))
   factorIntersect <- intersect(colnames(mm.target), colnames(fit.vals))
   mm.target.subset <- mm.target[ , factorIntersect ]
 
@@ -150,10 +157,11 @@ batchCorrect.importedModel <- function(modelEset, targetEset, batch.vars, covari
 #'
 #' @param eset.baseline baseline expressionSet
 #' @param model.formula model formula
+#' @param coefs2adjust Coeffieicts to include in the adjusted model
 #' @export
 #'
 getLmFitValues <- function(model.formula, eset.baseline, coefs2adjust){
-  mm <- model.matrix(model.formula, data = pData(eset.baseline))
+  mm <- stats::model.matrix(model.formula, data = pData(eset.baseline))
 
   # Remove model matrix variables that are not estimable
   notEstimable <- nonEstimable(mm)
@@ -171,12 +179,13 @@ getLmFitValues <- function(model.formula, eset.baseline, coefs2adjust){
   fit.vals <- fit$coefficients[, coefs2adjust]
 }
 
-#' Get linear model fit values for each gene
+#' Get linear model formula
 #'
+#' @param model.vars vector of variables
 #' @export
 #'
 getModelFormula <- function(model.vars){
-  model.formula <- as.formula(paste0('~', paste0(model.vars, collapse='+')))
+  model.formula <- stats::as.formula(paste0('~', paste0(model.vars, collapse='+')))
 }
 
 
@@ -190,9 +199,9 @@ relevelEsets <- function(esets, factorsToRelevel){
   for(fac in factorsToRelevel){
     ref.batch <- intersect(unique(esets$model[[fac]]),
                            unique(esets$target[[fac]]))[[1]]
-    esets$model[[fac]] <- relevel(as.factor(esets$model[[fac]]),
+    esets$model[[fac]] <- stats::relevel(as.factor(esets$model[[fac]]),
                                            ref = ref.batch)
-    esets$target[[fac]] <- relevel(as.factor(esets$target[[fac]]),
+    esets$target[[fac]] <- stats::relevel(as.factor(esets$target[[fac]]),
                                          ref = ref.batch)
   }
   return(esets)

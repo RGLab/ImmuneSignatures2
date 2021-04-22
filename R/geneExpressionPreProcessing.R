@@ -71,7 +71,7 @@ removeSDY212MissingSample <- function(esets){
 #'
 addTimePostLastVax <- function(dt){
   dt$time_post_last_vax <- ifelse(dt$study_accession == "SDY1293",
-                                          case_when(
+                                          dplyr::case_when(
                                             dt$study_time_collected == 60 ~ 0,
                                             dt$study_time_collected == 61 ~ 1,
                                             dt$study_time_collected == 63 ~ 3,
@@ -102,7 +102,7 @@ addMatrixRelatedFields <- function(phenoDataSets, geMatrices){
 #' Add name of feature annotation set name used to generate gene expression matrix
 #'
 #' @param geMetaData single data.table containing all gene expression meta-data
-#' @param fasMap feature annotation set map table from ImmuneSpace DB
+#' @param featureAnnotationMap feature annotation set map table from ImmuneSpace DB
 #' @export
 #'
 addFeatureAnnotationSetName <- function(geMetaData, featureAnnotationMap){
@@ -116,7 +116,7 @@ addFeatureAnnotationSetName <- function(geMetaData, featureAnnotationMap){
 #' Add name of feature annotation set vendor used to generate gene expression matrix
 #'
 #' @param geMetaData single data.table containing all gene expression meta-data
-#' @param fas feature annotation set table from ImmuneSpace DB
+#' @param featureAnnotation feature annotation set table from ImmuneSpace DB
 #' @export
 #'
 addFeatureAnnotationSetVendor <- function(geMetaData, featureAnnotation){
@@ -227,7 +227,7 @@ summarizeByGeneSymbol <- function(esets){
                       gs = exprs$gs,
                       stringsAsFactors = FALSE)
 
-    probesWithMultipleGS <- tmp[ , cnt := .N, by = "probe"][ cnt > 1 ]
+    probesWithMultipleGS <- tmp[ , count := .N, by = "probe"][ count > 1 ]
 
     if(nrow(probesWithMultipleGS) > 0){
       exprs <- exprs[ !(rownames(exprs) %in% probesWithMultipleGS$probe), ]
@@ -287,7 +287,7 @@ imputeYchrom.useAllTimepoints <- function(eset){
         # Get clusters from reduced dimensional projection to eliminate
         # issues
         mds <- limma::plotMDS(yChromEset)
-        mdsClust <- kmeans(mds$x, 2)
+        mdsClust <- stats::kmeans(mds$x, 2)
         mdsCall <- mdsClust$cluster
 
         # Figure out which of original clusters has higher overall values

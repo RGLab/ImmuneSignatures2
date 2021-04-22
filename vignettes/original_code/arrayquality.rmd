@@ -1,0 +1,142 @@
+---
+title: "Array Quality Metrics"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+
+# Part 1 QC metrics on each matrix 
+ 
+Samples flagged as outliers by 3 / 3 quality scores will be removed from downstream analysis in the virtual study. This script outputs a csv file with the results with a header containing each of the QC metrics, and each array as rows. If the array i passed QC test j the qc test, the output is NA. If array i failed QC test j, the output has a 1. For each cohort n=9 summary plots and a detailed HTML report are create. QC plot containing directory is named by the SDY accession number.
+
+```{r, eval = FALSE}
+suppressMessages(library(tidyverse)) 
+suppressMessages(library(arrayQualityMetrics)) 
+suppressMessages(library(here)) 
+suppressMessages(library(rlist)) 
+options(stringsAsFactors = FALSE)
+here()
+
+# setup datapath 
+datapath = here("QC/generated_data/")
+figpath = here("QC/figures/")
+dir.create(datapath, recursive = TRUE); dir.create(figpath, recursive = TRUE)
+
+# load virtual study 
+es = readRDS(file = here("data/2020_08_10_all_noNorm_withResponse_eset.rds"))
+
+# index over unique SDY 
+stopifnot(!is_null(es$study_accession))
+sdy = es$study_accession %>% unique 
+
+# build QC table 
+qc.list =  list()
+for (i in 1:length(sdy)) {
+  
+  # make directory for output for sdy i 
+  stopifnot(!is.null(datapath)) 
+  sdy_path = paste0(datapath, sdy[i]) ; dir.create(sdy_path)
+  print(paste0(i, " of ", length(sdy),  " writing qc to ",  sdy_path))
+  
+  # subset to SDY acession 
+  array = es[ , es$study_accession == sdy[i]]
+  
+  # run AQM on sdy and save outlier table. 
+  qc = arrayQualityMetrics(expressionset = array, 
+                           outdir = sdy_path, 
+                           intgroup = c("matrix", "time_post_last_vax"),
+                           force = TRUE, 
+                           spatial = FALSE,
+                           do.logtransform = FALSE)
+  if(!is.null(qc$arrayTable)){
+    qc.table = qc$arrayTable 
+    qc.list[[i]] = qc.table
+    } else { 
+      warning(paste0("no report table for ", sdy[i] ))
+    }
+}
+# save list object 
+saveRDS(qc.list, file =paste0(datapath, "qclist.rds"))
+
+```
+
+
+# Part 2 figure generation
+
+```{r, eval = FALSE}
+
+# setup datapath 
+#datapath = here("QC/generated_data/")
+#figpath = here("QC/figures/")
+# dir.create(datapath) ; dir.create(figpath)
+
+# make machine readable data frame of results 
+qc_list = readRDS("QC/generated_data/qclist.rds")
+qc.table.names = c( "abs_mean_distance","KS_signal_intensity","D_MAplot")
+qc_df = bind_rows(qc_list)
+colnames(qc_df)[3:5] = qc.table.names
+write_delim(qc_df, path = paste0(datapath,"qc_metadata.txt"), delim = "\t") 
+
+# change "x" vlaues to numeric binary 
+change_x = function(x){ if_else(x == "x", 1 ,false =  0)}
+qc_df = qc_df %>%  mutate_at(.vars = qc.table.names, change_x)
+
+# qc heatmap 
+cu = pals::brewer.blues(n = 3); cu[1] = "#FFFFFF"
+pheatmap::pheatmap(qc_df[, 3:5], 
+                   cluster_cols = T, cluster_rows = T,
+                   color = cu,width = 2, show_rownames = FALSE,
+                   filename = paste0(figpath,"outlier_heatmap.png"))
+pheatmap::pheatmap(qc_df[, 3:5], 
+                   cluster_cols = T, cluster_rows = T,
+                   color = cu,width = 2, show_rownames = FALSE,
+                   filename = paste0(figpath,"outlier_heatmap.pdf"))
+
+# tidy
+dfp = qc_df %>%
+  select(qc.table.names,  matrix, age_imputed, gender, timepoint = time_post_last_vax, uid) %>% 
+  gather(metric, value, qc.table.names[1]:qc.table.names[length(qc.table.names)]) %>% 
+  group_by( matrix, age_imputed, gender, timepoint, uid, value ) %>% 
+  summarize(qcsum = sum(value)) %>% 
+  ungroup() %>% 
+  mutate(age_imputed = as.numeric(age_imputed)) %>% 
+  mutate(SDY = str_sub(matrix, 1,7))
+
+p = ggplot(dfp, aes(x = SDY, y = qcsum)) +
+  theme_bw() + 
+  geom_jitter(shape = 21, size = 0.5, width = 0.3, height = 0.3, fill = "blue3") +
+  coord_flip() + 
+  geom_hline(yintercept = c(0.5, 1.5, 2.5), linetype = "dashed") +
+  # xlab("SDY unique Matrix ") + 
+  scale_y_continuous(breaks = c(0,1,2,3)) + 
+  # ylim(c(0,3)) + 
+  ylab("number of QC \n metrics not passed ")  +
+  theme(text = element_text(face = "bold"))
+ggsave(p,filename =  paste0(figpath, "array_quality.png"), width = 3, height = 7.5)
+ggsave(p,filename =  paste0(figpath, "array_quality.pdf"), width = 3, height = 5)
+
+# venn diagram 
+plt = 
+  qc_df%>% 
+  select(qc.table.names) %>% 
+  mutate_if(is.integer, as.numeric) %>% 
+  mutate_if(is.logical, as.numeric) 
+pdf(file = paste0(figpath, "venn_outlier.pdf"), width = 5, height = 5)
+venn::venn(plt, zcolor = "style",
+           borders = FALSE, 
+           size = 10, 
+           cexil = 1.1,
+           cexsn = 0.6, 
+           ggplot = TRUE) 
+dev.off()
+#pheatmap::pheatmap(as.matrix(table(dfp$matrix, dfp$qcsum) ),color = cu,
+#                   display_numbers = TRUE, number_format = "%.0f", treeheight_row = 0, treeheight_col = 0) 
+
+```
+
+
+```{r}
+sessionInfo()
+```
+

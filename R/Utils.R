@@ -37,7 +37,7 @@ createUniqueIdColumn <- function(dt){
 #' @param con ImmuneSpaceR connection object
 #' @param schemaName schema name in ImmuneSpace DB
 #' @param queryName query name in ImmuneSpace DB
-#' @param biosamples biosample_accession id vector
+#' @param ... additional arguments passed to labkey.selectRows.
 #' @import Rlabkey
 #' @export
 #'

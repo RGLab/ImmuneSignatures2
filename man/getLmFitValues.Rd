@@ -10,6 +10,8 @@ getLmFitValues(model.formula, eset.baseline, coefs2adjust)
 \item{model.formula}{model formula}
 
 \item{eset.baseline}{baseline expressionSet}
+
+\item{coefs2adjust}{Coeffieicts to include in the adjusted model}
 }
 \description{
 Get linear model fit values for each gene

@@ -9,7 +9,7 @@ addFeatureAnnotationSetVendor(geMetaData, featureAnnotation)
 \arguments{
 \item{geMetaData}{single data.table containing all gene expression meta-data}
 
-\item{fas}{feature annotation set table from ImmuneSpace DB}
+\item{featureAnnotation}{feature annotation set table from ImmuneSpace DB}
 }
 \description{
 Add name of feature annotation set vendor used to generate gene expression matrix

@@ -56,7 +56,7 @@ testAllGEMatrixPreNorm <- function(allGE){
 
   chks$expectedNumberOfSubjects <- dim(allGE)[[2]] == 4869
   chks$expectedNumberOfGenes <- dim(allGE)[[1]] > 19500
-  chks$completeCases <- sum(complete.cases(allGE)) > 10000
+  chks$completeCases <- sum(stats::complete.cases(allGE)) > 10000
 
   chks$importantGenesPresent <- all(c("MVP","ACTB") %in% allGE$rn)
 

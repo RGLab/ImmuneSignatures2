@@ -7,7 +7,7 @@
 testImmuneResponseData(selectedImmdata)
 }
 \arguments{
-\item{immdata}{nested assay data frame lists}
+\item{selectedImmdata}{nested assay data frame lists}
 }
 \description{
 Ensure necessary columns are present in each applicable assay

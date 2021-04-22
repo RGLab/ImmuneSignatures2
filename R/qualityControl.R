@@ -4,7 +4,7 @@
 #' @param method MDS or PCA
 #' @param numberOfSamples number of samples to use per study
 #' @param colorCol field name to use for labeling samples in plot
-#' @import ggfortify limma
+#' @import ggplot2 limma
 #' @export
 #'
 qualityControl.samplePlot <- function(eset,
@@ -34,9 +34,9 @@ qualityControl.samplePlot <- function(eset,
     return(tmp)
   }else if(method == "PCA"){
     em <- as.matrix(exprs(subsetDay0))
-    em <- em[ complete.cases(em), ]
+    em <- em[ stats::complete.cases(em), ]
     tem <- data.frame(t(em), stringsAsFactors = FALSE)
-    res <- prcomp(tem)
+    res <- stats::prcomp(tem)
     pd <- pData(subsetDay0)
     autoplot(res, data = pd, colour = colorCol)
   }
@@ -46,7 +46,7 @@ qualityControl.samplePlot <- function(eset,
 #'
 #' @param eset expressionSet
 #' @param returnObject options are allMatricesPlot (default), probSamplesPlot, probSamplesDT
-#' @import ggbeeswarm tidyverse Biobase data.table
+#' @import dplyr ggbeeswarm ggplot2 Biobase
 #' @export
 #'
 qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatricesPlot"){
@@ -63,7 +63,7 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
     colors <- RColorBrewer::brewer.pal(12, "Paired")
     set.seed(10)
     colors <- sample(colors, length(colors))
-    colors <- colorRampPalette(colors)(length(unique(plotDF$participant_id)))
+    colors <- grDevices::colorRampPalette(colors)(length(unique(plotDF$participant_id)))
 
     fullPlot <- ggplot(data = plotDF,
                        mapping = aes(x = y_chrom_present, y = chry)) +
@@ -82,13 +82,13 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
   # find outlier (1.5 x IGR from Q1 and Q3)
   outlierDF <- plotDF %>%
     group_by(study_accession, matrix, y_chrom_present) %>%
-    mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
-           dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+           dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
     group_by(study_accession, matrix, y_chrom_present) %>%
-    summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
-              q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+              q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
     mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)
@@ -156,7 +156,7 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
 #' Generate gender box plots (prior to QC)
 #'
 #' @param eset expressionSet
-#' @import ggbeeswarm tidyverse Biobase data.table
+#' @import dplyr tibble ggplot2
 #' @export
 #'
 qualityControl.genderByMatrix <- function(eset){
@@ -171,13 +171,13 @@ qualityControl.genderByMatrix <- function(eset){
 
   outlierDF <- plotDF %>%
     group_by(study_accession, matrix, gender) %>%
-    mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
-           dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+           dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
     group_by(study_accession, matrix, gender) %>%
-    summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
-              q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+              q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
     mutate(gender = c("Female" = "Male", "Male" = "Female")[gender])
 
   # flag outlier samples (possible swap)
@@ -217,7 +217,7 @@ qualityControl.genderByMatrix <- function(eset){
 #' Generate ychrom box plots after QC
 #'
 #' @param eset expressionSet
-#' @import ggbeeswarm tidyverse Biobase data.table
+#' @import dplyr ggplot2
 #' @export
 #'
 qualityControl.failedYchromQC <- function(eset){
@@ -231,13 +231,13 @@ qualityControl.failedYchromQC <- function(eset){
 
   outlierDF <- plotDF %>%
     group_by(study_accession, matrix, y_chrom_present) %>%
-    mutate(up = chry >= quantile(chry, probs = 0.75) + 1.5 * IQR(chry),
-           dn = chry <= quantile(chry, probs = 0.25) - 1.5 * IQR(chry))
+    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+           dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
     group_by(study_accession, matrix, y_chrom_present) %>%
-    summarize(q1 = quantile(chry, probs = 0.25) - 1.5 * IQR(chry),
-              q3 = quantile(chry, probs = 0.75) + 1.5 * IQR(chry)) %>%
+    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+              q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
     mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)

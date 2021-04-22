@@ -9,6 +9,10 @@ batchCorrect(eset, batch.vars, covariates)
 }
 \arguments{
 \item{eset}{expressionSet}
+
+\item{batch.vars}{variables to correct for}
+
+\item{covariates}{additional variables to include in the model}
 }
 \description{
 Adjust expression data using correction coefficients based on baseline data

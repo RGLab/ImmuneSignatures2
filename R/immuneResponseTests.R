@@ -1,6 +1,6 @@
 #' Ensure necessary columns are present in each applicable assay
 #'
-#' @param immdata nested assay data frame lists
+#' @param selectedImmdata nested assay data frame lists
 #' @export
 #'
 testImmuneResponseData <- function(selectedImmdata){
