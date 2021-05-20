@@ -27,19 +27,27 @@ RUN useradd docker \
     && chmod -R 775 /home/docker
 
 # Pass in your github pat when building so ImmuneSignatures2 private repo can install 
+ARG GITHUB_PAT
 ENV GITHUB_PAT=${GITHUB_PAT}
 
-# Use renv to install R packages
-ENV RENV_VERSION 0.11.0
-RUN R -e "install.packages('remotes', repos = c(CRAN = 'https://cloud.r-project.org'))"
-RUN R -e "remotes::install_github('rstudio/renv@${RENV_VERSION}')"
+# Install renv
+ENV RENV_VERSION 0.13.2
+RUN R -e "install.packages('remotes', repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_github('rstudio/renv@0.13.2')"
 
-## do not use apt-get install r-cran-* to install R packages on this stack
-## see rocker/r-ver (see https://hub.docker.com/r/rocker/r-ver/)
-# COPY renv.lock /home/docker/
-# WORKDIR /home/docker
+# Copy over renv files
+# Install packages
+WORKDIR /home/docker
+COPY renv.lock /home/docker/
+COPY install.R /home/docker/
+RUN dos2unix /home/docker/renv.lock \
+    && dos2unix /home/docker/install.R \
+    && chown -R docker /home/docker \
+    && su docker -c 'R --no-site-file -f /home/docker/install.R'
+
+
 # RUN dos2unix install.R && \
 #     R --no-site-file -f install.R &&  \
 #     chmod -R 755 /usr/local/lib/R/site-library
+
 
 CMD ["su", "docker", "-c", "/bin/bash"]
