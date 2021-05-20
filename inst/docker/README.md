@@ -58,18 +58,52 @@ renv lock file, detailing all package dependencies and versions, and where to do
 ```makefile
 .RECIPEPREFIX = +
 
+GITHUB_PAT=do_not_commit_your_github_patß
+vignette_path = $(realpath ../../vignettes)
+data_raw_path = $(realpath ../../data-raw)
+
 start:
-+ docker run --rm -ti immunesignatures2
++ docker run --rm -ti \
+  -v ${vignette_path}:/home/docker/vignettes \
+  -v ${data_raw_path}:/home/docker/data-raw \
+  immunesignatures2
 
 build:
 + docker build -t immunesignatures2:latest --build-arg GITHUB_PAT=${GITHUB_PAT} .
 ```
 
-- Shortcuts for building image and starting an interactive container.
+- Shortcuts for building image and starting an interactive container with vignette and `data-raw` directories mounted, which is convenient for either updating renv dependencies or running vignettes or scripts in the container. To run scripts, you will still have to set up a .netrc file with your ImmuneSpace credentials.
 
-## Updating `renv.lock` with new dependencies (WIP)
+## Updating `renv.lock` with new dependencies
 
-_TODO_
+1. Run a container interactively, with relevant files/directories mounted. The makefile `start` target does this for you:
+   ```bash
+   gmake start
+   ```
+1. Start an R session from the docker home directory (that's the default working directory). Inspect the current status of the project:
+   ```R
+   renv::status()
+   ```
+1. Install or update relevant packages from CRAN, github, bioc, etc. For example:
+   ```R
+   # from CRAN
+   renv::install("data.table")
+   # from bioconductor
+   renv::install("bioc::Biobase")
+   # from github
+   renv::install("stefanavey/titer")
+   renv::install("RGLab/ImmuneSpaceR@dev")
+   ```
+1. Update `renv.lock` with new installations
+   ```R
+   # Preview changes
+   renv::status()
+   # update renv.lock
+   renv::snapshot()
+   ```
+1. Copy the contents of the updated `renv.lock` file in the docker container into the `renv.lock` file in this repo. Alternatively, you could mount this directory somewhere in the container when you run it, and copy the updated file there.
+
+1. Rebuild the image with updated renv.lock
 
 ## Installation on ImmuneSpace server
 
