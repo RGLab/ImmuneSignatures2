@@ -4,7 +4,7 @@ FROM rocker/r-ver:${VERSION}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends apt-utils && \
-    apt-get install -y --no-install-recommends dos2unix nano procps libxml2-dev xvfb sudo && \
+    apt-get install -y --no-install-recommends dos2unix nano procps libxml2-dev xvfb sudo fftw3 fftw3-dev && \
     apt-get install -y --no-install-recommends  \
     curl libcurl4-openssl-dev \
     libgd-dev libcairo2 libcairo2-dev libxt-dev pandoc \

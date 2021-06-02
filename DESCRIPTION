@@ -25,7 +25,15 @@ Imports:
     tibble,
     titer
 Suggests:
-    here
+    boot,
+    cluster,
+    ComplexHeatmap,
+    ggthemes,
+    here,
+    lme4,
+    patchwork,
+    pvca,
+    qusage
 License: GPL-2
 Encoding: UTF-8
 LazyData: true
