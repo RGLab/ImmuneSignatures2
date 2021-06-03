@@ -23,8 +23,7 @@ Imports:
     preprocessCore,
     stats,
     tibble,
-    titer
-Suggests:
+    titer,
     boot,
     cluster,
     ComplexHeatmap,
