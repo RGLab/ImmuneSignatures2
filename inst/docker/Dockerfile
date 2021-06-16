@@ -1,6 +1,5 @@
 ARG VERSION=4.0.2
-FROM rocker/r-ver:${VERSION}
-
+FROM labkey/rstudio-base:${VERSION}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends apt-utils && \
@@ -13,7 +12,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 ## Set a default user. Available via runtime flag `--user docker`
-## Add user to 'staff' group, granting them write privileges to /usr/local/lib/R/site.library
+## Add user to 'staff' group, granting them write privileges to /usr/local/lib/R/site-library
 ## User should also have & own a home directory.
 RUN useradd docker \
     && mkdir /home/docker \
@@ -24,7 +23,8 @@ RUN useradd docker \
     && echo 'docker ALL=(root) NOPASSWD:ALL' >> /etc/sudoers \
     && echo 'docker ALL=(root) NOPASSWD:ALL' >> /etc/sudoers.d/docker \
     && chmod 0440 /etc/sudoers.d/docker \
-    && chmod -R 775 /home/docker
+    && chmod -R 775 /home/docker \
+    && chmod -R 775 /usr/local/lib/R/site-library
 
 # Pass in your github pat when building so ImmuneSignatures2 private repo can install 
 ARG GITHUB_PAT
@@ -50,4 +50,4 @@ RUN dos2unix /home/docker/renv.lock \
 #     chmod -R 755 /usr/local/lib/R/site-library
 
 
-CMD ["su", "docker", "-c", "/bin/bash"]
+# CMD ["su", "docker", "-c", "/bin/bash"]
