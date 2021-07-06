@@ -25,7 +25,7 @@ suppressPackageStartupMessages({
   library(Biobase)
   library(data.table)
   library(limma)
-  library(tidyverse)
+  library(dplyr)
 })
 # Output variables
 outputDir <- params$outputDir
