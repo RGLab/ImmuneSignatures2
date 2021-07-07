@@ -3,9 +3,9 @@ title: "ImmuneSignatures2: Create Final ExpressionSets from Base ExpressionSet"
 author: "Evan Henrich and Helen Miller"
 output: html_document
 params: 
-  outputDir: !r here::here("outputs", "2021_02_11")
-  dataCacheDir: !r here::here("data_cache", "2021_02_11")
-  timestamp: "2021_02_11_"
+  outputDir: "/share/files/HIPC/IS2/@files/data/html_outputs"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/data"
+  timestamp: !r strftime(Sys.time(), "%Y_%m_%d_", tz = "US/Pacific")
 ---
 
 # Overview
@@ -29,7 +29,6 @@ outputDir <- params$outputDir
 dataCacheDir <- params$dataCacheDir
 inputFilenamePrefix <- params$timestamp
 outputFilenamePrefix <- params$timestamp
-outputFilenamePrefix <- "test_batch_correction_"
 if (!dir.exists(outputDir)) stop("could not find", outputDir)
 if (!dir.exists(dataCacheDir)) stop("could not find", dataCacheDir)
 ```
@@ -84,7 +83,7 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-  fullSuffix <- paste0(ageGroupName, "_noNorm_noResponse_eset.rds")
+  fullSuffix <- paste0(ageGroupName, "_noNorm_eset.rds")
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.noNorm.noResponse, filename)
   
@@ -123,24 +122,6 @@ for(ageGroupName in names(ageGroups)){
       covariates = c('y_chrom_present', 
                      'age_group'))
     
-    if (ageGroupName == "all") {
-      eset.corr.noResponse_nocelltype <- batchCorrect(
-        eset.norm.noResponse, 
-        batch.vars = c('featureSetVendor',
-                       'featureSetName2',
-                       'geBatchName'),
-        covariates = c('y_chrom_present',
-                       'age_group',
-                       'cell_type'))
-      
-      eset.corr.noResponse_nocelltype <- removeAllNArows(eset.corr.noResponse_nocelltype)
-      eset.corr.noResponse_nocelltype <-
-        eset.corr.noResponse_nocelltype[complete.cases(exprs(eset.corr.noResponse_nocelltype)), ]
-      fileSuffix <- paste0(ageGroupName, "_norm_nocelltype_noResponse_eset.rds")
-      filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fileSuffix))
-      saveRDS(eset.corr.noResponse_nocelltype, filename)
-    }
-    
   }
   
   eset.corr.noResponse <- removeAllNArows(eset.corr.noResponse)
@@ -155,7 +136,7 @@ for(ageGroupName in names(ageGroups)){
   if (grepl("old", ageGroupName)) {
     fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_eset.rds")
   } else {
-    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_eset.rds")
+    fullSuffix <- paste0(ageGroupName, "_norm_eset.rds")
   }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.noResponse, filename)
@@ -194,18 +175,17 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-    if (grepl("old", ageGroupName)) {
+  if (grepl("old", ageGroupName)) {
     fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_withResponse_eset.rds")
   } else {
-    fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_withResponse_eset.rds")
+    fullSuffix <- paste0(ageGroupName, "_norm_withResponse_eset.rds")
   }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.withResponse, filename)
 }
 ```
 
-```{r create-diagnostic-plots, eval = TRUE}
-library(tidyverse)
+```{r create-diagnostic-plots, eval = FALSE}
 allEset <- readRDS(file.path(dataCacheDir, paste0(outputFilenamePrefix, "all_noNorm_noResponse_eset.rds")))
 ychromQCPlot <- qualityControl.failedYchromQC(allEset)
 pdf(file = file.path(outputDir, paste0(outputFilenamePrefix, "ychromQC.pdf")),
