@@ -188,7 +188,7 @@ if(!file.exists(esetsFile)){
 
 ```
 
-There are `r nrow(geMatrices_all)` matrices in the IS2 virtual study. `r nrow(droppedMatrices)` matrices from `r length(unique(droppedMatrices$cohort))` are removed based on inconsistent sampling or design. Additional summaries below: 
+There are `r nrow(geMatrices)` matrices in the IS2 virtual study. 
 
 
 ```{r check-extracted-ge-data}
