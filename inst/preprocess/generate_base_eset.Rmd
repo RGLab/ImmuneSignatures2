@@ -171,6 +171,7 @@ Gene expression matrices in ImmuneSpace are created on a cohort*cell_type basis
 and each matrix is quantile normalized and log-transformed separately. The .rds file that contains the list of expressionSets needed for downstream analysis is approximately 1GB and is therefore cached.
 
 ```{r extract-within-study-normalized-gene-expression-data}
+geMatrices <- con$cache$GE_matrices
 
 esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
 if(!file.exists(esetsFile)){
