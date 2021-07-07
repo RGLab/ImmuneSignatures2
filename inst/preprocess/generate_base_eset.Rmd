@@ -8,9 +8,9 @@ output:
     df_print: paged
     code_folding: hide
 params: 
-  outputDir: !r here::here("outputs", "2021_02_11")
-  dataCacheDir: !r here::here("data_cache", "2021_02_11")
-  timestamp: "2021_02_11_"
+  outputDir: "/share/files/HIPC/IS2/@files/data/html_outputs"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/data"
+  timestamp: !r strftime(Sys.time(), "%Y_%m_%d_", tz = "US/Pacific")
 ---
 
 # Overview
@@ -171,10 +171,6 @@ Gene expression matrices in ImmuneSpace are created on a cohort*cell_type basis
 and each matrix is quantile normalized and log-transformed separately. The .rds file that contains the list of expressionSets needed for downstream analysis is approximately 1GB and is therefore cached.
 
 ```{r extract-within-study-normalized-gene-expression-data}
-# With a global CreateConnection object we start with all available matrices.
-geMatrices_all <- con$cache$GE_matrices
-geMatrices <- geMatrices_all[ grep( rmCohorts, geMatrices_all$name, invert = TRUE), ] 
-droppedMatrices <- geMatrices_all[ grep( rmCohorts, geMatrices_all$name, invert = FALSE), ] 
 
 esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
 if(!file.exists(esetsFile)){
@@ -189,19 +185,6 @@ if(!file.exists(esetsFile)){
   esets <- readRDS(esetsFile)
 }
 
-# Get dropped matrices for summary
-droppedEsetsFile <- file.path(dataCacheDir, paste0(timeStamp, "dropped_IS2_esets.rds"))
-if(!file.exists(droppedEsetsFile)){
-  droppedEsets <- lapply(
-    droppedMatrices$name,
-    con$getGEMatrix,
-    outputType = "normalized",
-    annotation = "latest")
-  names(droppedEsets) <- droppedMatrices$name
-  saveRDS(droppedEsets, file = droppedEsetsFile)
-}else{
-  droppedEsets <- readRDS(droppedEsetsFile)
-}
 ```
 
 There are `r nrow(geMatrices_all)` matrices in the IS2 virtual study. `r nrow(droppedMatrices)` matrices from `r length(unique(droppedMatrices$cohort))` are removed based on inconsistent sampling or design. Additional summaries below: 
@@ -218,7 +201,7 @@ if( !all(unlist(results)) ){
 
 Full dataset: 
 ```{r summarize-all}
-full_summary <- summarizeEsetList(c(esets, droppedEsets), con)
+full_summary <- summarizeEsetList(c(esets), con)
 consort_numbers[step == "immunespace curated dataset", 
                 `:=`(studies_remaining = full_summary$studies,
                      cohorts_remaining = full_summary$cohorts,
@@ -226,11 +209,6 @@ consort_numbers[step == "immunespace curated dataset",
                      samples_remaining = full_summary$samples)]
 ```
 
-Dropped cohorts: 
-```{r summarize-dropped}
-dropped_summary <- summarizeEsetList(droppedEsets, con)
-dropped_summary
-```
 
 Analysis cohorts: 
 ```{r summarize-kept}
@@ -240,10 +218,6 @@ consort_numbers[step == "drop cohorts",
                      cohorts_remaining = remaining_summary$cohorts,
                      subjects_remaining = remaining_summary$subjects,
                      samples_remaining = remaining_summary$samples, 
-                     studies_affected = dropped_summary$studies,
-                     cohorts_affected = dropped_summary$cohorts,
-                     subjects_affected = dropped_summary$subjects,
-                     samples_affected = dropped_summary$samples,
                      studies_dropped = full_summary$studies - remaining_summary$studies,
                      cohorts_dropped = full_summary$cohorts - remaining_summary$cohorts,
                      subjects_dropped = full_summary$subjects - remaining_summary$subjects,
