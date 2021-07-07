@@ -12,7 +12,7 @@ params:
 The purpose of this vignette is to generate expressionSets for analysis by HIPC collaborators in the ImmuneSignatures2 project.  The base expressionSet includes all age cohorts and is not normalized across study or batch-corrected for issues like different platforms (e.g. Illumina vs Affymetrix).  Therefore, expressionSets for analysis are generated for both young and old cohorts that then are cross-study normalized and batch corrected.  The cross-study normalization is done by taking a target distribution from one platform (Affymetrix) and applying this to all samples. The batch-correction is done by using a linear-model to determining the effects of platform (e.g. Illumina Human HT-V4), platform vendor (e.g. Illumina), cell type (either Whole Blood or PBMC), and study on baseline data, then removing these effects for all timepoints.  Finally each expressionSet comes in a version with or without immune response data.  For subjects with multiple immune response data points (due to multiple assays), the preference is given to HAI then NAb then ELISA data.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, include = FALSE)
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
 ```
 
 ```{r load-dependencies}
@@ -86,6 +86,11 @@ for(ageGroupName in names(ageGroups)){
   fullSuffix <- paste0(ageGroupName, "_noNorm_eset.rds")
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.noNorm.noResponse, filename)
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      dataset_name = fileSuffix,
+                      data_path = filename, 
+                      data = eset.noNorm.noResponse, 
+                      include_counts = TRUE)
   
   # With Cross-Study Normalization, No Immune Response Calls
   
@@ -139,7 +144,12 @@ for(ageGroupName in names(ageGroups)){
     fullSuffix <- paste0(ageGroupName, "_norm_eset.rds")
   }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
-  saveRDS(eset.corr.noResponse, filename)
+  saveRDS(eset.corr.noResponse, filename)  
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      dataset_name = fileSuffix,
+                      data_path = filename, 
+                      data = eset.corr.noResponse, 
+                      include_counts = TRUE)
   
   # Generate Immune Response Calls
   filteredImmdata <- filterImmdataByAge(immdata_all, ages)
@@ -152,6 +162,15 @@ for(ageGroupName in names(ageGroups)){
     )
   })
   selectedImmdata <- selectResponsesToUse(immdataWithResponses)
+  if (ageGroupName == "all") {
+    filename <- file.path(dataCacheDir, "all_immdata_with_response.rds")
+    saveRDS(selectedImmdata, filename)
+    write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                        dataset_name = "all_immdata_with_response.rds",
+                        data_path = filename, 
+                        data = selectedImmdata, 
+                        include_counts = TRUE)
+  }
     
   # No Cross-Study Normalization, with Immune Response Calls
   eset.noNorm.withResponse <- addResponseData(eset.noNorm.noResponse,
@@ -164,7 +183,13 @@ for(ageGroupName in names(ageGroups)){
   
   fullSuffix <- paste0(ageGroupName, "_noNorm_withResponse_eset.rds")
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
-  saveRDS(eset.noNorm.withResponse, filename)
+  saveRDS(eset.noNorm.withResponse, filename)  
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      dataset_name = fileSuffix,
+                      data_path = filename, 
+                      data = eset.noNorm.withResponse, 
+                      include_counts = TRUE)
+  
   
   # With Cross-Study Normalization, with Immune Response Calls
   eset.corr.withResponse <- addResponseData(eset.corr.noResponse, 
@@ -182,7 +207,14 @@ for(ageGroupName in names(ageGroups)){
   }
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.withResponse, filename)
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      dataset_name = fullSuffix,
+                      data_path = filename, 
+                      data = eset.corr.withResponse, 
+                      include_counts = TRUE)
 }
+write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
+                          task_name = "create_final_esets.Rmd")
 ```
 
 ```{r create-diagnostic-plots, eval = FALSE}

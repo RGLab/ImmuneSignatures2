@@ -6,7 +6,6 @@ output:
     toc: true
     toc_float: true
     df_print: paged
-    code_folding: hide
 params: 
   outputDir: "/share/files/HIPC/IS2/@files/data/html_outputs"
   dataCacheDir: "/share/files/HIPC/IS2/@files/data"
@@ -163,6 +162,9 @@ if (file.exists(immdata_filename)) {
     dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
   })
   saveRDS(immdata_all, file = immdata_filename)
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      data_path = immdata_filename,
+                      dataset_name = "immdata_all.rds")
 }
 ```
 
@@ -182,6 +184,9 @@ if(!file.exists(esetsFile)){
     annotation = "latest")
   names(esets) <- geMatrices$name
   saveRDS(esets, file = esetsFile)
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      data_path = esetsFile,
+                      dataset_name = "IS2_esets.rds")
 }else{
   esets <- readRDS(esetsFile)
 }
@@ -456,4 +461,11 @@ if(!all(unlist(res))){
 }
 saveRDS(consort_numbers, file.path(dataCacheDir, "consort_numbers.rds"))
 saveRDS(noNormEset, file = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")))
+write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                    dataset_name = "noNormEset.rds", 
+                    data_path = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")),
+                    data = noNormEset, 
+                    include_counts = TRUE)
+write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
+                          task_name = "generate_base_eset.Rmd")
 ```
