@@ -1,0 +1,83 @@
+---
+title: "Create Esets"
+author: "Evan Henrich and Helen Miller"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    df_print: paged
+params: 
+  outputDir: "/share/files/HIPC/IS2/@files/data/html_outputs"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/data"
+  timestamp: !r strftime(Sys.time(), "%Y_%m_%d_", tz = "US/Pacific")
+---
+
+# Overview
+The purpose of this vignette is to pull all expressionsets from the ImmuneSpace portal, www.immunespace.org and save as an R object for later processing. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include = TRUE)
+suppressPackageStartupMessages({
+  library(ImmuneSignatures2) # vaccine map loaded as `vaccines`
+  library(ImmuneSpaceR) 
+  library(Biobase)
+  library(data.table)
+})
+# Output variables
+outputDir <- params$outputDir
+dataCacheDir <- params$dataCacheDir
+if (!dir.exists(outputDir)) dir.create(outputDir, recursive = TRUE)
+if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
+timeStamp <- params$timestamp
+```
+
+```{r consort-set-up}
+# Set up list for keeping track of consort numbers
+consort_numbers <- data.table(
+  step = c("immunespace total transcriptomic samples", 
+           "immunespace curated dataset",
+           "drop cohorts",
+           "drop samples due to difference in time design",
+           "remove subjects without baseline", 
+           "QC (remove saline samples)",
+           "Normalize: remove studies without young cohort", 
+           "Young adult dataset", 
+           "Older adult dataset"),
+  studies_remaining = as.numeric(NA),
+  studies_affected = as.numeric(NA),
+  studies_dropped = as.numeric(NA),
+  cohorts_remaining = as.numeric(NA),
+  cohorts_affected = as.numeric(NA),
+  cohorts_dropped = as.numeric(NA),
+  subjects_remaining = as.numeric(NA),
+  subjects_affected = as.numeric(NA),
+  subjects_dropped = as.numeric(NA),
+  samples_remaining = as.numeric(NA),
+  samples_affected = as.numeric(NA),
+  samples_dropped = as.numeric(NA)
+  )
+
+
+con <- CreateConnection("IS2", onTest = FALSE)
+```
+
+
+```{r extract-within-study-normalized-gene-expression-data}
+geMatrices <- con$cache$GE_matrices
+
+esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
+  esets <- lapply(
+    geMatrices$name,
+    con$getGEMatrix,
+    outputType = "normalized",
+    annotation = "latest")
+  names(esets) <- geMatrices$name
+  saveRDS(esets, file = esetsFile)
+  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
+                      data_path = esetsFile,
+                      dataset_name = "IS2_esets.rds")
+
+write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
+                          task_name = "pull_esets.Rmd")
+```
+
