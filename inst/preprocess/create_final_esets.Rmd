@@ -49,9 +49,9 @@ young <- c(18,50)
   old <- c(60,91)
   
 ageGroups <- list(
-  # young = young,
-  # old = old,
-  # extendedOld = c(max(young), max(old)),
+  young = young,
+  old = old,
+  extendedOld = c(max(young), max(old)),
   all = c(min(young), max(old))
 )
 
