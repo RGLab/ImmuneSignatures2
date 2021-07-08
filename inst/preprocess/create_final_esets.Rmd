@@ -87,7 +87,7 @@ for(ageGroupName in names(ageGroups)){
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.noNorm.noResponse, filename)
   write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
-                      dataset_name = fileSuffix,
+                      dataset_name = fullSuffix,
                       data_path = filename, 
                       data = eset.noNorm.noResponse, 
                       include_counts = TRUE)
@@ -146,7 +146,7 @@ for(ageGroupName in names(ageGroups)){
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.corr.noResponse, filename)  
   write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
-                      dataset_name = fileSuffix,
+                      dataset_name = fullSuffix,
                       data_path = filename, 
                       data = eset.corr.noResponse, 
                       include_counts = TRUE)
@@ -185,7 +185,7 @@ for(ageGroupName in names(ageGroups)){
   filename <- file.path(dataCacheDir, paste0(outputFilenamePrefix, fullSuffix))
   saveRDS(eset.noNorm.withResponse, filename)  
   write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
-                      dataset_name = fileSuffix,
+                      dataset_name = fullSuffix,
                       data_path = filename, 
                       data = eset.noNorm.withResponse, 
                       include_counts = TRUE)
@@ -213,8 +213,6 @@ for(ageGroupName in names(ageGroups)){
                       data = eset.corr.withResponse, 
                       include_counts = TRUE)
 }
-write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
-                          task_name = "create_final_esets.Rmd")
 ```
 
 ```{r create-diagnostic-plots, eval = FALSE}

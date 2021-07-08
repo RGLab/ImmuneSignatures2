@@ -61,27 +61,27 @@ write_processing_metadata <- function(metadata_path,
                                       task_name) {
 
   if ( file.exists(metadata_path) ) {
-    processing_date <- fread(metadata_path)
+    metadata <- fread(metadata_path)
   } else {
-    processing_date <- data.table(task = task_name)
+    metadata <- data.table(task = task_name)
   }
 
-  if ( task_name %in% processing_date$task ) {
-    processing_date[task == task_name,
+  if ( task_name %in% metadata$task ) {
+    metadata[task == task_name,
                     `:=`(
-                      date = strftime(Sys.time(), "%Y_%m_%d", tz = "US/Pacific"),
+                      date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
                       ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
                     )]
   } else {
-    processing_date <- rbind(processing_date,
+    metadata <- rbind(metadata,
                              data.table(
                                task = task_name,
-                               date = strftime(Sys.time(), "%Y_%m_%d", tz = "US/Pacific"),
+                               date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
                                ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
                              ))
   }
 
-  fwrite(processing_date, metadata_path)
+  fwrite(metadata, metadata_path)
 }
 
 #' Write metadata about data to a csv

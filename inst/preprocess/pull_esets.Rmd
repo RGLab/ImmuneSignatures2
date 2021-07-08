@@ -114,6 +114,4 @@ results <- testExtractedGEData(esets)
 if( !all(unlist(results)) ){
     stop("Normalized matrices do not meet dim and NA value expectations")
 }
-write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
-                          task_name = "generate_base_eset.Rmd")
 ```

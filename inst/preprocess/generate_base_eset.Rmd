@@ -405,6 +405,4 @@ write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
                     data_path = file.path(dataCacheDir, paste0(timeStamp, "noNormEset.rds")),
                     data = noNormEset, 
                     include_counts = TRUE)
-write_processing_metadata(file.path(dataCacheDir, "processing_metadata.csv"),
-                          task_name = "generate_base_eset.Rmd")
 ```
