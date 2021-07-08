@@ -9,7 +9,7 @@ output:
 params: 
   outputDir: "/share/files/HIPC/IS2/@files/data/html_outputs"
   dataCacheDir: "/share/files/HIPC/IS2/@files/data"
-  timestamp: !r strftime(Sys.time(), "%Y_%m_%d_", tz = "US/Pacific")
+  timestamp: ""
 ---
 
 # Overview
@@ -134,6 +134,12 @@ esets <- readRDS(file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds")))
 ```{r load-immdata-and-metadata}
 immdata_all <- readRDS( file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds")) )
 sharedMetaData <- readRDS( file.path(dataCacheDir, paste0(timeStamp, "sharedMetaData.rds")) )
+
+demographics <- con$getDataset("demographics")
+geneExpressionFiles <- con$getDataset("gene_expression_files", original_view = TRUE)
+featureAnnotationMap <- getTable(con, "microarray", "fasMap", showHidden = TRUE)
+featureAnnotation <- getTable(con, "microarray", "FeatureAnnotationSet", showHidden = TRUE)
+
 ```
 
 
@@ -226,13 +232,6 @@ rm(esets_pre)
 
 
 ```{r prepare-gene-expression-meta-data}
-
-demographics <- con$getDataset("demographics")
-geneExpressionFiles <- con$getDataset("gene_expression_files", original_view = TRUE)
-featureAnnotationMap <- getTable(con, "microarray", "fasMap", showHidden = TRUE)
-featureAnnotation <- getTable(con, "microarray", "FeatureAnnotationSet", showHidden = TRUE)
-
-
 
 phenoDataSets <- lapply(esets, pData)
 phenoDataSets <- addMatrixRelatedFields(phenoDataSets, geMatrices)
