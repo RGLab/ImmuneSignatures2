@@ -62,6 +62,8 @@ consort_numbers <- data.table(
   samples_dropped = as.numeric(NA)
   )
 
+
+
 # Removing cohorts from gene expression data:
 # SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
 # SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
@@ -69,7 +71,6 @@ consort_numbers <- data.table(
 # SDY180 - Saline cohorts did not receive stimulation
 rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
 
-assays <- c("hai", "neut_ab_titer", "elisa")
 
 summarizeEset <- function(eset) {
   d <- pData(eset)
@@ -125,85 +126,16 @@ consort_numbers[step == "immunespace total transcriptomic samples",
 rm(con_all, gef)
 ```
 
-```{r load-meta-data}
-demographics <- con$getDataset("demographics")
-geneExpressionFiles <- con$getDataset("gene_expression_files", original_view = TRUE)
-featureAnnotationMap <- getTable(con, "microarray", "fasMap", showHidden = TRUE)
-featureAnnotation <- getTable(con, "microarray", "FeatureAnnotationSet", showHidden = TRUE)
-```
-
-```{r map-meta-data-shared-GE-and-response}
-sharedMetaData <- addStudy(demographics)
-sharedMetaData <- addArmAccession(sharedMetaData, geneExpressionFiles)
-sharedMetaData <- addVaccineFields(sharedMetaData, vaccines)
-sharedMetaData <- filterOutNoVaccineSamples(sharedMetaData)
-sharedMetaData <- addGeBatchName(sharedMetaData)
-sharedMetaData <- addIrpBatchName(sharedMetaData)
-sharedMetaData <- addSDY1325metadata(sharedMetaData)
-sharedMetaData <- imputeAge(sharedMetaData)
-```
-
-# Immune Response Data Retrieval
-
-```{r prepare-immune-response-data}
-immdata_filename <- file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds"))
-if (file.exists(immdata_filename)) {
-  immdata_all <- readRDS(immdata_filename)
-} else {
-  immdata_all <- sapply(assays, USE.NAMES = TRUE, function(assay){
-    dt <- con$getDataset(assay, original_view = TRUE)
-    dt <- dt[, -"lsid"]
-    if(assay == "elisa"){
-      dt <- rbind(dt, sdy1370_elisa)
-    }
-    dt$assay <- assay
-    dt <- correctHrs(dt)
-    dt <- createUniqueIdColumn(dt)
-    dt <- merge(dt, sharedMetaData, by = c("participant_id", "study_accession", "arm_accession"))
-  })
-  saveRDS(immdata_all, file = immdata_filename)
-  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
-                      data_path = immdata_filename,
-                      dataset_name = "immdata_all.rds")
-}
-```
-
-# Gene Expression Data Retrieval
-Gene expression matrices in ImmuneSpace are created on a cohort*cell_type basis
-and each matrix is quantile normalized and log-transformed separately. The .rds file that contains the list of expressionSets needed for downstream analysis is approximately 1GB and is therefore cached.
-
-```{r extract-within-study-normalized-gene-expression-data}
+```{r load-esets}
 geMatrices <- con$cache$GE_matrices
-
-esetsFile <- file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds"))
-if(!file.exists(esetsFile)){
-  esets <- lapply(
-    geMatrices$name,
-    con$getGEMatrix,
-    outputType = "normalized",
-    annotation = "latest")
-  names(esets) <- geMatrices$name
-  saveRDS(esets, file = esetsFile)
-  write_data_metadata(file.path(dataCacheDir, "dataset_metadata.csv"),
-                      data_path = esetsFile,
-                      dataset_name = "IS2_esets.rds")
-}else{
-  esets <- readRDS(esetsFile)
-}
-
+esets <- readRDS(file.path(dataCacheDir, paste0(timeStamp, "IS2_esets.rds")))
 ```
 
-There are `r nrow(geMatrices)` matrices in the IS2 virtual study. 
-
-
-```{r check-extracted-ge-data}
-results <- testExtractedGEData(esets)
-
-if( !all(unlist(results)) ){
-    stop("Normalized matrices do not meet dim and NA value expectations")
-}
-
+```{r load-immdata-and-metadata}
+immdata_all <- readRDS( file.path(dataCacheDir, paste0(timeStamp, "immdata_all.rds")) )
+sharedMetaData <- readRDS( file.path(dataCacheDir, paste0(timeStamp, "sharedMetaData.rds")) )
 ```
+
 
 Full dataset: 
 ```{r summarize-all}
@@ -294,6 +226,14 @@ rm(esets_pre)
 
 
 ```{r prepare-gene-expression-meta-data}
+
+demographics <- con$getDataset("demographics")
+geneExpressionFiles <- con$getDataset("gene_expression_files", original_view = TRUE)
+featureAnnotationMap <- getTable(con, "microarray", "fasMap", showHidden = TRUE)
+featureAnnotation <- getTable(con, "microarray", "FeatureAnnotationSet", showHidden = TRUE)
+
+
+
 phenoDataSets <- lapply(esets, pData)
 phenoDataSets <- addMatrixRelatedFields(phenoDataSets, geMatrices)
 
