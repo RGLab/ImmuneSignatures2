@@ -110,7 +110,7 @@ write_data_metadata <- function(metadata_path,
     metadata[dataset == dataset_name,
              `:=`(
                path = data_path,
-               date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific")),
+               date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
                ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
              )]
   } else {
