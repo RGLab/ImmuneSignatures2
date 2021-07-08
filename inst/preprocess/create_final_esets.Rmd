@@ -138,7 +138,7 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-  if (grepl("old", ageGroupName)) {
+  if (grepl("old", ageGroupName, ignore.case = TRUE)) {
     fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_eset.rds")
   } else {
     fullSuffix <- paste0(ageGroupName, "_norm_eset.rds")
@@ -200,7 +200,7 @@ for(ageGroupName in names(ageGroups)){
                        ages)
   checkFinalTestResults(res)
   
-  if (grepl("old", ageGroupName)) {
+  if (grepl("old", ageGroupName, ignore.case = TRUE)) {
     fullSuffix <- paste0(ageGroupName, "_norm_batchCorrectedFromYoung_withResponse_eset.rds")
   } else {
     fullSuffix <- paste0(ageGroupName, "_norm_withResponse_eset.rds")
