@@ -1,7 +1,8 @@
 #' Convert 'Hours'-based study times to 'Days'-based
 #'
 #' @param dt meta-data data.table
-#' @import data.table
+#' @import data.table Biobase ImmuneSpaceR
+#' @importFrom dplyr %>%
 #' @export
 #'
 correctHrs <- function(dt){
@@ -38,11 +39,10 @@ createUniqueIdColumn <- function(dt){
 #' @param schemaName schema name in ImmuneSpace DB
 #' @param queryName query name in ImmuneSpace DB
 #' @param ... additional arguments passed to labkey.selectRows.
-#' @import Rlabkey
 #' @export
 #'
 getTable <- function(con, schemaName, queryName, ...){
-  dt <- labkey.selectRows(baseUrl = con$config$labkey.url.base,
+  dt <- Rlabkey::labkey.selectRows(baseUrl = con$config$labkey.url.base,
                           folderPath = con$config$labkey.url.path,
                           schemaName = schemaName,
                           queryName = queryName,
@@ -67,17 +67,17 @@ write_processing_metadata <- function(metadata_path,
   }
 
   if ( task_name %in% metadata$task ) {
-    metadata[task == task_name,
+    metadata[metadata$task == task_name,
                     `:=`(
                       date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
-                      ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
+                      ImmuneSignatures2_version = as.character(utils::packageVersion("ImmuneSignatures2"))
                     )]
   } else {
     metadata <- rbind(metadata,
                              data.table(
                                task = task_name,
                                date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
-                               ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
+                               ImmuneSignatures2_version = as.character(utils::packageVersion("ImmuneSignatures2"))
                              ))
   }
 
@@ -107,11 +107,11 @@ write_data_metadata <- function(metadata_path,
   }
 
   if ( dataset_name %in% metadata$dataset ) {
-    metadata[dataset == dataset_name,
+    metadata[metadata$dataset == dataset_name,
              `:=`(
                path = data_path,
                date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
-               ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
+               ImmuneSignatures2_version = as.character(utils::packageVersion("ImmuneSignatures2"))
              )]
   } else {
     metadata <- rbind(metadata,
@@ -119,7 +119,7 @@ write_data_metadata <- function(metadata_path,
                         dataset = dataset_name,
                         path = data_path,
                         date = strftime(Sys.time(), "%Y-%m-%d %H:%M:%S %Z", tz = "US/Pacific"),
-                        ImmuneSignatures2_version = as.character(packageVersion("ImmuneSignatures2"))
+                        ImmuneSignatures2_version = as.character(utils::packageVersion("ImmuneSignatures2"))
                       ),
                       fill = TRUE)
   }
@@ -127,7 +127,7 @@ write_data_metadata <- function(metadata_path,
 
   if (include_counts & !is.null(data)) {
     if ( class(data) == "ExpressionSet" ) {
-      metadata[dataset == dataset_name,
+      metadata[metadata$dataset == dataset_name,
                `:=`(
                  subjects = length(unique(data$participant_id)),
                  samples = dim(data)["Samples"],

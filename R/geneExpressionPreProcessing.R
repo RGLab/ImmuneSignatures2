@@ -150,7 +150,7 @@ addAnalysisVariables <- function(geMetaData){
                                 "Asian",
                                 "Black"
                                 ) :=
-                              list(1 * (ethnicity == 'Hispanic or Latino'),
+                              list(1 * (getMetaData$ethnicity == 'Hispanic or Latino'),
                                    as.numeric(as.character(study_time_collected)),
                                    1 * (race == 'White'),
                                    1 * (race == 'Asian'),

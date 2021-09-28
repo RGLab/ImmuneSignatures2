@@ -1,5 +1,5 @@
 ---
-title: HIPC IS2 Data Resource Fig S1b (gender-check)
+title: HIPC IS2 Data Resource Fig S1b (yChrom-check)
 author: Slim Fourati
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: github_documents

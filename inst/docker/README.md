@@ -2,6 +2,10 @@
 
 This directory contains sources for building the docker image used in the ImmuneSpace servers for running all ImmuneSignatures2 code. It can also be used to mimic the server environment if you want to run ImmuneSignatures2 code on your own machine.
 
+# WARNING
+_This is not the final docker image. This image will be updated with all necessary R packages once all analysis is finalized._
+
+
 ## Quickstart
 
 1. Build the image. You must pass in your github personal access token so that the private ImmuneSignatures2 repo can build. The `makefile` has a handy `build` target. It assumes you have `GITHUB_PAT` saved as an environment variable, which is needed to build the ImmuneSignatures2 package, which is in a private repo.

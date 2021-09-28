@@ -13,7 +13,7 @@ addResponseData <- function(eset, immdata){
 
     # TODO: Figure out how to handle cohorts!
     # rm cohort from immdata because it shows up as Young vs Old instead of arm name in eset
-    immdata[, cohort := NULL]
+    immdata[, immdata$cohort := NULL]
 
     pd <- pData(eset)
     sharedCols <- intersect(colnames(pd), colnames(immdata))

@@ -4,7 +4,6 @@
 #' @param method MDS or PCA
 #' @param numberOfSamples number of samples to use per study
 #' @param colorCol field name to use for labeling samples in plot
-#' @import ggplot2 limma
 #' @export
 #'
 qualityControl.samplePlot <- function(eset,
@@ -30,7 +29,7 @@ qualityControl.samplePlot <- function(eset,
     colorVec <- unique(subsetDay0[[colorCol]])
     colors <- sample(colors, length(colorVec), replace = TRUE)
     colors <- colors[ match(subsetDay0[[colorCol]], colorVec)]
-    tmp <- plotMDS(subsetDay0, col = colors, labels = subsetDay0[[colorCol]])
+    tmp <- limma::plotMDS(subsetDay0, col = colors, labels = subsetDay0[[colorCol]])
     return(tmp)
   }else if(method == "PCA"){
     em <- as.matrix(exprs(subsetDay0))
@@ -38,7 +37,7 @@ qualityControl.samplePlot <- function(eset,
     tem <- data.frame(t(em), stringsAsFactors = FALSE)
     res <- stats::prcomp(tem)
     pd <- pData(subsetDay0)
-    autoplot(res, data = pd, colour = colorCol)
+    ggplot2::autoplot(res, data = pd, colour = colorCol)
   }
 }
 
@@ -46,7 +45,6 @@ qualityControl.samplePlot <- function(eset,
 #'
 #' @param eset expressionSet
 #' @param returnObject options are allMatricesPlot (default), probSamplesPlot, probSamplesDT
-#' @import dplyr ggbeeswarm ggplot2 Biobase
 #' @export
 #'
 qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatricesPlot"){
@@ -54,7 +52,7 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
     data.frame(chry = .) %>%
-    rownames_to_column() %>%
+    tibble::rownames_to_column() %>%
     merge(y    = pData(eset),
           by.x = "rowname",
           by.y = "uid")
@@ -65,37 +63,37 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
     colors <- sample(colors, length(colors))
     colors <- grDevices::colorRampPalette(colors)(length(unique(plotDF$participant_id)))
 
-    fullPlot <- ggplot(data = plotDF,
-                       mapping = aes(x = y_chrom_present, y = chry)) +
-      geom_boxplot(outlier.color = "transparent", fill = "grey") +
-      geom_jitter(height = 0, width = 0.25, mapping = aes(color = participant_id)) +
-      labs(y = "Average probe intensities (chrY)") +
-      scale_color_manual(values = colors) +
-      facet_wrap(facets = ~study_accession+matrix, scale = "free") +
-      theme_bw() +
-      theme(plot.title = element_text(hjust = 0.5),
-            legend.pos = "none",
-            strip.text = element_text(size = 5))
+    fullPlot <- ggplot2::ggplot(data = plotDF,
+                                mapping = ggplot2::aes(x = y_chrom_present, y = chry)) +
+      ggplot2::geom_boxplot(outlier.color = "transparent", fill = "grey") +
+      ggplot2::geom_jitter(height = 0, width = 0.25, mapping = ggplot2::aes(color = participant_id)) +
+      ggplot2::labs(y = "Average probe intensities (chrY)") +
+      ggplot2::scale_color_manual(values = colors) +
+      ggplot2::facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+      ggplot2::theme_bw() +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
+                     legend.pos = "none",
+                     strip.text = ggplot2::element_text(size = 5))
     return(fullPlot)
   }
 
   # find outlier (1.5 x IGR from Q1 and Q3)
   outlierDF <- plotDF %>%
-    group_by(study_accession, matrix, y_chrom_present) %>%
-    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+    dplyr::group_by(study_accession, matrix, y_chrom_present) %>%
+    dplyr::mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
            dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
-    group_by(study_accession, matrix, y_chrom_present) %>%
-    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+    dplyr::group_by(study_accession, matrix, y_chrom_present) %>%
+    dplyr::summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
               q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
-    mutate(y_chrom_present = !y_chrom_present)
+    dplyr::mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
                   y  = quartileDF,
                   by = c("study_accession", "matrix", "y_chrom_present")) %>%
-    mutate(flag = FALSE,
+    dplyr::mutate(flag = FALSE,
            flag = ifelse(test = !y_chrom_present & up & chry >= q1,
                          yes  = TRUE,
                          no   = flag),
@@ -104,28 +102,28 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
                          no   = flag))
 
   plotDF <- merge(x     = plotDF,
-                  y     = select(flagDF, rowname, flag),
+                  y     = dplyr::select(flagDF, rowname, flag),
                   by    = "rowname",
                   all.x = TRUE) %>%
     # if y_chrom_present not specified, set flag as false
-    mutate(flag = ifelse(test = is.na(flag),
+    dplyr::mutate(flag = ifelse(test = is.na(flag),
                          yes  = FALSE,
                          no   = flag))
 
 
 
   if(returnObject == "allMatricesPlot"){
-    fullPlot <- ggplot(data = plotDF,
-                       mapping = aes(x = y_chrom_present, y = chry)) +
-      geom_boxplot(outlier.color = "transparent", fill = "grey") +
-      geom_jitter(height = 0, width = 0.25, mapping = aes(color = flag)) +
-      labs(y = "Average probe intensities (chrY)") +
-      scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
-      facet_wrap(facets = ~study_accession+matrix, scale = "free") +
-      theme_bw() +
-      theme(plot.title = element_text(hjust = 0.5),
+    fullPlot <- ggplot2::ggplot(data = plotDF,
+                       mapping = ggplot2::aes(x = y_chrom_present, y = chry)) +
+      ggplot2::geom_boxplot(outlier.color = "transparent", fill = "grey") +
+      ggplot2::geom_jitter(height = 0, width = 0.25, mapping = ggplot2::aes(color = flag)) +
+      ggplot2::labs(y = "Average probe intensities (chrY)") +
+      ggplot2::scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+      ggplot2::facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+      ggplot2::theme_bw() +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
             legend.pos = "none",
-            strip.text = element_text(size = 5))
+            strip.text = ggplot2::element_text(size = 5))
     return(fullPlot)
 
   }else if(returnObject == "probSamplesDT"){
@@ -133,19 +131,19 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
 
   }else if(returnObject == "probSamplesPlot"){
     problemMatrix <- unique(plotDF$matrix[ plotDF$flag])
-    plotTemp <- filter(plotDF, matrix %in% problemMatrix)
+    plotTemp <- dplyr::filter(plotDF, matrix %in% problemMatrix)
 
-    prbSmplsPlot <- ggplot(data = plotTemp,
-                           mapping = aes(x = y_chrom_present, y = chry)) +
-      geom_boxplot(outlier.color = "transparent", fill = "grey") +
-      geom_beeswarm(mapping = aes(color = flag), cex = 2.5, size = 0.8) +
-      labs(y = "Average probe intensities (chrY)", x = "Sex") +
-      scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
-      facet_wrap(facets = ~study_accession+matrix, scale = "free") +
-      theme_bw() +
-      theme(plot.title = element_text(hjust = 0.5),
+    prbSmplsPlot <- ggplot2::ggplot(data = plotTemp,
+                           mapping = ggplot2::aes(x = y_chrom_present, y = chry)) +
+      ggplot2::geom_boxplot(outlier.color = "transparent", fill = "grey") +
+      ggbeeswarm::geom_beeswarm(mapping = ggplot2::aes(color = flag), cex = 2.5, size = 0.8) +
+      ggplot2::labs(y = "Average probe intensities (chrY)", x = "Sex") +
+      ggplot2::scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+      ggplot2::facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+      ggplot2::theme_bw() +
+      ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
             legend.pos = "none",
-            strip.text = element_text(size = 6))
+            strip.text = ggplot2::element_text(size = 6))
     return(prbSmplsPlot)
   }else{
     stop("returnObject parameter value not recognized")
@@ -156,7 +154,6 @@ qualityControl.yChromPresentByMatrix <- function(eset, returnObject = "allMatric
 #' Generate gender box plots (prior to QC)
 #'
 #' @param eset expressionSet
-#' @import dplyr tibble ggplot2
 #' @export
 #'
 qualityControl.genderByMatrix <- function(eset){
@@ -164,60 +161,59 @@ qualityControl.genderByMatrix <- function(eset){
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
     data.frame(chry = .) %>%
-    rownames_to_column() %>%
+    tibble::rownames_to_column() %>%
     merge(y    = pData(eset),
           by.x = "rowname",
           by.y = "uid")
 
   outlierDF <- plotDF %>%
-    group_by(study_accession, matrix, gender) %>%
-    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+    dplyr::group_by(study_accession, matrix, gender) %>%
+    dplyr::mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
            dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
-    group_by(study_accession, matrix, gender) %>%
-    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
-              q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
-    mutate(gender = c("Female" = "Male", "Male" = "Female")[gender])
+    dplyr::group_by(study_accession, matrix, gender) %>%
+    dplyr::summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+                     q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
+    dplyr::mutate(gender = c("Female" = "Male", "Male" = "Female")[gender])
 
   # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
                   y  = quartileDF,
                   by = c("study_accession", "matrix", "gender")) %>%
-    mutate(flag = FALSE,
-           flag = ifelse(test = gender %in% "Female" & up & chry >= q1,
-                         yes  = TRUE,
-                         no   = flag),
-           flag = ifelse(test = gender %in% "Male" & dn & chry <= q3,
-                         yes  = TRUE,
-                         no   = flag))
+    dplyr::mutate(flag = FALSE,
+                  flag = ifelse(test = gender %in% "Female" & up & chry >= q1,
+                                yes  = TRUE,
+                                no   = flag),
+                  flag = ifelse(test = gender %in% "Male" & dn & chry <= q3,
+                                yes  = TRUE,
+                                no   = flag))
 
   plotDF <- merge(x     = plotDF,
-                  y     = select(flagDF, rowname, flag),
+                  y     = dplyr::select(flagDF, rowname, flag),
                   by    = "rowname",
                   all.x = TRUE) %>%
     # if gender not specified, set flag as false
-    mutate(flag = ifelse(test = is.na(flag),
-                         yes  = FALSE,
-                         no   = flag))
+    dplyr::mutate(flag = ifelse(test = is.na(flag),
+                                yes  = FALSE,
+                                no   = flag))
 
-  fullPlot <- ggplot(data = plotDF,
-                     mapping = aes(x = gender, y = chry)) +
-    geom_boxplot(outlier.color = "transparent", fill = "grey") +
-    geom_jitter(height = 0, width = 0.25, mapping = aes(color = flag)) +
-    labs(y = "Average probe intensities (chrY)") +
-    scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
-    facet_wrap(facets = ~study_accession+matrix, scale = "free") +
-    theme_bw() +
-    theme(plot.title = element_text(hjust = 0.5),
-          legend.pos = "none",
-          strip.text = element_text(size = 5))
+  fullPlot <- ggplot2::ggplot(data = plotDF,
+                              mapping = ggplot2::aes(x = gender, y = chry)) +
+    ggplot2::geom_boxplot(outlier.color = "transparent", fill = "grey") +
+    ggplot2::geom_jitter(height = 0, width = 0.25, mapping = ggplot2::aes(color = flag)) +
+    ggplot2::labs(y = "Average probe intensities (chrY)") +
+    ggplot2::scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+    ggplot2::facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
+                   legend.pos = "none",
+                   strip.text = element_text(size = 5))
 }
 
 #' Generate ychrom box plots after QC
 #'
 #' @param eset expressionSet
-#' @import dplyr ggplot2
 #' @export
 #'
 qualityControl.failedYchromQC <- function(eset){
@@ -225,20 +221,20 @@ qualityControl.failedYchromQC <- function(eset){
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
     data.frame(chry = .) %>%
-    rownames_to_column()
+    dplyr::rownames_to_column()
 
   plotDF <- merge(plotDF, pData(eset), by.x = "rowname", by.y = "uid")
 
   outlierDF <- plotDF %>%
-    group_by(study_accession, matrix, y_chrom_present) %>%
-    mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
-           dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
+    dplyr::group_by(study_accession, matrix, y_chrom_present) %>%
+    dplyr::mutate(up = chry >= stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry),
+                  dn = chry <= stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry))
 
   quartileDF <- plotDF %>%
-    group_by(study_accession, matrix, y_chrom_present) %>%
-    summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
-              q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
-    mutate(y_chrom_present = !y_chrom_present)
+    dplyr::group_by(study_accession, matrix, y_chrom_present) %>%
+    dplyr::summarize(q1 = stats::quantile(chry, probs = 0.25) - 1.5 * stats::IQR(chry),
+                     q3 = stats::quantile(chry, probs = 0.75) + 1.5 * stats::IQR(chry)) %>%
+    dplyr::mutate(y_chrom_present = !y_chrom_present)
 
   # flag outlier samples (possible swap)
   flagDF <- merge(x  = outlierDF,
@@ -246,21 +242,21 @@ qualityControl.failedYchromQC <- function(eset){
                   by = c("study_accession", "matrix", "y_chrom_present"))
 
   plotDF <- merge(x     = plotDF,
-                  y     = select(flagDF, rowname),
+                  y     = dplyr::select(flagDF, rowname),
                   by    = "rowname",
                   all.x = TRUE)
 
-  fullPlot <- ggplot(data = plotDF,
-                     mapping = aes(x = y_chrom_present, y = chry)) +
-    geom_boxplot(outlier.color = "transparent", fill = "grey") +
-    geom_jitter(height = 0, width = 0.25, mapping = aes(color = failedYchromQC)) +
-    labs(y = "Average probe intensities (chrY)") +
-    scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
-    facet_wrap(facets = ~study_accession+matrix, scale = "free") +
-    theme_bw() +
-    theme(plot.title = element_text(hjust = 0.5),
-          legend.pos = "none",
-          strip.text = element_text(size = 5))
+  fullPlot <- ggplot2::ggplot(data = plotDF,
+                            mapping = ggplot2::aes(x = y_chrom_present, y = chry)) +
+    ggplot2::geom_boxplot(outlier.color = "transparent", fill = "grey") +
+    ggplot2::geom_jitter(height = 0, width = 0.25, mapping = ggplot2::aes(color = failedYchromQC)) +
+    ggplot2::labs(y = "Average probe intensities (chrY)") +
+    ggplot2::scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+    ggplot2::facet_wrap(facets = ~study_accession+matrix, scale = "free") +
+    ggplot2::theme_bw() +
+    ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
+                 legend.pos = "none",
+                 strip.text = ggplot2::element_text(size = 5))
 }
 #' Generate table of studies with count of participants from vector of pids
 #'
