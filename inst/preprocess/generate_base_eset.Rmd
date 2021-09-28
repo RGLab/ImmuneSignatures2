@@ -64,14 +64,6 @@ consort_numbers <- data.table(
 
 
 
-# Removing cohorts from gene expression data:
-# SDY1370 - BCell and TCell, since others are PBMC / WholeBlood
-# SDY1325 - lowdose and subcutaenous PS, different vaccine method not related
-# SDY1364 - intraDermal, different vaccination method
-# SDY180 - Saline cohorts did not receive stimulation
-rmCohorts <- "cell|Subcutaneous|LowIntraMuscular|IntraDermal|Saline"
-
-
 summarizeEset <- function(eset) {
   d <- pData(eset)
   study_count <- length(unique(d$study_accession))

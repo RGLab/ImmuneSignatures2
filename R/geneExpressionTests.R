@@ -1,7 +1,6 @@
 #' Test gene expression matrices prior to pre-processing
 #'
 #' @param esets list of expressionSet objects
-#' @import Biobase
 #' @export
 #'
 testExtractedGEData <- function(esets){

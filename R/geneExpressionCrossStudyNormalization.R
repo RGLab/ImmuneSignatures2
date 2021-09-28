@@ -1,8 +1,6 @@
 #' Cross-Study normalize an expressionSet object based on a single
 #' vendor's subset of expression data to define the target distribution
 #'
-#' @import Biobase
-#' @importFrom methods new
 #' @param eset expressionSet
 #' @param targetDistributionVendor Microarray or RNAseq vendor to use for generating target distribution
 #' @param targetDistributionExcludedStudies studies to exclude when generating the target distribution
@@ -32,9 +30,9 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
   pd <- pData(eset)
   rownames(pd) <- pd$uid
   normAllExprs <- normAllExprs[ , order(match(colnames(normAllExprs), rownames(pd))) ]
-  normEset <- new("ExpressionSet",
+  normEset <- methods::new("ExpressionSet",
                   exprs = as.matrix(normAllExprs, rownames = rownames(normAllExprs)),
-                  phenoData = new('AnnotatedDataFrame',
+                  phenoData = methods::new('AnnotatedDataFrame',
                                   pd)
   )
 
@@ -47,7 +45,6 @@ crossStudyNormalize <- function(eset, targetDistributionVendor, targetDistributi
 
 #' Adjust expression data using correction coefficients based on baseline data
 #' to account for study_accession, featureSetName, and cell_type
-#' @importFrom methods new
 #' @param eset expressionSet
 #' @param batch.vars variables to correct for
 #' @param covariates additional variables to include in the model
@@ -77,16 +74,15 @@ batchCorrect <- function(eset, batch.vars, covariates){
   correctionValues <- fit.vals %*% t(mm.all.subset)
   tmpExprs <- exprs(eset) - correctionValues
 
-  eset.corr <- new("ExpressionSet",
+  eset.corr <- methods::new("ExpressionSet",
                    exprs = as.matrix(tmpExprs, rownames = rownames(tmpExprs)),
-                   phenoData = new('AnnotatedDataFrame', pData(eset))
+                   phenoData = methods::new('AnnotatedDataFrame', pData(eset))
   )
   return(eset.corr)
 }
 
 #' Adjust baseline expression data to account for study_accession, featureSetName, and cell_type
 #'
-#' @importFrom methods new
 #' @param modelEset expressionSet used to create linear model
 #' @param targetEset expressionSet that is corrected given model fit values
 #' @param batch.vars variables to correct for
@@ -148,9 +144,9 @@ batchCorrect.importedModel <- function(modelEset, targetEset, batch.vars, covari
 
   # Create new expressionSet object as validation fails for insertion into target
   # due to internal checks related to expression matrix
-  eset.target.corr <- new("ExpressionSet",
+  eset.target.corr <- methods::new("ExpressionSet",
                        exprs = as.matrix(exprs.target.corr, rownames = rownames(exprs.target.corr)),
-                       phenoData = new('AnnotatedDataFrame', pd))
+                       phenoData = methods::new('AnnotatedDataFrame', pd))
 }
 
 #' Get linear model fit values for each gene
@@ -164,11 +160,11 @@ getLmFitValues <- function(model.formula, eset.baseline, coefs2adjust){
   mm <- stats::model.matrix(model.formula, data = pData(eset.baseline))
 
   # Remove model matrix variables that are not estimable
-  notEstimable <- nonEstimable(mm)
+  notEstimable <- limma::nonEstimable(mm)
   mm.est <- mm[, !colnames(mm) %in% notEstimable]
 
   # Create a linear model based on the model matrix with all estimable vars for day 0
-  fit <- lmFit(object = exprs(eset.baseline), design = mm.est)
+  fit <- limma::lmFit(object = exprs(eset.baseline), design = mm.est)
 
   # Select only study, featureAnnotationSet, and cell type as variables to use
   # (do not use gender)
