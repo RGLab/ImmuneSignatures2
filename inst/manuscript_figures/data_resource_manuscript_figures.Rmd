@@ -1,30 +1,22 @@
 ---
-title: "ImmuneSignatures2: Reproduction of figures for Data Resource Manuscript"
+title: "The Immune Signatures Data Resource: A compendium of systems vaccinology datasets"
 output: 
-  html_document: 
-    toc: true
-    toc_float: true
-    df_print: paged
-    code_folding: hide
-date: "`r format(Sys.time(), '%d %B, %Y')`"
-editor_options: 
-  chunk_output_type: inline
+  html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, 
                       message = FALSE,
-                      warning = FALSE)
-```
-
-
-# SETUP
-```{r, libraries}
+                      warning = FALSE, 
+                      cache = TRUE,
+                      cache.path = file.path("/share/files/HIPC/IS2/@files/data/data_resource_cache/report_cache/"))
+```  
+```{r, libraries, echo=FALSE, message = FALSE}
 suppressPackageStartupMessages({
   library(package = "knitr")
   library(package = "Biobase")
   library(package = "RColorBrewer")
-  library(package = "tidyverse")
+  library(package = "dplyr")
   library(package = "ggbeeswarm")
   library(package = "pvca") # dleelab/pvca
   library(package = "lme4")
@@ -33,42 +25,49 @@ suppressPackageStartupMessages({
   library(package = "ImmuneSignatures2")
   library(package = "patchwork")
   library(package = "stringr")
+  library(package = "RAPToR")
   library(package = "ggplot2")
-  library(here)
+  library(org.Hs.eg.db)
+  library(tidyverse)
+  library(eulerr)
 })
-```
-
-
-```{r, global-variables, echo=FALSE}
-dataCacheDir <- file.path("~/Projects/ImmSig2/ImmuneSignatures2", "data_cache", "2021_03_08")
-datePrefix <- "2021_03_08_"
-```
-
+```  
+```{r global-variables, echo = TRUE}
+#dataDir <- "/home/docker/data"
+dataDir <- "/share/files/HIPC/IS2/@files/data"
+dataCacheDir <- file.path(dataDir, "data_resource_cache")
+if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
+datePrefix <- ""
+```  
+  
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
+  
+  
+Full codebase for pre-processing can be found in the [ImmuneSignatures2](https://github.com/RGLab/ImmuneSignatures2) package on github. Here, we use the resulting data to reproduce figures from the manuscript.
+  
 ```{r, read-esets}
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"extendedOld_norm_batchCorrectedFromYoung_eset.rds"))
+noRespGEFile <- file.path(dataDir, paste0(datePrefix,"extendedOld_norm_batchCorrectedFromYoung_eset.rds"))
 old.NoResp <- readRDS(file = noRespGEFile)
-
-
-noRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_eset.rds"))
+noRespGEFile <- file.path(dataDir, paste0(datePrefix,"young_norm_eset.rds"))
 young.NoResp <- readRDS(file = noRespGEFile)
-
-withRespGEFile <- file.path(dataCacheDir, paste0(datePrefix,"young_norm_withResponse_eset.rds"))
+withRespGEFile <- file.path(dataDir, paste0(datePrefix,"young_norm_withResponse_eset.rds"))
 young.WithResp <- readRDS(file = withRespGEFile)
-
-all.noResp <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "all_norm_eset.rds")))
+all.noResp <- readRDS(file.path(dataDir, paste0(datePrefix, "all_norm_eset.rds")))
 all.noResp$featureSetVendor <- ifelse(all.noResp$featureSetVendor == "NA", "RNAseq", all.noResp$featureSetVendor)
-all.noNorm <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "all_noNorm_eset.rds")))
+all.noNorm <- readRDS(file.path(dataDir, paste0(datePrefix, "all_noNorm_eset.rds")))
 all.noNorm$featureSetVendor <- ifelse(all.noNorm$featureSetVendor == "NA", "RNAseq", all.noNorm$featureSetVendor)
-```
-
+all.immdata <- readRDS(file.path(dataDir, paste0(datePrefix, "all_immdata_with_response.rds")))
+all_noNorm_withResponse <- readRDS(file.path(dataDir, paste0(datePrefix, "all_noNorm_withResponse_eset.rds")))
+immdata <- readRDS(file.path(dataDir, paste0(datePrefix, "immdata_all.rds")))
+# Set seed for consistent results
+set.seed(123)
+```  
 ```{r, set-standard-colors, echo=FALSE}
 # Fig 1
 set3colors <- brewer.pal("Set3", n = 12)
 colors.fig1a <- c(set3colors[c(2, 11, 3, 12, 8)], 
                 "black", 
                 set3colors[c(7, 6, 5, 1, 4, 9, 10)])
-
 # Other Figures
 getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
 				                         brewer.pal(name = "Dark2", n = 4)))
@@ -76,56 +75,46 @@ vaccines <- unique(paste0(young.NoResp$pathogen,
                           " (", young.NoResp$vaccine_type, ")"))
 vaccine2color <- getPalette(n = length(vaccines)) %>%
   setNames(nm = sort(vaccines))
-```
-
-# FIGURES
-
-## Figure 1
-
-### A: 
-HIPC Signatures Study creation Pipeline and Study Demographics. 
-
-```{r overview, echo=FALSE, fig.cap="my caption", out.width = '90%', eval = FALSE}
-figure1a <- "/Users/joannarce/Dropbox (BCH)/HIPC/IOF/Figures/HIPCFigure.png"
-knitr::include_graphics(figure1a)
-```
-
-### B: 
-Proportion of subjects of various self reported race and imputed y chrom values per pathogen*vaccine type
-*Authors:* Joann Arce
-
-Combine the data for a full dataset with all ages
-```{r create-pdata}
+```    
+  
+# FIGURES  
+## Figure 1: HIPC Immune Signatures pipeline and study demographics.  
+### Figure 1A.	
+  
+Systems vaccinology datasets from existing HIPC studies as well as published systems vaccinology papers and databases were submitted to the [ImmPort](https://www.immport.org) database. ImmuneSpace captures these datasets to create a combined compendium dataset. Quality control assessments of these data include array quality checks for microarray studies, batch correction, imputations for missing age and sex/y-chromosome presence information, and normalization per study. The combined virtual study includes transcriptional profiles and antibody response measurements from 1405 participants across 53 cohorts, profiling the response to 24 different vaccines.  
+   
+  
+<img src="/_webdav/HIPC/IS2/%40files/data/images/HIPCIOF.png" width="90%">  
+  
+### Figure 1B  
+Demographic data included sex, race, vaccine, and number of participants.  
+  
+```{r fig1b-demographics, fig.height=10, fig.width=16}
 getPdata <- function(eset){
   pd <- as_tibble(pData(eset))
-  pd <- pd %>% dplyr::select(uid, everything())
   pd$age_reported <- as.numeric(pd$age_reported)
   return(pd)
 }
-
 pdata_young <- getPdata(young.NoResp)
 pdata_old <- getPdata(old.NoResp)
-
 pdata_df <- getPdata(all.noResp)
-```
-
-Pre-processing
-```{r}
-# Remove malaria - why?
-pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
-
+# Remove malaria
+#pdata_no_malaria <- filter(pdata_df, study_accession != "SDY1293")
 # Filter to unique subjects
-pdata_df_uniqueSubjects <- distinct(pdata_no_malaria, 
+swr = function(string, nwrap=13) {
+  paste(strwrap(string, width=nwrap), collapse="\n")
+}
+swr = Vectorize(swr)
+pdata_df_uniqueSubjects <- distinct(pdata_df, 
                                     participant_id, 
                                     y_chrom_present, 
                                     race, 
                                     pathogen, 
                                     vaccine_type)
-
 # Create new column for pathogen and vaccine
 pdata_df_uniqueSubjects <- mutate(pdata_df_uniqueSubjects, 
                                   pathogen_vacc = paste0(pathogen, "\n(", vaccine_type, ")"))
-
+pdata_df_uniqueSubjects$pathogen_vacc = swr(pdata_df_uniqueSubjects$pathogen_vacc)
 getCounts <- function(pd, colnm, prefix){
   counts_df <- arrange(dplyr::count(pd, .data[[colnm]], pathogen_vacc), n)
   counts_df$pathogen_total <- sapply(1:nrow(counts_df), function(i){
@@ -137,38 +126,32 @@ getCounts <- function(pd, colnm, prefix){
   counts_df$category <- paste0(prefix, counts_df$category)
   return(counts_df)
 }
-
 sex_counts_df <- getCounts(pdata_df_uniqueSubjects, "y_chrom_present", "YCHROM_")
 race_counts_df <- getCounts(pdata_df_uniqueSubjects, "race", "RACE_")
-
 total_counts <- rbind(sex_counts_df, race_counts_df)
 names(colors.fig1a) <- c(unique(total_counts$pathogen_vacc)[c(2, 11, 3, 12, 8)],
                        "Malaria (Recombinant protein)",
                        unique(total_counts$pathogen_vacc)[c(7, 6, 5, 1, 4, 9, 10)])
-```
-
-
-```{r plot}
 p <- ggplot(total_counts) +
   geom_bar(aes(x = freq, y = category, fill = pathogen_vacc), 
            color = "black", stat = "identity", lwd = .2) +
-  geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
+ # geom_hline(yintercept = 7.5, color = "grey", lwd = .4) +
   facet_wrap(vars(pathogen_vacc), nrow = 2) +
   scale_y_discrete(limits = rev(c("YCHROM_TRUE", 
                                   "YCHROM_FALSE",
                                   "RACE_White", 
-                                  "RACE_Black or African American", 
+                                  "RACE_Black or\nAfrican American", 
                                   "RACE_Asian", 
-                                  "RACE_American Indian or Alaska Native", 
+                                  "RACE_American Indian or\nAlaska Native", 
                                   "RACE_Other", 
                                   "RACE_Not Specified", 
                                   "RACE_Unknown")),
                    labels = rev(c("Male", 
                                   "Female",
                                   "White", 
-                                  "Black or African American", 
+                                  "Black or\nAfrican American", 
                                   "Asian", 
-                                  "American Indian or Alaska Native", 
+                                  "American Indian or\nAlaska Native", 
                                   "Other", 
                                   "Not Specified", 
                                   "Unknown"))) +
@@ -178,27 +161,37 @@ p <- ggplot(total_counts) +
   guides(fill = FALSE) +
   xlab("Distribution (%)") +
   ylab(NULL) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90))
-
-p
-```
-
-## Consort diagram
-```{r consort, echo=FALSE, fig.cap="my caption", out.width = '90%', eval = FALSE}
-consort <- "/Users/joannarce/Dropbox (BCH)/HIPC/IOF/Figures/IOFConsortTable.png"
-knitr::include_graphics(consort)
-```
-
-# Figure 2: QC
-## Array Quality Figure
-```{r arrayquality, echo=FALSE, fig.cap="my caption", out.width = '90%', eval = FALSE}
-array <- "/Users/joannarce/Dropbox (BCH)/HIPC/IOF/Figures/arrayquality.png"
-knitr::include_graphics(array)
-```
-
+  theme_classic() +
+ # theme(axis.text.x = element_text(angle = 45, size=12))+
+   theme ( axis.text.y = element_text(hjust = 1, size=18), axis.title= element_text (size=20),
+      	axis.text.x = element_text(angle = 45, hjust = 1, size=18), 
+      	strip.text = element_text(size=18, face="bold"))
+  p
+```  
+  
+## Figure 2: Flow chart diagram of the Immune Signatures Project.  
+  
+<img src="/_webdav/HIPC/IS2/%40files/data/images/flowdiagramIOF.png" width="90%">  
+  
+## Figure 3: Quality control assessments of transcriptomics dataset for Immune Signature study.
+### Figure 3A.	
+Sample quality assessments of gene expression datasets using Array Quality metrics. [arrayQualityMetrics](https://www.bioconductor.org/packages/release/bioc/html/arrayQualityMetrics.html) package was employed to assess quality of microarray datasets by checking the following criteria:  
+1. absolute mean difference between arrays to check the probe and median intensity across all arrays  
+2. Kolmogorov-Smirnov statistics to check the signal intensity distribution of arrays, comparing each probe versus distribution of test statistics for all other probes  
+3. Hoeffding's D-statistics for arrays.  
+Arrays will be excluded if they fail all three criteria above.     
+  
+[Quality control code](https://github.com/RGLab/ImmuneSignatures2/blob/main/inst/supplementary_preprocessing/arrayquality.rmd) is available in the ImmuneSignatures2 package on github.
+  
+<img src="/_webdav/HIPC/IS2/%40files/data/images/Figure3a.jpg" width = "50%">  
+  
+### Figure 3B.	
+  
+Principal component analysis (Top) and Principal Variation Component Analysis (PVCA) of baseline expression data per study before (B) and after (C) batch correction.  
+[Code](https://github.com/RGLab/ImmuneSignatures2/blob/main/R/geneExpressionCrossStudyNormalization.R) used to perform normalization is available in the ImmuneSignatures2 package. 
 
 ```{r pca-functions}
+## Helper functions for PCA
 getPCAs <- function (eset, maxpc = 3) {
   if (!is.matrix(eset)) {
     ex <- exprs(eset)
@@ -233,12 +226,8 @@ plotPCA<-function(pca.db,title=paste0('PCA'),
   
   return(p1)
 }
-
-
 impute.na<-function(x){x[is.na(x)]<-mean(x,na.rm=T); return(x)}
-```
-```{r pvca-functions} 
-
+## Helper functions for PVCA
 getEigen<-function(eset){
   theDataMatrix <- exprs(eset)
   dataRowN <- nrow(theDataMatrix)
@@ -254,8 +243,6 @@ getEigen<-function(eset){
   
   return(eigenData)
 }
-
-
 pvcaBatchAssess.MSF2<-function(eset, eigenData=NULL, batch.factors, threshold, include.inter="all") {
   require(lme4)
   theDataMatrix <- exprs(eset)
@@ -378,8 +365,6 @@ pvcaBatchAssess.MSF2<-function(eset, eigenData=NULL, batch.factors, threshold, i
   }
   return(list(dat = randomEffectsMatrixWtAveProp, label = effectsNames))
 }
-
-
 plotPVCA <- function(pvcaObj, 
                      cex.percentage = 1, 
                      ht = 4, 
@@ -401,31 +386,22 @@ plotPVCA <- function(pvcaObj,
   p <- ggplot(db, aes(x = reorder(labels, perc), y = perc)) + 
     geom_bar(stat = "identity", fill = "blue") + theme_bw() + 
     scale_y_continuous(limits = c(0,  1.1)) + 
-    geom_text(aes(x = labels, y = perc + 0.05, label = paste0(as.character(round(100 *  perc, 1)), "%"))) +
+    geom_text(size=8,aes(x = labels, y = perc + 0.05, label = paste0(as.character(round(100 *  perc, 1)), "%"))) +
     labs(x = "Effects", y = "Weighted average proportion variance", title = paste("PVCA ", title)) + 
     scale_x_discrete(labels = function(x) str_wrap(x, width = 8))
   return(p)
 }
-
-
 ```
-TODO: Add PCA for PBMC and whole blood
-- save individual plots and upload those
-
-### A. 
-QC metrics
-
-### B. 
-PCA - baseline samples before cross-study normalization
-```{r pca-nonorm}
+  
+  
+```{r pca-nonorm,fig.width=8, fig.height = 6}
+# ----- PCA ----- 
 all.noNorm$age_group <- ifelse(all.noNorm$age_imputed < 50, "young", "old")
 eset_noNorm_baseline <- all.noNorm[, all.noNorm$study_time_collected == 0]
-
 features.pca.0 <- featureNames(eset_noNorm_baseline)[
   which( (rowMeans(is.na(exprs(eset_noNorm_baseline)))==0) &
            (apply(exprs(eset_noNorm_baseline),1,sd)>0) 
   )]
-
 pca_noNorm_cacheFile <- file.path(dataCacheDir, "pca_noNorm.rds")
 if (file.exists(pca_noNorm_cacheFile)) {
   pca_noNorm_baseline <- readRDS(pca_noNorm_cacheFile)
@@ -433,26 +409,32 @@ if (file.exists(pca_noNorm_cacheFile)) {
   pca_noNorm_baseline <- getPCAs(eset_noNorm_baseline[features.pca.0,])
   saveRDS(pca_noNorm_baseline, pca_noNorm_cacheFile)
 }
-
 pcaPlot_noNorm <-plotPCA(pca_noNorm_baseline,
-                         title='PCA Baseline',
-                         color.var='study_accession',
-                         var.shape='featureSetVendor',
+                         title='Baseline Expression',
+                         color.var='featureSetName2',
+                         var.shape=NULL,
                          var.size=1) +
-  scale_shape_manual(values=c(12,20,21:23,10,11,13:19))
+  scale_shape_manual(values=c(12,20,21:23,10,11,13:19))+
+   theme_classic() +
+    theme(title=element_text (size=18),
+      axis.text=element_text(size=16), 
+          axis.text.x=element_text(size=16),
+          legend.position = "right",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=12),
+        axis.title=element_text(size=14,face="bold"))
+pcaPlot_noNorm 
 ```
-
-```{r pvca-nonorm}
+```{r pvca-nonorm, fig.width=10, fig.height = 6}
+# ----- PVCA -----
 batch.vars <- c('cell_type',
-                'featureSetVendor',
-                'featureSetName2',
-                'study_accession', 
-                'y_chrom_present',
+                'featureSet\nVendor',
+                'featureSet\nName2',
+                'study\naccession', 
+                'y_chrom\npresent',
                 'age_group')
-
 pvca_noNorm_cacheFile <- file.path(dataCacheDir, "pvca_noNorm_withAge.rds")
 if (!file.exists(pvca_noNorm_cacheFile)) {
-
   eigen_noNorm <- getEigen(eset_noNorm_baseline[features.pca.0,])
   
   pvca_noNorm <- pvcaBatchAssess.MSF2(eset_noNorm_baseline[features.pca.0,], 
@@ -464,31 +446,35 @@ if (!file.exists(pvca_noNorm_cacheFile)) {
 } else {
   load(pvca_noNorm_cacheFile)
 }
-
 pvcaPlot_noNorm <- plotPVCA(pvca_noNorm,
                 title = "Baseline",
                 ht=3,
-                wd=6.2, 
+                wd=7.5, 
                 race.vars = NULL,
                 outputDir = outputDir) +
-  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))+
+   theme_classic() +
+    theme(title=element_blank(),
+      axis.text=element_text(size=20,color = "black"), 
+          axis.text.x=element_text(size=20, angle=45, hjust=1,color = "black"),
+          legend.position = "right",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=18),
+        axis.title=element_text(size=20,face="bold"))
+pvcaPlot_noNorm
 ```
-
-```{r pca-noNorm-plots, fig.width=10, fig.height = 7}
-pcaPlot_noNorm + pvcaPlot_noNorm
-```
-
-### C. 
-PCA - baseline samples after batch correction
-```{r pca-norm}
+                     
+### Figure 3C.	
+<!-- To correct for this large amount of technical variation, we first performed quantile normalization by study, aligning the distribution of expression for each study with a target distribution obtained using data from the Affymetrix platform. Then, we corrected for additional technical effects such as cell type and feature set by fitting a linear model to associate gene expression with technical variations using the limma package, and removing the technical effects from the data. [Code](https://github.com/RGLab/ImmuneSignatures2/blob/main/R/geneExpressionCrossStudyNormalization.R) used to perform normalization is available in the ImmuneSignatures2 package. The PCA and PVCA derived from the resulting data is shown below.  -->
+  
+```{r pca-norm, fig.width=8, fig.height = 6}
+# ----- PCA -----
 all.noResp$age_group <- ifelse(all.noResp$age_imputed < 50, "young", "old")
 eset_norm_baseline <- all.noResp[, all.noResp$study_time_collected == 0]
-
 features.pca.n0 <- featureNames(eset_norm_baseline)[
   which( (rowMeans(is.na(exprs(eset_norm_baseline)))==0) &
            (apply(exprs(eset_norm_baseline),1,sd)>0) 
   )]
-
 pca_norm_cacheFile <- file.path(dataCacheDir, "pca_norm.rds")
 if (file.exists(pca_norm_cacheFile)) {
   pca_norm_baseline <- readRDS(pca_norm_cacheFile)
@@ -496,19 +482,26 @@ if (file.exists(pca_norm_cacheFile)) {
   pca_norm_baseline <- getPCAs(eset_norm_baseline[features.pca.n0, ])
   saveRDS(pca_norm_baseline, pca_norm_cacheFile)
 }
-
 pcaPlot_norm <-plotPCA(pca_norm_baseline,
-                         title='PCA Baseline',
-                         color.var='study_accession',
-                         var.shape='featureSetVendor',
+                         title='Baseline post-batch correction',
+                         color.var='featureSetName2',
+                         var.shape=NULL,
                          var.size=1) +
-  scale_shape_manual(values=c(12,20,21:23,10,11,13:19))
+  scale_shape_manual(values=c(12,20,21:23,10,11,13:19)) +
+  theme_classic() +
+    theme(title=element_text (size=18),
+      axis.text=element_text(size=16), 
+          axis.text.x=element_text(size=16),
+          legend.position = "right",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=12),
+        axis.title=element_text(size=14,face="bold"))
+pcaPlot_norm 
 ```
-
-```{r pvca-norm}
+```{r pvca-norm, fig.width=8, fig.height = 6}
+# ----- PVCA -----
 pvca_norm_cacheFile <- file.path(dataCacheDir, "pvca_norm_withAge.rds")
 if (!file.exists(pvca_norm_cacheFile)) {
-
   eigen_norm <- getEigen(eset_norm_baseline[features.pca.n0,])
   
   pvca_norm <- pvcaBatchAssess.MSF2(eset_norm_baseline[features.pca.n0,], 
@@ -520,27 +513,91 @@ if (!file.exists(pvca_norm_cacheFile)) {
 } else {
   load(pvca_norm_cacheFile)
 }
-
 pvcaPlot_norm <- plotPVCA(pvca_norm,
-                title = "Baseline",
+                title = "Baseline post-batch correction",
                 ht=3,
                 wd=6.2, 
                 race.vars = NULL,
                 outputDir = outputDir) +
-  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+  theme(axis.text.x = element_text(size=22, angle = 45, hjust = 1, color = "black",))+
+  theme_classic() +
+    theme(title=element_blank(),
+      axis.text=element_text(size=16,color="black"), 
+          axis.text.x=element_text(size=20, hjust=1, angle=45, color="black"),
+          legend.position = "bottom",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=16),
+        axis.title=element_text(size=20,face="bold"))
+pvcaPlot_norm
+```  
+  
+### Figure 3D.	 
+<!-- Imputation of y-chromosomal genes presence. Due to missing data and inconsistencies across timepoints, we were unable to use the provided value for participants' sex. Instead, we imputed presence of y-chromosome based on expression of y-chromosomal genes. Using the expression levels of 13 y-chromosome-associated genes, we clustered samples into 2 groups. Participants with samples falling into the group with higher expression of y-chromosome genes were labeled as the y-chromosome present group.  -->
+  
+Biological sex imputation based on expression of Y-chromosome genes. We used 13 Y-chromosome-associated genes to cluster samples into 2 groups assuming biological male or female. 
+  
+[Source code](https://github.com/RGLab/ImmuneSignatures2/blob/main/R/geneExpressionPreProcessing.R#L270) for this calculation is available in the ImmuneSignatures2 package. 
+  
+```{r y-chrom, fig.width=12, fig.height=6}
+ 
+# Matrices chosen for plotting
+plot_matrices <- c("SDY180_WholeBlood_Grp1Fluzone_Geo",
+                   "SDY180_WholeBlood_Grp2Pneunomax23_Geo")
+ 
+all.noNorm.noResponse.exprs.noNa <- na.omit(exprs(all.noNorm))
+ 
+gene2chr <- rbind(as.data.frame(org.Hs.egSYMBOL),
+                  as.data.frame(org.Hs.egALIAS2EG) %>%
+                    dplyr::rename("symbol" = "alias_symbol")) %>%
+  dplyr::left_join(., as.data.frame(org.Hs.egCHR), by = "gene_id")
+y_genes <- gene2chr %>%
+  dplyr::filter(symbol %in% rownames(all.noNorm.noResponse.exprs.noNa),
+                chromosome == "Y")
+non_y_genes.symbol <- setdiff(rownames(all.noNorm.noResponse.exprs.noNa),
+                              y_genes$symbol)
+ 
+plot_df <- pData(all.noResp) %>%
+  dplyr::filter(matrix %in% plot_matrices) %>%
+  dplyr::group_by(participant_id, time_post_last_vax) %>%
+  tidyr::nest() %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    y_ratio = purrr::map_dbl(
+      .x = data,
+      ~mean(all.noNorm.noResponse.exprs.noNa[y_genes$symbol, .x$uid]) /
+        mean(all.noNorm.noResponse.exprs.noNa[non_y_genes.symbol, .x$uid])
+    )) %>%
+  tidyr::unnest(data)
+ 
+ 
+# Plot figure ------------------------------------------------------------------
+ 
+p <- ggplot(plot_df,
+            aes(x = time_post_last_vax,
+                y = y_ratio,
+                group = participant_id)) +
+  labs(x = "Time since last vaccination (days)",
+       y = "Average Y / non-Y gene expression") +
+  geom_line(alpha = 1, aes(color = y_chrom_present)) +
+  geom_point(alpha = .5, aes(color = y_chrom_present)) +
+  scale_color_manual(values = c("TRUE" = "navy", "FALSE" = "salmon")) +
+  theme_classic() +
+    theme(axis.text=element_text(size=16), legend.position = "bottom",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=16),
+        axis.title=element_text(size=16,face="bold")) +
+  theme(plot.title = element_text(size = 18, face = "bold"), strip.text = element_text(size=16, face="bold")) +
+  facet_wrap(vars(study_accession, matrix), ncol = 2)
+ 
+p
 ```
-
-```{r pca-norm-plots, fig.width=10, fig.height = 7}
-pcaPlot_norm + pvcaPlot_norm
-```
-### D.
-y_chrom expression by timepoint (TODO) -- Bram: check his code
-
-### E. 
-raptor age imputed (young)
-```{r get-raptor-test-results}
+  
+### Figure 3E.	
+Age imputation for studies without reported ages for young adults. Several studies (SDY1260, SDY1264, SDY1293, SDY1294, SDY1364, SDY1370, SDY1373, SDY984) were missing participant age. We performed age imputation for transcriptomic profiles of participants without reported ages using the [RAPToR](https://github.com/LBMC/RAPToR) R package. Virtual studies were split into young (age < 50, __E__) and older (age >= 50, __F__) for two separate predictive models.    
+  
+```{r raptor-helper}
+## RAPToR Helper Function
 get_raptor_results <- function(eset) {
-  library(RAPToR)
   raptor_function <- "X ~ s(age_reported, bs = 'cr') + matrix"
   raptor_eset <- eset[, eset$time_post_last_vax == 0]
   p <- pData(raptor_eset)
@@ -556,7 +613,6 @@ get_raptor_results <- function(eset) {
   p_test <- p[test_sample_indices,]
   p <- p[ref_sample_indices,]
   
-  X <- X[!missing_indices,]
   X_test <- X[,test_sample_indices]
   X <- X[,ref_sample_indices]
   
@@ -587,126 +643,119 @@ get_raptor_results <- function(eset) {
   r_X <- list(interpGE = stats::predict(m, ndat), time.series = ndat$age_reported)
   
   # test
-  ae_X <- ae(X, r_X$interpGE, r_X$time.series)
-  
-  # Get regression:
-  results <- tibble(actual = p$age_reported, estimates = ae_X$age.estimates[,1])
-  return(results)
+  ae_X <- ae(eset[, eset$time_post_last_vax == 0], r_X$interpGE, r_X$time.series)
+  return(ae_X)
 }
 ```
-
-```{r raptor-young}
-raptor_young_cacheFile <- file.path(dataCacheDir, "raptor_young_result.rds")
-if (file.exists(raptor_young_cacheFile)) {
-  results_young <- readRDS(raptor_young_cacheFile)
+```{r raptor, cache = TRUE}
+# Get RAPToR age estimates for young and old age groups
+set.seed(123)
+raptor_young_file <- file.path(dataCacheDir, "raptor_young_results.rds")
+if (file.exists(raptor_young_file)) {
+  raptor_results_young <- readRDS(raptor_young_file)
 } else {
-  results_young <- get_raptor_results(young.NoResp)
-  saveRDS(results_young, raptor_young_cacheFile)
+  raptor_results_young <- get_raptor_results(young.NoResp)
+  saveRDS(raptor_results_young, raptor_young_file)
+  
 }
-lm_fit_young <- lm(actual ~ estimates, data=results_young)
+raptor_old_file <- file.path(dataCacheDir, "raptor_old_results.rds")
+if (file.exists(raptor_old_file)) {
+  raptor_results_old <- readRDS(raptor_old_file)
+} else {
+  raptor_results_old <- get_raptor_results(old.NoResp)
+  saveRDS(raptor_results_old, raptor_old_file)
+  
+}
+```
+```{r raptor-eset}
+# Use RAPToR age estimate for studies without age_reported:
+# SDY1260, SDY1264, SDY1293, SDY1294, SDY1364, SDY1370, SDY1373, SDY984
+studies_missing_age <- c("SDY1260", "SDY1264","SDY1293", "SDY1294","SDY1364","SDY1370","SDY1373","SDY984")
+young_raptor_age <- raptor_results_young$age.estimates[, 1]
+names(young_raptor_age) <- young.NoResp[, match(names(young_raptor_age), young.NoResp$uid)]$participant_id
+young.NoResp$raptor_age <- young_raptor_age[young.NoResp$participant_id]
+young.NoResp$raptor_age <- ifelse(young.NoResp$study_accession %in% studies_missing_age, 
+                                  young.NoResp$raptor_age, young.NoResp$age_imputed)
+young.WithResp$raptor_age <- young_raptor_age[young.WithResp$participant_id]
+young.WithResp$raptor_age <- ifelse(young.WithResp$study_accession %in% studies_missing_age, 
+                                    young.NoResp$age_reported, young.NoResp$raptor_age)
+old_raptor_age <- raptor_results_old$age.estimates[, 1]
+names(old_raptor_age) <- old.NoResp[, match(names(old_raptor_age), old.NoResp$uid)]$participant_id
+old.NoResp$raptor_age <- raptor_results_old$age.estimates[,1][old.NoResp$uid]
+old.NoResp$raptor_age <- ifelse(old.NoResp$study_accession %in% studies_missing_age, 
+                                old.NoResp$age_reported, old.NoResp$raptor_age)
+```
+```{r raptor-young,fig.width=10, fig.height=8}
+results_young_tibble <- tibble(
+  actual = young.NoResp$age_reported[match(names(young_raptor_age),
+                                             young.NoResp$participant_id)], 
+  estimates = young_raptor_age, 
+  study_accession  = young.NoResp$study_accession[match(names(young_raptor_age),
+                                             young.NoResp$participant_id)]
+  )
+# only include participants from studies with age data
+results_young_tibble <- filter(results_young_tibble, !study_accession %in% studies_missing_age)
+# Get trend
+lm_fit_young <- lm(actual ~ estimates, data=results_young_tibble)
 # Plot:
-ggplot(results_young) +
+ggplot(results_young_tibble) +
   geom_point(aes(x = actual, y = estimates)) +
   geom_smooth(aes(x = actual, y = actual), method='lm') +
   xlab("age_reported") +
   ylab("estimated age (from RAPToR)") +
   xlim(18, 50) +
   ylim(18, 50) +
-  ggtitle(paste0("RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_young)$r.squared, 3)))
-
-```
-
-
-
-### F. 
-raptor age imputed (old)
-
-```{r raptor-old}
-raptor_old_cacheFile <- file.path(dataCacheDir, "raptor_old_result.rds")
-if (file.exists(raptor_old_cacheFile)) {
-  results_old <- readRDS(raptor_old_cacheFile)
-} else {
-  results_old <- get_raptor_results(old.NoResp)
-  saveRDS(results_old, raptor_old_cacheFile)
-}
-lm_fit_old <- lm(actual ~ estimates, data=results_old)
+  ggtitle(paste0("Young Adults: RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_young)$r.squared, 3)))+ theme_classic ()+
+  theme(title = element_text (size=16,face="bold"),
+    axis.text=element_text(size=16), legend.position = "bottom",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=16),
+        axis.title=element_text(size=16,face="bold"))
+```  
+  
+### Figure 3F.	
+Age imputation for studies without reported ages for older adults.  
+  
+```{r raptor-old,fig.width=10, fig.height=8}
+results_old_tibble <- tibble(
+  actual = old.NoResp$age_reported[match(rownames(raptor_results_old$age.estimates),
+                                             old.NoResp$uid)], 
+  estimates = raptor_results_old$age.estimates[, 1], 
+  study_accession  = old.NoResp$study_accession[match(rownames(raptor_results_old$age.estimates),
+                                             old.NoResp$uid)]
+  )
+# only include participants from studies with age data
+results_old_tibble <- filter(results_old_tibble, !study_accession %in% studies_missing_age)
+lm_fit_old <- lm(actual ~ estimates, data=results_old_tibble)
 # Plot:
-ggplot(results_old) +
+ggplot(results_old_tibble) +
   geom_point(aes(x = actual, y = estimates)) +
   geom_smooth(aes(x = actual, y = actual), method='lm') +
   xlab("age_reported") +
   ylab("estimated age (from RAPToR)") +
   xlim(50, 90) +
   ylim(50, 90) +
-  ggtitle(paste0("RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_old)$r.squared, 3)))
-
-```
-
-### G. 
-
-
-## Figure 3
-Overview HIPC Signatures Transcriptomics Data Compilation (young and old). 
-
-### A. 
-Number of samples (check again) are summarized in transcriptomics (TX), hemaglutination inhibition assay (HAI), neutralizing antibody assay (NAB) and ELISA assays (ELISA) 
-
-(TODO)
-
-### B. 
-
-Venn diagram: Each area- proportional Euler diagram represents the total number of participants with corresponding data types.
-
-(TODO)
-
-### C.
-Box plot corresponds to the participants age per pathogen and vaccine type. Individual colors signifies the vaccine type each participants received while the shape of the point represents the sex of the participants. Imputation on sex based on Y chromosome genes was performed on participants with potential misassignment while age imputations were performed on datasets with missing age information (SDY......). 
-*Author: * Slim Fourati
-```{r, fig-1c, fig.width=6.8, fig.height=7}
-df.fig1c <- pData(young.NoResp) %>%
-  select(participant_id, pathogen, vaccine_type, age_imputed, y_chrom_present) %>%
-  distinct() %>%
-  mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")"))
-
-# remove vaccine where all the participant have the same age
-flag <- df.fig1c %>%
-  group_by(vaccine) %>%
-  summarize(nbUniqueAge = length(unique(age_imputed))) %>%
-  filter(nbUniqueAge > 1)
-
-df.fig1c <- filter(df.fig1c, vaccine %in% flag$vaccine)
-
-ggplot(data = df.fig1c,
-       mapping = aes(x = vaccine,
-		                 y = age_imputed)) +
-  geom_boxplot(fill = "transparent", outlier.color = "transparent") +
-  geom_beeswarm(mapping = aes(color = vaccine, shape = y_chrom_present),
-		            cex = 0.3) +
-  scale_color_manual(name   = "Pathogen (Vaccine type)",
-                     values = vaccine2color) +
-  labs(x = "Pathogen (Vaccine type)", y = "Age") + 
-  theme_bw() +
-  theme(panel.grid         = element_blank(),
-      	panel.grid.major.y = element_line(color = "lightgrey"),
-      	axis.text          = element_text(color = "black"),
-      	axis.text.x        = element_text(angle = 45, hjust = 1, size = 8),
-      	legend.text        = element_text(size = 7),
-      	legend.key.height  = unit(0.02, units = "npc"),
-      	legend.key.width   = unit(0.015, units = "npc")) +
-  guides(fill = guide_legend(ncol = 1))
-
-# test for difference between vaccine
-kruskal.test(formula = age_imputed ~ vaccine, data = df.fig1c)
-```
-
-### D: 
-Plot number of samples as a function of day of sampling
-TODO: Which dataset to use for this? (all vs young)
-*Authors:* Slim Fourati, Joanna Arce
-```{r, fig-1b, fig.width=6.29, fig.height=4.84}
+  ggtitle(paste0("Older Adults: RAPToR Prediction vs. Actual Age: R^2 = ", round(summary(lm_fit_old)$r.squared, 3)))+ theme_classic ()+
+  theme(title = element_text (size=16,face="bold"),
+    axis.text=element_text(size=16), legend.position = "bottom",
+          legend.title = element_text(size=16),
+          legend.text = element_text(size=16),
+        axis.title=element_text(size=16,face="bold"))
+```  
+  
+## Figure 4: Immune Signatures Transcriptomics Overview for young and old datasets.   
+### Figure 4A.  
+Number of samples for each data type, including transcriptomics (TX), hemagglutination inhibition assay (HAI), neutralizing antibody assay (NAB), and ELISA assays (ELISA).  
+  
+<img src="/_webdav/HIPC/IS2/%40files/data/images/SummaryIOF.png" width = "70%">  
+  
+### Figure 4B.  
+Bar plot depicting the number of samples at each time point. The colors within each bar indicate the breakdown for each unique combination of pathogen and vaccine type. Day -7 and day 0 correspond to times pre-vaccination. 
+  
+```{r, fig-4b, fig.height=8, fig.width=16}
 # any sampling data after 20 days coded as >20
 df.fig1b <- pData(young.NoResp) %>%
-  select(uid, study_time_collected, pathogen, vaccine_type) %>%
+  dplyr::select(uid, study_time_collected, pathogen, vaccine_type) %>%
   arrange(study_time_collected) %>%
   mutate(study_time_collected = signif(study_time_collected, digits = 3),
 	 study_time_collected.factor = ifelse(test = study_time_collected > 20,
@@ -718,151 +767,697 @@ df.fig1b <- pData(young.NoResp) %>%
 	 vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
   group_by(study_time_collected.factor, vaccine) %>%
   summarize(n = n())
-
-ggplot(data = df.fig1b,
+Fig4b <- ggplot(data = df.fig1b,
        mapping = aes(x = study_time_collected.factor,
 		                 y = n)) +
   geom_bar(stat = "identity", mapping = aes(fill = vaccine)) +
+  theme_classic () +
   labs(x = "Days post-vaccination", y = "Number of samples") +
   scale_y_continuous(limits = c(0, 800),
 		                 breaks = seq(from = 0, to = 800, by = 100)) + 
   scale_fill_manual(name   = "Pathogen (Vaccine type)",
-		                values = vaccine2color) +
-  theme_bw() +
-  theme(panel.grid         = element_blank(),
-      	panel.grid.major.y = element_line(color = "lightgrey"),
-      	axis.text          = element_text(color = "black"),
-      	axis.text.x        = element_text(angle = 45, hjust = 1),
-      	legend.pos         = "bottom",
-      	legend.text        = element_text(size = 7),
-      	legend.key.height  = unit(0.02, units = "npc"),
+		                values = vaccine2color) 
+Fig4b +  guides(fill = guide_legend(ncol = 2)) + theme_classic() + theme ( axis.text.y = element_text(hjust = 1, size=20), axis.title= element_text (size=20),
+      	axis.text.x = element_text(angle = 45, hjust = 1, size=18),legend.pos= "bottom",legend.text = element_text(size=18), legend.title =element_text(size=20))
+```  
+  
+### Figure 4C.  
+Box plot depicting the participants' age distribution for each unique combination of pathogen and vaccine type.  
+  
+```{r vaccine-metadata, fig.height=10, fig.width=16}
+# Set seed for consistent results
+set.seed(123)
+# Combined pdata with raptor results
+pdata_df <- rbind(pData(young.NoResp), pData(old.NoResp))
+D0pdata <- pdata_df %>% dplyr::filter (time_post_last_vax == 0) %>%
+  dplyr::filter(vaccine != "Saline" ) %>%
+  dplyr::filter (age_imputed !=0) 
+D0pdata$vaccine=dplyr::recode(D0pdata$vaccine, "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS")
+D0pdata$vaccine=dplyr::recode(D0pdata$vaccine, "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM")
+D0pdata$vaccine =dplyr::recode(D0pdata$vaccine, "TIV(2011)"="TIV (2011)")
+D0pdata$vaccine =dplyr::recode(D0pdata$vaccine, "TIV(2013)"="TIV (2013)")
+D0pdata$pathogen_vaccinetype=paste0(D0pdata$pathogen," (",D0pdata$vaccine_type,")") 
+D0pdata$pathogen_vaccinetype=paste0(D0pdata$pathogen," (",D0pdata$vaccine_type,")") 
+D0pdatafig <- ggplot(D0pdata, aes(x=pathogen_vaccinetype, y=raptor_age)) + 
+  geom_boxplot(outlier.shape=NA) + 
+  theme_classic() + #scale_shape_manual(values=1:nlevels(vaccine)) +
+  theme(axis.text.x = element_text(size=18, angle=45, hjust=1)) +
+  theme(axis.text.y = element_text(size = 18, hjust = 1)) +
+  scale_y_continuous(breaks = pretty(D0pdata$raptor_age, n = 10)) +
+  ylab("Age") + xlab ("Pathogen (Vaccine Type)")+
+  #ggtitle("HIPC Signatures 2 Summary: Comparative Meta-analysis Study Metadata") +
+  theme(plot.title = element_text(face="bold", size=18)) +
+  theme(axis.title = element_text(face="bold", size=18)) +
+  scale_fill_manual(values=getPalette (length(unique(D0pdata$vaccine)))) +
+  #scale_color_viridis_d(option="plasma", direction=-1) +
+  geom_jitter(aes(color=vaccine, shape=D0pdata$y_chrom_present), size=3, alpha=0.5, position=position_jitter(width=.20, height=.1))+
+  theme (legend.title = element_text(size=16, face="bold"), 
+         legend.text = element_text(size = 14),
+         	legend.key.height  = unit(0.02, units = "npc"),
       	legend.key.width   = unit(0.015, units = "npc")) +
-  guides(fill = guide_legend(ncol = 2))
+  scale_shape_discrete(name="biological sex\n(Y chrom presence)", labels = c("Female", "Male"))+
+  theme(legend.key=element_blank(), legend.key.size=unit(10,"point")) +
+  theme (legend.position = "bottom") +  scale_x_discrete(labels = c("Ebola\n(Recombinant\nViral Vector)", "Hepatitis B\n(Inactivated)", "HIV\n(Recombinant\nViral Vector)", "Influenza\n(Inactivated)", "Influenza\n(Live attenuated)", "Malaria\n(Recombinant\nProtein)", "Meningococcus\n(Conjugate)", "Meningococcus\n(Polysaccharide)","Pneumococcus\n(Polysaccharide)", "Smallpox\n(Live attenuated)", "Tuberculosis\n(Recombinant\nViral Vector)","Varicella Zoster\n(Live attenuated)", "Yellow Fever\n(Live attenuated)")) 
+D0pdatafig + guides(col = guide_legend(ncol = 3))
+  
+```  
+  
+### Figure 4D:  
+Each area-proportional Euler diagram represents the total number of participants with corresponding data types. 
+  
+<!--TODO: Fix docker image so that this code will run!-->
+```{r prep-response}
+IS2_all_GE_metaData <- pData(all.noNorm)
+hai <- immdata$hai
+nab <- immdata$neut_ab_titer
+elisa <- immdata$elisa
+hai_pt <- length (unique (hai$participant_id))
+nab_pt <- length (unique(nab$participant_id))
+elisa_pt <- length (unique(elisa$participant_id))
+TX_pt <-length (unique(IS2_all_GE_metaData$participant_id))
+nab_hai <-length(intersect(nab$participant_id,hai$participant_id))
+nab_elisa <-length(intersect(nab$participant_id,elisa$participant_id))
+nab_TX <-length(intersect(nab$participant_id,IS2_all_GE_metaData$participant_id))
+hai_elisa<-length(intersect(hai$participant_id,elisa$participant_id))
+hai_TX <-length(intersect(hai$participant_id,IS2_all_GE_metaData$participant_id))
+elisa_TX<-length(intersect(elisa$participant_id,IS2_all_GE_metaData$participant_id))
+nab_hai_elisa <- length(intersect(intersect(nab$participant_id,hai$participant_id), elisa$participant_id))
+nab_hai_TX <- length(intersect(intersect(nab$participant_id,hai$participant_id), IS2_all_GE_metaData$participant_id))
+nab_elisa_TX <- length(intersect(intersect(nab$participant_id, elisa$participant_id), IS2_all_GE_metaData$participant_id))
+hai_elisa_TX <- length(intersect(intersect(hai$participant_id,elisa$participant_id), IS2_all_GE_metaData$participant_id))
+nab_hai_elisa_TX <- length(intersect(intersect(intersect(nab$participant_id,hai$participant_id),elisa$participant_id), IS2_all_GE_metaData$participant_id))
+ 
+ 
+hai$pathogen_vaccinetype=paste0(hai$pathogen," (",hai$vaccine_type,")") 
+elisa$pathogen_vaccinetype=paste0(elisa$pathogen," (",elisa$vaccine_type,")") 
+nab$pathogen_vaccinetype=paste0(nab$pathogen," (",nab$vaccine_type,")") 
+TXeuler <-  c("nab" = nab_pt, "hai"=hai_pt , "elisa" = elisa_pt, "transcriptomics" = TX_pt,"nab&hai" = nab_hai, "nab&elisa" = nab_elisa, "nab&transcriptomics" = nab_TX, "hai&elisa" =hai_elisa,  "hai&transcriptomics" = hai_TX, "elisa&transcriptomics"=elisa_TX,"nab&hai&elisa" = nab_hai_elisa, "nab&hai&transcriptomics" = nab_hai_TX, "hai&elisa&transcriptomics" = hai_elisa_TX, "nab&hai&elisa&transcriptomics" = nab_hai_elisa_TX)
 ```
-
-### E: 
-Number of samples as a function of pathogen and vaccine type
-TODO: Which dataset to use for this? Do we want number of samples or number of participants? 
-
-```{r}
-# any sampling data after 20 days coded as >20
-df.fig3e <- pData(all.noResp) %>%
-  select(participant_id, pathogen, vaccine_type) %>%
-  mutate(vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  group_by(participant_id, vaccine) %>%
-  summarize(n = n()) %>%
-  group_by(vaccine) %>%
-  summarize(n = n())
-
-ggplot(data = df.fig3e, 
-       mapping = aes(x = vaccine, y = n)) +
-  geom_bar(stat = "identity", mapping = aes(fill = vaccine)) + 
-  labs(x = "Pathogen (Vaccine Type)", y = "Number of Participants") + 
-  scale_fill_manual(values = vaccine2color) +
-  theme_bw() + 
-  theme(panel.grid         = element_blank(),
-        panel.grid.major.y = element_line(color = "lightgrey"),
-        axis.text          = element_text(color = "black"),
-        axis.text.x        = element_text(angle = 45, hjust = 1),
-        legend.pos         = "none",
-        legend.text        = element_text(size = 7),
-        legend.key.height  = unit(0.02, units = "npc"),
-        legend.key.width   = unit(0.015, units = "npc"))
-```
-
-## Figure 4
-
-### A: 
-Summary of Pathogen (Vaccine Type) for Immune Response
-TODO: Which dataset to use for this? Do we want number of samples or number of participants? 
-```{r}
-# any sampling data after 20 days coded as >20
-df.fig4a <- pData(young.WithResp) %>%
-  select(uid, pathogen, vaccine_type, assay) %>%
-  unique() %>%
-  mutate(
-    assay = vapply(assay, FUN= switch, FUN.VALUE = "hai",
-                   hai = "HAI", 
-                   elisa = "ELISA",
-                   neut_ab_titer = "NAB"),
-    vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  group_by(vaccine, assay) %>%
-  summarize(n = n())
-
-ggplot(data = df.fig4a, 
-       mapping = aes(x = assay, y = n)) +
-  geom_bar(stat = "identity", mapping = aes(fill = vaccine)) + 
-  labs(x = "Immune Response Assay", y = "Number of Participants") + 
-  scale_fill_manual(values = vaccine2color, 
-                    name = "Pathogen (Vaccine Type)") +
-  theme_bw() + 
-   theme(panel.grid         = element_blank(),
-      	panel.grid.major.y = element_line(color = "lightgrey"),
-      	axis.text          = element_text(color = "black"),
-      	legend.pos         = "bottom",
-      	legend.text        = element_text(size = 7),
-      	legend.key.height  = unit(0.02, units = "npc"),
-      	legend.key.width   = unit(0.015, units = "npc")) +
-  guides(fill = guide_legend(ncol = 2))
-```
-
-### B.  
-TODO  
-### C.  
-TODO  
-### D.  
-TODO  
-
----
-# Where do these go?
-
-### Figure 1d: Proportion of Variance Explained
-<!-- TODO: Where does this go?  -->
-*Author: * Slim Fourati
-```{r, fig-1d-data-prep}
-em.fig1d <- exprs(young.NoResp)
-pd.fig1d <- pData(young.NoResp) %>%
-  mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
-  select(y_chrom_present, ethnicity, Vaccine, study_time_collected,
-	 age_imputed) %>%
-  rename(
-    Ychrom = y_chrom_present, 
-    Ethnicity = ethnicity,
-    Timepoint = study_time_collected,
-    Age       = age_imputed) 
-pd.fig1d <- pd.fig1d[colnames(em.fig1d), ]
-```
-
-```{r, fig-1d-PVCA, echo=FALSE}
-pvcaCacheFile <- file.path(dataCacheDir, "pvca.rds")
-if(!file.exists(pvcaCacheFile)){
-  fit <- PVCA(counts    = em.fig1d,
-              meta      = pd.fig1d,
-              threshold = 0.6,
-              inter     = FALSE)
-  saveRDS(fit, pvcaCacheFile)
-}else{
-  fit <- readRDS(pvcaCacheFile)
+```{r euler, eval = FALSE}
+plot(euler(TXeuler, shape = "circle"), quantities = list(cex = 1.5))
+```    
+<img src="/_webdav/HIPC/IS2/%40files/data/images/euler.png" width="50%">
+  
+## Figure 5: Immune Response Dataset Overview  
+  
+```{r prep-resp}
+mutate_cond <- function(.data, condition, ..., envir = parent.frame()) {
+  condition <- eval(substitute(condition), .data, envir)
+  .data[condition, ] <- .data[condition, ] %>% mutate(...)
+  .data
 }
-
+hai1 = hai %>% 
+  # filter(complete.cases(.)) %>%
+  mutate(value_reported = as.numeric(value_reported)) %>%
+  mutate(value_preferred = as.numeric(value_preferred)) %>% 
+  mutate(study_time_collected = as.factor(study_time_collected)) %>%
+  mutate_cond (study_accession=="SDY1276", value_reported = as.numeric (2^value_reported), value_reported) %>%
+  mutate_cond (study_accession=="SDY1276", value_preferred = as.numeric (2^value_preferred), value_preferred) %>%
+  mutate(vaccine = recode(vaccine, 
+         "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS", 
+         "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM", 
+         "TIV(2011)"="TIV (2011)", 
+         "TIV(2013)"="TIV (2013)"))
+nab1 = nab %>% 
+  #filter(complete.cases(.)) %>%
+  mutate(value_reported = as.numeric(value_reported)) %>%
+  mutate(value_preferred = as.numeric(value_preferred)) %>% 
+  mutate(study_time_collected = as.factor(study_time_collected)) %>%
+  mutate_cond (study_accession=="SDY1276", value_reported = as.numeric (2^value_reported), value_reported) %>%
+  mutate_cond (study_accession=="SDY1276", value_preferred = as.numeric (2^value_preferred), value_preferred) %>%
+  mutate(vaccine = recode(vaccine, 
+                          "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS", 
+                          "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM", 
+                          "TIV(2011)"="TIV (2011)", 
+                          "TIV(2013)"="TIV (2013)"))
+nab2 = nab %>% 
+  #filter(complete.cases(.)) %>%
+  mutate(value_reported = as.numeric(value_reported)) %>%
+  mutate(value_preferred = as.numeric(value_preferred)) %>% 
+  mutate(study_time_collected = as.factor(study_time_collected)) %>%
+  #    mutate_cond (vaccine=="Pneumovax23", value_preferred = as.numeric (2^value_preferred), value_preferred) %>%
+  # mutate_cond (vaccine=="Pneumovax23", value_reported = as.numeric (2^value_reported), value_reported) %>%
+  mutate_cond (study_accession=="SDY1276", value_reported = as.numeric (2^value_reported), value_reported) %>%
+  mutate_cond (study_accession=="SDY1276", value_preferred = as.numeric (2^value_preferred), value_preferred) %>%
+  mutate(vaccine = recode(vaccine, 
+                          "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS", 
+                          "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM", 
+                          "TIV(2011)"="TIV (2011)", 
+                          "TIV(2013)"="TIV (2013)"))
+#%>%
+#  mutate(study_time_collected = as.factor(study_time_collected)) %>%
+#   mutate_cond (vaccine=="Pneumovax23", value_reported = as.numeric #(2^value_reported), value_reported) %>%
+# mutate_cond (vaccine=="Pneumovax23", value_preferred = as.numeric #(2^value_preferred), value_preferred)
+elisa = elisa %>% 
+  #  filter(complete.cases(.)) %>%
+  mutate(value_reported = as.numeric(value_reported)) %>%
+  mutate(value_preferred = as.numeric(value_preferred)) %>% 
+  mutate(study_time_collected = as.factor(study_time_collected)) %>%
+  mutate_cond (study_accession=="SDY1260", value_reported = as.numeric (2^value_reported), value_reported) %>%
+  mutate_cond (study_accession=="SDY1260", value_preferred = as.numeric (2^value_preferred), value_preferred) %>%
+  mutate_cond (study_accession=="SDY269", value_reported = as.numeric (value_reported*1000), value_reported) %>%
+  mutate_cond (study_accession=="SDY269", value_preferred = as.numeric (value_preferred*1000), value_preferred)
+```    
+  
+### Figure 5A.	
+The longitudinal trajectory (summarized as a loess curve) of hemagglutinin inhibition assay (HAI) measurements (in log2 scale) by influenza vaccine type and year.  
+  
+```{r hai-plot, warning=FALSE, fig.height=8, fig.width=20}
+# df <- bind_rows(hai1, df.2, .id = "id_col")
+hai1$study_time_collected <- factor(hai1$study_time_collected, levels=sort(as.numeric(as.character (unique(hai1$study_time_collected)))))
+haiplot <- ggplot(data = hai1,
+       mapping = aes(x = study_time_collected, y = log2(value_preferred))) +
+   scale_y_continuous(trans='log2')+
+  ylab ("log2(value_preferred)") + theme_classic ()+
+  geom_smooth (method="loess", se=TRUE, aes(color=vaccine, group=vaccine)) +
+  facet_wrap (~vaccine, scale="free_x", nrow=1)+
+ theme(legend.position = "none") + theme(text = element_text(size=30))
+#, axis.text.x = element_text(angle=45, hjust=1, size=14))
+ # facet_grid(facet =~pathogen_vaccinetype, scale = "free_x") 
+haiplot+ 
+  theme (axis.text.y = element_text(hjust = 1, size=16), axis.title= element_text (size=20),
+      	axis.text.x = element_text(angle = 45, hjust = 1, size=16),legend.pos= "none",legend.text = element_text(size=18), legend.title =element_text(size=20), 
+      	strip.text = element_text(size=16, face="bold"))+
+   ylab ("HAI titer (log2)")+
+    ggtitle("Hemagglutination Inhibition Antibody Trajectory") + theme(plot.title = element_text(size=20,hjust = 0.5, face="bold")) +
+  scale_x_discrete(breaks = c(-7,-3,0,3,7,14,15,24,25,28,30,32,35,36,37,41,43,180))+ theme(panel.spacing.x = unit(1, "lines"))
+  
+```    
+  
+### Figure 5B.	
+The longitudinal trajectory of neutralizing antibody titers (NAB) titers (in log2 scale) for influenza, meningococcus, pneumococcus and yellow fever vaccines.  
+  
+```{r, fig.height=10, fig.width=20}
+swr = function(string, nwrap=13) {
+  paste(strwrap(string, width=nwrap), collapse="\n")
+}
+swr = Vectorize(swr)
+nab2$pathogen_vaccinetype = swr(nab2$pathogen_vaccinetype)
+nab2$vaccine <- recode(nab2$vaccine, 
+                       "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS", 
+                       "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM", 
+                       "TIV(2011)"="TIV (2011)", 
+                       "TIV(2013)"="TIV (2013)")
+nab2$study_time_collected <- factor(nab2$study_time_collected, levels=sort(as.numeric(as.character (unique(nab2$study_time_collected)))))
+nabplot <-ggplot(data = nab2,
+       mapping = aes(x = study_time_collected, y = log2(value_preferred)))  +
+  #geom_line(mapping = aes(color = study_accession, group = participant_id), alpha=0.3) +
+    geom_smooth (method="loess", se=TRUE, aes(color=vaccine, group=vaccine)) +
+  # geom_smooth (method="loess", se=TRUE, aes(group=1)) +
+  scale_y_continuous(trans="log2")+
+  #facet_grid(rows = vars(value_pref), facet = ~vaccine, scale = "free_x") + 
+  facet_wrap (~pathogen_vaccinetype, scale="free_x", nrow=1)+
+  theme_classic() + theme(legend.position = "bottom") 
+nabplot+   theme ( text = element_text(size=28),axis.text.y = element_text(hjust = 1, size=20), axis.title= element_text (size=20),
+      	axis.text.x = element_text(angle = 45, hjust = 1, size=22),legend.pos= "bottom",legend.text = element_text(size=18), legend.title =element_text(size=20),
+      	strip.text = element_text(size=20, face="bold") )+
+   ylab ("NAb titer (log2)")+
+    ggtitle("Neutralizing Antibody Titers Trajectory") + theme(plot.title = element_text(size=24,hjust = 0.5, face="bold")) 
+```    
+  
+### Figure 5C.	
+Neutralizing antibody titers were plotted for each unique combination of targeted pathogen and vaccine type to compare each participants' post-vaccination (day 28-30) values versus baseline (day 0). The violin plo shows the variation in magnitude for each unique combination of targeted pathogen and vaccine type. 
+  
+```{r fig-5c-violin, fig.height=6, fig.width=18}
+nabFC_28vs0 <- nab2 %>% 
+  filter(study_time_collected %in% c(0, 28) & !is.na(value_preferred)) %>% 
+  group_by(participant_id, age_imputed, study_time_collected, vaccine, pathogen_vaccinetype, study_accession, virus) %>%
+  mutate (value_preferred=as.numeric (value_preferred)) %>%
+  dplyr::summarize (nabval= mean (value_preferred, na.rm=TRUE)) %>%
+  ungroup () %>%
+  filter(complete.cases (.)) %>%
+  spread (study_time_collected, nabval) %>%
+  mutate (nabFC_28vs0= log2((`28`+0.025)/(`0`+0.025)))
+#VIOLIN PLOTS
+nabFC_vaccinelfc <- ggplot(nabFC_28vs0, aes(pathogen_vaccinetype, nabFC_28vs0, fill=pathogen_vaccinetype), outlier.size = 0) + 
+  geom_violin(trim=FALSE) +
+  geom_boxplot(width=0.1, fill="white") + 
+  #scale_y_continuous(trans="log2")+
+  facet_grid(~pathogen_vaccinetype, scales = "free") +  
+  ylab("Log2 Fold Change (Day 28 vs Day 0))")  +
+  #geom_point(aes (colour=factor (study_accession)), pch=20, size=2, position=position_jitterdodge(dodge.width=0.5)) +
+  geom_smooth(method = "loess", se=TRUE, aes(group=1)) + 
+  theme(plot.title = element_text(size = 20, face = "bold", hjust=0))+  
+  theme(text = element_text(size=14),
+        axis.title.x = element_text(size = 14)) +
+theme (axis.text=element_text(size=14))+ 
+  labs(color='Study Accession')  + 
+  scale_fill_brewer(palette="RdBu") + theme_classic()
+nabFC_vaccinelfc+ theme(legend.position = "none")+
+  theme ( text = element_text(size=14),axis.text.y = element_text(hjust = 1, size=14), axis.title= element_text (size=14),
+      	axis.text.x = element_blank(),legend.pos= "none",legend.text = element_text(size=14), legend.title =element_text(size=18),
+      	strip.text = element_text(size=14, face="bold") )
+  
 ```
 
-```{r, fig-1d-plot, fig.width=4, fig.height=7}
-df.fig1d <- data.frame(explained = as.vector(fit),
-                       effect    = names(fit)) %>%
-  arrange(explained) %>%
-  mutate(effect = factor(effect, levels = effect))
-
-ggplot(data    = df.fig1d,
-       mapping = aes(x = effect, y = explained)) +
-  geom_bar(stat = "identity") +
-  geom_text(aes(label = signif(explained, digits = 3)),
-            nudge_y   = 0.01,
-            size      = 3) +
-  labs(x = NULL, y = "Proportion of the variance explained") + 
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90,
-                                   vjust = 0.5,
-                                   hjust = 1))
+```{r emmeans}
+library(emmeans)
+f<-lm(nabFC_28vs0~pathogen_vaccinetype, data=nabFC_28vs0)
+g <- as.data.frame (emmeans(f,'pairwise'~pathogen_vaccinetype, adjust='none')[[2]] %>% 
+  as.data.frame() %>%
+  dplyr::select("contrast", "estimate", "SE", "p.value"))
+print (g)
+h <- as.data.frame (anova(f))
+print (h)
+```    
+  
+### Figure 5D.	
+The correlation plot of influenza studies compares the maximum fold change (MFC) across strains for hemagglutinin inhibition assay (HAI) titers versus neutralizing antibody (NAB) titers. Size is proportional to the number of samples analyzed. 
+  
+```{r, hai-nab, fig.aligh="left", fig.height=6, fig.width=7, warning=FALSE}
+sdyLS <- intersect(immdata$hai$study_accession,
+                   immdata$neut_ab_titer$study_accession)
+haiDF <- immdata$hai %>%
+  filter(study_accession %in% sdyLS &
+         (study_time_collected <= 0 | study_time_collected %in% 28)) %>%
+  mutate(study_time_collected = pmax(study_time_collected, 0),
+         value_preferred      = as.numeric(value_preferred)) %>%
+  dplyr::select(participant_id,
+         study_accession,
+         virus,
+         study_time_collected,
+         value_preferred) %>%
+  distinct() %>%
+  pivot_wider(names_from  = study_time_collected,
+              values_from = value_preferred,
+              values_fn   = mean) %>%
+  filter(complete.cases(.)) %>%
+  mutate(FC = `28`/`0`) %>%
+  group_by(participant_id, study_accession) %>%
+  summarize(hai.MFC = max(FC))
+nabDF <- immdata$neut_ab_titer %>%
+  filter(study_accession %in% sdyLS &
+         (study_time_collected <= 0 | study_time_collected %in% 28)) %>%
+  mutate(study_time_collected = pmax(study_time_collected, 0),
+         value_preferred      = as.numeric(value_preferred)) %>%
+  dplyr::select(participant_id,
+         study_accession,
+         virus,
+         study_time_collected,
+         value_preferred) %>%
+  distinct() %>%
+  pivot_wider(names_from  = study_time_collected,
+              values_from = value_preferred,
+              values_fn   = mean) %>%
+  filter(complete.cases(.)) %>%
+  mutate(FC = `28`/`0`) %>%
+  group_by(participant_id, study_accession) %>%
+  summarize(nab.MFC = max(FC))
+combDF <- merge(x = haiDF,
+		y = nabDF,
+		by = c("participant_id", "study_accession"))
+ggplot(data = combDF,
+       mapping = aes(x = hai.MFC, y = nab.MFC)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  geom_count() +
+  scale_size_area() +
+  theme_classic() +
+  theme (axis.text=element_text(size=18), axis.title=element_text(size=20), legend.text = element_text (size=14), legend.title=element_text(size=16))
+cor.test(formula = ~hai.MFC+nab.MFC, data = combDF, method = "spearman")
+combDF %>%
+  group_by(study_accession) %>%
+  do(rho = cor.test(formula = ~hai.MFC+nab.MFC,
+		    data = .,
+		    method = "spearman")$estimate,
+     p = cor.test(formula = ~hai.MFC+nab.MFC,
+                    data = .,
+		  method = "spearman")$p.value) %>%
+  ungroup() %>%
+  mutate(rho = unlist(rho),
+	 p = unlist(p))
+```    
+  
+# TABLES  
+## Immune Signatures Study Participants Metadata  
+  
+```{r demog-table}
+IS2_eset <- all.noNorm
+IS2_all_GE_metaData <- pData(IS2_eset) #transform into dataframe
+#Convert timepoint to numeric
+IS2_all_GE_metaData$time_post_last_vax <- as.numeric(IS2_all_GE_metaData$time_post_last_vax)
+IS2_all_GE_metaData$study_time_collected <- as.numeric(IS2_all_GE_metaData$study_time_collected)
+#Remove saline groups
+#IS2_all_GE_metaData<-IS2_all_GE_metaData%>% 
+#  filter(vaccine !="Saline") 
+#dim (IS2_all_GE_metaData)
+# table (IS2_all_GE_metaData$time_post_last_vax)
+studies <- unique(IS2_all_GE_metaData$study)
+vaccine_type <- unique(IS2_all_GE_metaData$vaccine_type)
+pathogen <- unique(IS2_all_GE_metaData$pathogen)
+timepoint <- unique(IS2_all_GE_metaData$study_time_collected)
+pathogen_type <- unique(IS2_all_GE_metaData$pathogen_type)
+#Recode
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "TIV(2011)"="TIV (2011)")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "TIV(2013)"="TIV (2013)")
+x1 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, pathogen, adjuvant,vaccine_type, race))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+pathogen+vaccine+vaccine_type+adjuvant,., paste, collapse=",") #aggregate study time collected 
+y1 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, ethnicity))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected 
+y2 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession,vaccine, biosample_accession))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected 
+y3 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, cohort,vaccine))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+y4= IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, arm_accession))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+y5 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, exposure_material_reported))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+c <- merge (x1,y1) 
+d <- merge (y2,y3)
+e <- merge (y4,y5)
+f <- merge (c,d)
+x <- merge (f,e)
+#Add new merged variables
+x$pathogen_vaccinetype <- paste0(x$pathogen," (",x$vaccine_type,")") 
+x$sdy_vax <- paste0(x$study_accession,"_",x$vaccine)
+IS2_all_GE_metaData$sdy_vax <- paste0(IS2_all_GE_metaData$study_accession,"_",IS2_all_GE_metaData$vaccine)
+#colnames(x)[6] = "study_time_collected"
+#Manually add Pubmed and GEO Accession IDs
+x$pubmed_id <-  recode(x$study_accession,
+                     "SDY1260" = "24336226",
+                     "SDY1328" = "26742691",
+                     "SDY1370" = "21921208",
+                     "SDY984" = "28502771",
+                     "SDY1364" = "23844129",
+                     "SDY61" = "21743478",
+                     "SDY1276" = "21357945",
+                     "SDY212" = "23591775",
+                     "SDY269" = "21743478",
+                     "SDY180" = "23601689",
+                     "SDY270" = "21743478",
+                     "SDY224" = "23900141",
+                     "SDY56" = "26682988",
+                     "SDY63" = "25596819",
+                     "SDY1119" = "26682988",
+                     "SDY404" = "25596819",
+                     "SDY400" = "32060136",
+                     "SDY520" = "32060136",
+                     "SDY640" = "32060136",
+                     "SDY67" = "25816015,27031986,27441275,29130882",
+                     "SDY1529" = "19047440",
+                     "SDY1291" = "23151505",
+                     "SDY1325" = "28137280",
+                     "SDY80" = "24725414",
+                     "SDY1264" = "19029902",
+                     "SDY1289" = "19047440",
+                     "SDY1294" = "28687661",
+                     "SDY1373"= "",
+                     "SDY1293"="")
+x$geo_accession <-  recode(x$study_accession,
+                         "SDY1260" = "GSE52245",
+                         "SDY1328" = "GSE65834",
+                         "SDY1370" = "GSE22121",
+                         "SDY984" = "GSE79396",
+                         "SDY1364" = "GSE40719",
+                         "SDY61" = "GSE29617,GSE29614",
+                         "SDY1276" = "GSE48024,GSE48018",
+                         "SDY212" = "GSE41080",
+                         "SDY269" = "GSE29615,GSE29617,GSE29614",
+                         "SDY180" = "GSE48762",
+                         "SDY270" = "GSE29617,GSE29614",
+                         "SDY224" = "GSE45735",
+                         "SDY56" = "GSE74817",
+                         "SDY63" = "GSE59635",
+                         "SDY1119" = "GSE74817",
+                         "SDY67" = "",
+                         "SDY1529" = "GSE125921,GSE136163",
+                         "SDY404" = "GSE59654",
+                         "SDY400" = "GSE59743,GSE95584",
+                         "SDY520" = "GSE101709",
+                         "SDY1368"="GSE86332",
+                         "SDY640" = "GSE101710",
+                         "SDY1325" = "GSE92884",
+                         "SDY80" = "GSE47353",
+                         "SDY1264" = "GSE13485",
+                         "SDY1289" = "GSE13699",
+                         "SDY1294" = "GSE82152",
+                         "SDY1291" = "GSE22768",
+                         "SDY1293" = "GSE18323",
+                         "SDY1373" = "GSE97590")
+ 
+#Calculate number of participants and samples
+num_samples <- IS2_all_GE_metaData %>% 
+  group_by(sdy_vax) %>% 
+  tally(name="number_of_samples") 
+num_participants <- plyr::ddply(
+  IS2_all_GE_metaData,
+  ~sdy_vax,summarise,
+  number_of_participants = length(unique(participant_id)))
+final_x <- Reduce(function(x,y) merge(x = x, y = y, by = "sdy_vax"), 
+                  list(x, num_participants,num_samples)) 
+finaltable <- dplyr::select(final_x, "pathogen_vaccinetype", "study_accession","number_of_participants", "number_of_samples", "vaccine", "adjuvant","exposure_material_reported", "race", "ethnicity", "pubmed_id","arm_accession","cohort")
+finaltable1 <- finaltable %>%
+  arrange (pathogen_vaccinetype, study_accession) %>%
+  relocate(study_accession)
+finaltable1
+```  
+  
+## Transcriptomics  
+  
+```{r tx-table}
+IS2_all_GE_metaData <- pData(IS2_eset) #transform into dataframe
+#Convert timepoint to numeric
+IS2_all_GE_metaData$time_post_last_vax <- as.numeric(IS2_all_GE_metaData$time_post_last_vax)
+IS2_all_GE_metaData$study_time_collected <- as.numeric(IS2_all_GE_metaData$study_time_collected)
+#Remove saline groups
+#IS2_all_GE_metaData<-IS2_all_GE_metaData%>% 
+#  filter(vaccine !="Saline") 
+#dim (IS2_all_GE_metaData)
+#table (IS2_all_GE_metaData$time_post_last_vax)
+studies <- unique(IS2_all_GE_metaData$study)
+vaccine_type <- unique(IS2_all_GE_metaData$vaccine_type)
+pathogen <- unique(IS2_all_GE_metaData$pathogen)
+timepoint <- unique(IS2_all_GE_metaData$study_time_collected)
+pathogen_type <- unique(IS2_all_GE_metaData$pathogen_type)
+#Recode
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "TIV(2011)"="TIV (2011)")
+IS2_all_GE_metaData$vaccine <- recode(IS2_all_GE_metaData$vaccine, "TIV(2013)"="TIV (2013)")
+#gsm, cell_type, featureSetName, featureSetName2, featureSetVendor
+x1 <-  IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, pathogen,vaccine_type, vaccine, time_post_last_vax, cell_type, featureSetName))  %>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+pathogen+vaccine_type+vaccine+cell_type+featureSetName,., paste, collapse=",") #aggregate study time collected
+y1 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, gsm))  %>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+y2 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, featureSetName2))  %>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+y3 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, featureSetVendor))  %>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+y4 <- IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, vaccine, gsm))  %>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  #arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+vaccine,., paste, collapse=",") #aggregate study time collected
+x2 <- merge (y1,y2)
+x3 <- merge (y3,y4)
+x4 <- merge (x2,x3)
+x <- merge (x1,x4)
+#Add new merged variables
+x$pathogen_vaccinetype <- paste0(x$pathogen," (",x$vaccine_type,")") 
+x$sdy_vax <- paste0(x$study_accession,"_",x$vaccine)
+IS2_all_GE_metaData$sdy_vax <- paste0(IS2_all_GE_metaData$study_accession,"_",IS2_all_GE_metaData$vaccine)
+#colnames(x)[6] = "study_time_collected"
+#Manually add Pubmed and GEO Accession IDs
+x$pubmed_id <- recode(x$study_accession,
+                     "SDY1260" = "24336226",
+                     "SDY1328" = "26742691",
+                     "SDY1370" = "21921208",
+                     "SDY984" = "28502771",
+                     "SDY1364" = "23844129",
+                     "SDY61" = "21743478",
+                     "SDY1276" = "21357945",
+                     "SDY212" = "23591775",
+                     "SDY269" = "21743478",
+                     "SDY180" = "23601689",
+                     "SDY270" = "21743478",
+                     "SDY224" = "23900141",
+                     "SDY56" = "26682988",
+                     "SDY63" = "25596819",
+                     "SDY1119" = "26682988",
+                     "SDY404" = "25596819",
+                     "SDY400" = "32060136",
+                     "SDY520" = "32060136",
+                     "SDY640" = "32060136",
+                     "SDY67" = "25816015/27031986/27441275/29130882",
+                     "SDY1529" = "19047440",
+                     "SDY1291" = "23151505",
+                     "SDY1325" = "28137280",
+                     "SDY80" = "24725414",
+                     "SDY1264" = "19029902",
+                     "SDY1289" = "19047440",
+                     "SDY1294" = "28687661",
+                     "SDY1373"= "",
+                     "SDY1293"="")
+x$geo_accession <- recode(x$study_accession,
+                         "SDY1260" = "GSE52245",
+                         "SDY1328" = "GSE65834",
+                         "SDY1370" = "GSE22121",
+                         "SDY984" = "GSE79396",
+                         "SDY1364" = "GSE40719",
+                         "SDY61" = "GSE29617/GSE29614",
+                         "SDY1276" = "GSE48024/GSE48018",
+                         "SDY212" = "GSE41080",
+                         "SDY269" = "GSE29615/GSE29617/GSE29614",
+                         "SDY180" = "GSE48762",
+                         "SDY270" = "GSE29617/GSE29614",
+                         "SDY224" = "GSE45735",
+                         "SDY56" = "GSE74817",
+                         "SDY63" = "GSE59635",
+                         "SDY1119" = "GSE74817",
+                         "SDY67" = "",
+                         "SDY1529" = "GSE125921/GSE136163",
+                         "SDY404" = "GSE59654",
+                         "SDY400" = "GSE59743/GSE95584",
+                         "SDY520" = "GSE101709",
+                         "SDY1368"="GSE86332",
+                         "SDY640" = "GSE101710",
+                         "SDY1325" = "GSE92884",
+                         "SDY80" = "GSE47353",
+                         "SDY1264" = "GSE13485",
+                         "SDY1289" = "GSE13699",
+                         "SDY1294" = "GSE82152",
+                         "SDY1291" = "GSE22768",
+                         "SDY1293" = "GSE18323",
+                         "SDY1373" = "GSE97590")
+ 
+#Calculate number of participants and samples
+num_samples <- IS2_all_GE_metaData %>% group_by(sdy_vax) %>% tally(name="number_of_samples") 
+num_participants <- plyr::ddply(IS2_all_GE_metaData,~sdy_vax,summarise,number_of_participants=length(unique(participant_id)))
+final_x <- Reduce(function(x,y) merge(x = x, y = y, by = "sdy_vax"), 
+       list(x, num_participants,num_samples)) 
+finaltable <- dplyr::select(final_x, "study_accession","pathogen_vaccinetype", "cell_type", "featureSetName", "featureSetName2","featureSetVendor", "time_post_last_vax","geo_accession","gsm")
+finaltable1 <- finaltable %>%
+  arrange (pathogen_vaccinetype, study_accession) %>%
+  relocate(study_accession)
+finaltable1
+```  
+  
+## Immune Response Data  
+  
+```{r resp-table}
+IS2_eset_withResp <- all_noNorm_withResponse
+IS2_all_GE_metaData=pData(IS2_eset_withResp) #transform into dataframe
+IS2_all_GE_metaData$pathogen_vaccinetype=paste0(IS2_all_GE_metaData$pathogen," (",IS2_all_GE_metaData$vaccine_type,")") 
+IS2_all_GE_metaData$vaccine=recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine plain-polysaccharide conjugate"="MenACWY-PS")
+IS2_all_GE_metaData$vaccine=recode(IS2_all_GE_metaData$vaccine, "Quadrivalent Meningococcal Vaccine protein-polysaccharide conjugate"="MenACWY-CRM")
+IS2_all_GE_metaData$vaccine =recode(IS2_all_GE_metaData$vaccine, "TIV(2011)"="TIV (2011)")
+IS2_all_GE_metaData$vaccine =recode(IS2_all_GE_metaData$vaccine, "TIV(2013)"="TIV (2013)")
+x= IS2_all_GE_metaData %>% 
+  dplyr::select(., c(study_accession, pathogen_vaccinetype, assay, vaccine, time_post_last_vax))%>% #select desired columns
+  distinct() %>% #remove duplicated rows
+  arrange(time_post_last_vax) %>% #arrange by study time (ensures order when aggregating)
+  aggregate(.~study_accession+pathogen_vaccinetype+vaccine+time_post_last_vax,., paste, collapse=",") #aggregate study time collected
+#Add new merged variables
+#x$pathogen_vaccinetype=paste0(x$pathogen," (",x$vaccine_type,")") 
+x$sdy_vax=paste0(x$study_accession,"_",x$vaccine)
+IS2_all_GE_metaData$sdy_vax=paste0(IS2_all_GE_metaData$study_accession,"_",IS2_all_GE_metaData$vaccine)
+#colnames(x)[6] = "time_post_last_vax_in_days"
+#Manually add Pubmed and GEO Accession IDs
+x$pubmed_id = recode(x$study_accession,
+                     "SDY1260" = "24336226",
+                     "SDY1328" = "26742691",
+                     "SDY1370" = "21921208",
+                     "SDY984" = "28502771",
+                     "SDY1364" = "23844129",
+                     "SDY61" = "21743478",
+                     "SDY1276" = "21357945",
+                     "SDY212" = "23591775",
+                     "SDY269" = "21743478",
+                     "SDY180" = "23601689",
+                     "SDY270" = "21743478",
+                     "SDY224" = "23900141",
+                     "SDY56" = "26682988",
+                     "SDY63" = "25596819",
+                     "SDY1119" = "26682988",
+                     "SDY404" = "25596819",
+                     "SDY400" = "32060136",
+                     "SDY520" = "32060136",
+                     "SDY640" = "32060136",
+                     "SDY67" = "25816015/27031986/27441275/29130882",
+                     "SDY1529" = "19047440",
+                     "SDY1291" = "23151505",
+                     "SDY1325" = "28137280",
+                     "SDY80" = "24725414",
+                     "SDY1264" = "19029902",
+                     "SDY1289" = "19047440",
+                     "SDY1294" = "28687661",
+                     "SDY1373"= "",
+                     "SDY1293"="")
+x$geo_accession = recode(x$study_accession,
+                         "SDY1260" = "GSE52245",
+                         "SDY1328" = "GSE65834",
+                         "SDY1370" = "GSE22121",
+                         "SDY984" = "GSE79396",
+                         "SDY1364" = "GSE40719",
+                         "SDY61" = "GSE29617/GSE29614",
+                         "SDY1276" = "GSE48024/GSE48018",
+                         "SDY212" = "GSE41080",
+                         "SDY269" = "GSE29615/GSE29617/GSE29614",
+                         "SDY180" = "GSE48762",
+                         "SDY270" = "GSE29617/GSE29614",
+                         "SDY224" = "GSE45735",
+                         "SDY56" = "GSE74817",
+                         "SDY63" = "GSE59635",
+                         "SDY1119" = "GSE74817",
+                         "SDY67" = "",
+                         "SDY1529" = "GSE125921/GSE136163",
+                         "SDY404" = "GSE59654",
+                         "SDY400" = "GSE59743/GSE95584",
+                         "SDY520" = "GSE101709",
+                         "SDY1368"="GSE86332",
+                         "SDY640" = "GSE101710",
+                         "SDY1325" = "GSE92884",
+                         "SDY80" = "GSE47353",
+                         "SDY1264" = "GSE13485",
+                         "SDY1289" = "GSE13699",
+                         "SDY1294" = "GSE82152",
+                         "SDY1291" = "GSE22768",
+                         "SDY1293" = "GSE18323",
+                         "SDY1373" = "GSE97590")
+ 
+#Calculate number of participants and samples
+num_samples=IS2_all_GE_metaData %>% group_by(sdy_vax) %>% tally(name="number_of_samples") 
+num_participants=plyr::ddply(IS2_all_GE_metaData,~sdy_vax,summarise,number_of_participants=length(unique(participant_id)))
+num_visit=plyr::ddply (IS2_all_GE_metaData, ~sdy_vax, summarise,number_of_sampling_visits=length (unique (time_post_last_vax)))
+final_x=Reduce(function(x,y) merge(x = x, y = y, by = "sdy_vax"), 
+       list(x, num_participants,num_samples,num_visit)) 
+finaltable=dplyr::select(final_x, "pathogen_vaccinetype","assay", "study_accession","number_of_participants", "number_of_samples",  "number_of_sampling_visits")
+colnames(x)[2] = "immune_response_assay"
+finaltable1 <- finaltable %>%
+  arrange (pathogen_vaccinetype, study_accession) %>%
+  dplyr::rename ("immune_response_assay"=assay) %>%
+  relocate(study_accession)
+finaltable1
 ```
-
