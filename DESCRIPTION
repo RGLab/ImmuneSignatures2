@@ -1,7 +1,7 @@
 Package: ImmuneSignatures2
 Type: Package
 Title: Pre-Processing for HIPC ImmuneSignatures2 Analysis
-Version: 1.0.5
+Version: 1.0.6
 Authors@R: c(
     person("Helen", "Miller", email = "hmiller@fredhutch.org", role = c("aut", "cre")),
     person("Evan", "Henrich", role = "aut"))
@@ -13,12 +13,15 @@ Imports:
     Rlabkey,
     data.table,
     dplyr,
+    eulerr,
     ggbeeswarm,
     ggfortify,
     ggplot2,
     limma,
     methods,
+    org.Hs.eg.db,
     rmarkdown,
+    RAPToR,
     RColorBrewer,
     preprocessCore,
     stats,
