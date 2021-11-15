@@ -9,5 +9,5 @@ start:
   -v ${data_raw_path}:/home/docker/data-raw \
   immunesignatures2
 
-build: 
-+ docker build -t immunesignatures2:latest --build-arg GITHUB_PAT=${GITHUB_PAT} .
+build:
++ docker build -t immunesignatures2:latest .

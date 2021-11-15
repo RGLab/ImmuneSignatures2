@@ -8,7 +8,7 @@ _This is not the final docker image. This image will be updated with all necessa
 
 ## Quickstart
 
-1. Build the image. You must pass in your github personal access token so that the private ImmuneSignatures2 repo can build. The `makefile` has a handy `build` target. It assumes you have `GITHUB_PAT` saved as an environment variable, which is needed to build the ImmuneSignatures2 package, which is in a private repo.
+1. Build the image. You must pass in your github personal access token so that the private ImmuneSignatures2 repo can build. The `makefile` has a handy `build` target. 
 
 ```
 gmake build
@@ -36,7 +36,6 @@ docker
 ### `Dockerfile`:
 
 - Starting with [https://github.com/LabKey/docker-rstudio/blob/develop/images/labkey/rsandbox-ver/Dockerfile](https://github.com/LabKey/docker-rstudio/blob/develop/images/labkey/rsandbox-ver/Dockerfile)
-  - _add `GITHUB_PAT` environment variable to allow private package installation (TODO: Remove this once repo is public)_
   - install renv ([https://rstudio.github.io/renv/articles/docker.html#creating-docker-images-with-renv-1](https://rstudio.github.io/renv/articles/docker.html#creating-docker-images-with-renv-1))
   - copy renv.lock into `/docker/home`
   - install R packages using renv as docker user
@@ -62,7 +61,6 @@ renv lock file, detailing all package dependencies and versions, and where to do
 ```makefile
 .RECIPEPREFIX = +
 
-GITHUB_PAT=do_not_commit_your_github_patß
 vignette_path = $(realpath ../../vignettes)
 data_raw_path = $(realpath ../../data-raw)
 
@@ -73,7 +71,7 @@ start:
   immunesignatures2
 
 build:
-+ docker build -t immunesignatures2:latest --build-arg GITHUB_PAT=${GITHUB_PAT} .
++ docker build -t immunesignatures2:latest .
 ```
 
 - Shortcuts for building image and starting an interactive container with vignette and `data-raw` directories mounted, which is convenient for either updating renv dependencies or running vignettes or scripts in the container. To run scripts, you will still have to set up a .netrc file with your ImmuneSpace credentials.
@@ -114,7 +112,6 @@ build:
 1. [Configure Docker](https://www.notion.so/rglab/Set-up-sandboxed-docker-R-engine-for-ImmSig2-df1e67eeaaff40748983d0d492472ece#9a300ef91df841ea8a5d874142a72752)
 2. [Configure labkey](https://www.notion.so/Set-up-Local-ImmuneSpace-753cd9d0df65451e828da9e56f020b2e)
 3. `./build.sh` to build the docker image
-   1. Make sure you have `GITHUB_PAT` as environment variable
 4. Configure labkey to use docker engine [https://www.labkey.org/Documentation/wiki-page.view?name=rsandbox](https://www.labkey.org/Documentation/wiki-page.view?name=rsandbox)
    1. Enable R Docker Sandbox in admin console > experimental features `/admin/experimentalFeatures.view?`
    2. Enable docker engine in admin console > views and scripting `/core/configureReportsAndScripts.view?`

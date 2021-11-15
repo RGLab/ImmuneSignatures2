@@ -26,10 +26,6 @@ RUN useradd docker \
     && chmod -R 775 /home/docker \
     && chmod -R 775 /usr/local/lib/R/site-library
 
-# Pass in your github pat when building so ImmuneSignatures2 private repo can install 
-ARG GITHUB_PAT
-ENV GITHUB_PAT=${GITHUB_PAT}
-
 # Install renv
 ENV RENV_VERSION 0.13.2
 RUN R -e "install.packages('remotes', repos = c(CRAN = 'https://cloud.r-project.org')); remotes::install_github('rstudio/renv@0.13.2')"
