@@ -28,12 +28,10 @@ suppressPackageStartupMessages({
   library(package = "RAPToR")
   library(package = "ggplot2")
   library(org.Hs.eg.db)
-  library(tidyverse)
   library(eulerr)
 })
 ```  
 ```{r global-variables, echo = TRUE}
-#dataDir <- "/home/docker/data"
 dataDir <- "/share/files/HIPC/IS2/@files/data"
 dataCacheDir <- file.path(dataDir, "data_resource_cache")
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
@@ -853,10 +851,9 @@ elisa$pathogen_vaccinetype=paste0(elisa$pathogen," (",elisa$vaccine_type,")")
 nab$pathogen_vaccinetype=paste0(nab$pathogen," (",nab$vaccine_type,")") 
 TXeuler <-  c("nab" = nab_pt, "hai"=hai_pt , "elisa" = elisa_pt, "transcriptomics" = TX_pt,"nab&hai" = nab_hai, "nab&elisa" = nab_elisa, "nab&transcriptomics" = nab_TX, "hai&elisa" =hai_elisa,  "hai&transcriptomics" = hai_TX, "elisa&transcriptomics"=elisa_TX,"nab&hai&elisa" = nab_hai_elisa, "nab&hai&transcriptomics" = nab_hai_TX, "hai&elisa&transcriptomics" = hai_elisa_TX, "nab&hai&elisa&transcriptomics" = nab_hai_elisa_TX)
 ```
-```{r euler, eval = FALSE}
+```{r euler}
 plot(euler(TXeuler, shape = "circle"), quantities = list(cex = 1.5))
 ```    
-<img src="/_webdav/HIPC/IS2/%40files/data/images/euler.png" width="50%">
   
 ## Figure 5: Immune Response Dataset Overview  
   
