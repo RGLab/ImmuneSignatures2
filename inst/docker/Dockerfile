@@ -1,5 +1,5 @@
 ARG VERSION=4.0.2
-FROM labkey/rstudio-base:${VERSION}
+FROM rocker/r-ver:${VERSION}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends apt-utils && \
