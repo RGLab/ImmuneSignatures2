@@ -2,22 +2,18 @@
 
 This directory contains sources for building the docker image used in the ImmuneSpace servers for running all ImmuneSignatures2 code. It can also be used to mimic the server environment if you want to run ImmuneSignatures2 code on your own machine.
 
-# WARNING
-_This is not the final docker image. This image will be updated with all necessary R packages once all analysis is finalized._
-
-
 ## Quickstart
 
-1. Build the image. You must pass in your github personal access token so that the private ImmuneSignatures2 repo can build. The `makefile` has a handy `build` target. 
+1. Build the image. The `makefile` has a handy `build` target. 
 
 ```
-gmake build
+make build
 ```
 
 1. Start a container. To run an interactive container:
 
 ```
-gmake start
+make start
 ```
 
 ## How it's set up
@@ -72,6 +68,7 @@ start:
 
 build:
 + docker build -t immunesignatures2:latest .
+
 ```
 
 - Shortcuts for building image and starting an interactive container with vignette and `data-raw` directories mounted, which is convenient for either updating renv dependencies or running vignettes or scripts in the container. To run scripts, you will still have to set up a .netrc file with your ImmuneSpace credentials.
