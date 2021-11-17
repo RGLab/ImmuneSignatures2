@@ -38,7 +38,7 @@ Imports:
     pvca,
     qusage
 Remotes: 
-    LBMC/RAPToR, 
+    helenmiller16/RAPToR, 
     dleelab/pvca,
     stefanavey/titer
 License: GPL-2
