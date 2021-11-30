@@ -2,6 +2,11 @@
 title: "The Immune Signatures Data Resource: A compendium of systems vaccinology datasets"
 output: 
   html_document
+params:
+  cache.path: "/share/files/HIPC/IS2/@files/data/data_resource_cache/report_cache/"
+  dataDir: "/share/files/HIPC/IS2/@files/data"
+  dataCacheDir: file.path(dataDir, "data_resource_cache")
+  datePrefix: ""
 ---
 
 ```{r setup, include=FALSE}
@@ -9,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       message = FALSE,
                       warning = FALSE, 
                       cache = TRUE,
-                      cache.path = file.path("/share/files/HIPC/IS2/@files/data/data_resource_cache/report_cache/"))
+                      cache.path = params$cache.path)
 ```  
 ```{r, libraries, echo=FALSE, message = FALSE}
 suppressPackageStartupMessages({
@@ -32,10 +37,10 @@ suppressPackageStartupMessages({
 })
 ```  
 ```{r global-variables, echo = TRUE}
-dataDir <- "/share/files/HIPC/IS2/@files/data"
-dataCacheDir <- file.path(dataDir, "data_resource_cache")
+dataDir <- params$dataDir
+dataCacheDir <- params$dataCacheDir
 if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
-datePrefix <- ""
+datePrefix <- params$datePrefix
 ```  
   
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
