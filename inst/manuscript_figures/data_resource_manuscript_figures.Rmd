@@ -16,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       cache = TRUE,
                       cache.path = params$cache.path)
 ```  
-```{r, libraries, echo=FALSE, message = FALSE}
+```{r, libraries, echo=FALSE, message = FALSE, warning=FALSE}
 suppressPackageStartupMessages({
   library(package = "knitr")
   library(package = "Biobase")
