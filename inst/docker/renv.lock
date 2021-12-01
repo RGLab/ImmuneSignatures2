@@ -97,18 +97,6 @@
       "Source": "Bioconductor",
       "Hash": "21b3bc3dfb55cb9501c5f3413b35388c"
     },
-    "ImmuneSignatures2": {
-      "Package": "ImmuneSignatures2",
-      "Version": "1.0.6",
-      "Source": "GitHub",
-      "RemoteType": "github",
-      "RemoteHost": "api.github.com",
-      "RemoteRepo": "ImmuneSignatures2",
-      "RemoteUsername": "RGLab",
-      "RemoteRef": "HEAD",
-      "RemoteSha": "b2927c4c490741cb8e38b4c6327c83ce397c629d",
-      "Hash": "d4a81c85afcbdeb443f225afffcbe431"
-    },
     "ImmuneSpaceR": {
       "Package": "ImmuneSpaceR",
       "Version": "1.19.2",

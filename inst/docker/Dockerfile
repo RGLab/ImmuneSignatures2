@@ -1,5 +1,4 @@
-ARG VERSION=4.0.2
-FROM rocker/r-ver:${VERSION}
+FROM rocker/r-ver:4.0.2
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends apt-utils && \
