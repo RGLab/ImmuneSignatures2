@@ -431,10 +431,10 @@ pcaPlot_noNorm
 ```{r pvca-nonorm, fig.width=10, fig.height = 6}
 # ----- PVCA -----
 batch.vars <- c('cell_type',
-                'featureSet\nVendor',
-                'featureSet\nName2',
-                'study\naccession', 
-                'y_chrom\npresent',
+                'featureSetVendor',
+                'featureSetName2',
+                'study_accession', 
+                'y_chrom_present',
                 'age_group')
 pvca_noNorm_cacheFile <- file.path(dataCacheDir, "pvca_noNorm_withAge.rds")
 if (!file.exists(pvca_noNorm_cacheFile)) {
