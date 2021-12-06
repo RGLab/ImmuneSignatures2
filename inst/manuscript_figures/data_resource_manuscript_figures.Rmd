@@ -791,7 +791,8 @@ Box plot depicting the participants' age distribution for each unique combinatio
 # Set seed for consistent results
 set.seed(123)
 # Combined pdata with raptor results
-pdata_df <- rbind(pData(young.NoResp), pData(old.NoResp))
+pdata_df <- pdata_df <- rbind(pData(young.NoResp)[, !grepl("age_group", names(pData(young.NoResp)))],
+                              pData(old.NoResp))
 D0pdata <- pdata_df %>% dplyr::filter (time_post_last_vax == 0) %>%
   dplyr::filter(vaccine != "Saline" ) %>%
   dplyr::filter (age_imputed !=0) 
@@ -988,7 +989,7 @@ nabFC_28vs0 <- nab2 %>%
   dplyr::summarize (nabval= mean (value_preferred, na.rm=TRUE)) %>%
   ungroup () %>%
   filter(complete.cases (.)) %>%
-  spread (study_time_collected, nabval) %>%
+  tidyr::spread (study_time_collected, nabval) %>%
   mutate (nabFC_28vs0= log2((`28`+0.025)/(`0`+0.025)))
 #VIOLIN PLOTS
 nabFC_vaccinelfc <- ggplot(nabFC_28vs0, aes(pathogen_vaccinetype, nabFC_28vs0, fill=pathogen_vaccinetype), outlier.size = 0) + 
@@ -1040,7 +1041,7 @@ haiDF <- immdata$hai %>%
          study_time_collected,
          value_preferred) %>%
   distinct() %>%
-  pivot_wider(names_from  = study_time_collected,
+  tidyr::pivot_wider(names_from  = study_time_collected,
               values_from = value_preferred,
               values_fn   = mean) %>%
   filter(complete.cases(.)) %>%
@@ -1058,7 +1059,7 @@ nabDF <- immdata$neut_ab_titer %>%
          study_time_collected,
          value_preferred) %>%
   distinct() %>%
-  pivot_wider(names_from  = study_time_collected,
+  tidyr::pivot_wider(names_from  = study_time_collected,
               values_from = value_preferred,
               values_fn   = mean) %>%
   filter(complete.cases(.)) %>%
