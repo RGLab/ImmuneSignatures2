@@ -19,6 +19,7 @@ knitr::opts_chunk$set(echo = TRUE,
 ```  
 ```{r, libraries, echo=FALSE, message = FALSE, warning=FALSE}
 suppressPackageStartupMessages({
+  library(package = "eulerr")
   library(package = "knitr")
   library(package = "Biobase")
   library(package = "RColorBrewer")
@@ -32,8 +33,7 @@ suppressPackageStartupMessages({
   library(package = "stringr")
   library(package = "RAPToR")
   library(package = "ggplot2")
-  library(org.Hs.eg.db)
-  library(eulerr)
+  library(package = "org.Hs.eg.db")
 })
 ```  
 ```{r global-variables, echo = TRUE}
