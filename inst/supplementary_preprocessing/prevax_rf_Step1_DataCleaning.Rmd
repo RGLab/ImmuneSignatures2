@@ -1,0 +1,194 @@
+---
+title: "Step1 PreVax Data Cleaning"
+author: "Lewis Tomalin"
+date: "2/10/2022"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## Attach required packages
+require(Biobase)
+require(doMC)
+require(plyr)
+require(limma)
+require(data.table)
+require(goeveg)
+require(rlang)
+require(org.Hs.eg.db)
+require(AnnotationDbi)
+require(GSVA)
+require(dplyr)
+
+```
+
+# Step1: Pre-vaccination Data Preparation 
+
+## 1.1: Load Data
+
+* Add rownames
+* Check order of pheno and expression data
+
+```{r Load Data}
+#Load .rds file, young, normalized, with Response
+
+eset<-readRDS("2021_03_08_young_norm_withResponse_eset.rds")
+
+rownames(pData(eset))<-pData(eset)$uid
+pData(eset)<-pData(eset)[colnames(Biobase::exprs(eset)),]
+eset$pathogen_vaccine_type=paste0(eset$pathogen,"_",eset$vaccine_type)
+
+```
+
+## 1.2: Data Cleaning
+
+* Select time points of interest
+* Remove samples with fewer than sample cut off at any timepoint 
+
+```{r Wrangle Gene data}
+#Timepoints of interest
+tp_int=c(-7,0)
+
+# Get sample indices for timepoints of interest
+ind=lapply(tp_int, function(x){ which(eset$study_time_collected==x)})
+
+# Retain only samples from timepoints of interest
+eset=eset[,Reduce(union,ind)]
+
+#Recompute timepoint indices after removing extraneous timepoints
+ind=lapply(tp_int, function(x){which(eset$study_time_collected==x)})
+
+# Remove samples from a single study with fewer than sample_cutoff samples at any timepoint
+sample_cutoff = 0
+matrix_uni_tp=lapply(ind,function(x){unique(eset[,x]$matrix)})
+matrix_ind=lapply(1:length(ind),function(x){
+  lapply(1:length(matrix_uni_tp[[x]]), function(y){which(matrix_uni_tp[[x]][[y]]==eset[,ind[[x]]]$matrix)})})
+
+# Create empty vector
+ind_cut_all=vector()
+
+for (i in 1:length(matrix_ind)) {
+  ind_cut=which(sapply(matrix_ind[[i]],length)<sample_cutoff)
+  if (is_empty(ind_cut)==FALSE) {
+    for (j in 1:length(ind_cut)) {
+      ind_cut_all=c(ind_cut_all,ind[[i]][matrix_ind[[i]][[ind_cut[j]]]])
+    }
+  }
+}
+
+if (is_empty(ind_cut_all)==FALSE) {
+  eset=eset[,-ind_cut_all]
+}
+
+# Recompute timepoint indices after removing samples
+tp_int=unique(eset$study_time_collected[which(eset$study_time_collected>=0)])
+ind=lapply(tp_int, function(x) {which(eset$study_time_collected==x)})
+
+# Get Pheno Data
+PD<-pData(eset)
+
+eset=eset[complete.cases(Biobase::exprs(eset)),]
+
+```
+
+## 1.3: Save final gene and BTM eset
+
+* Save Final eset for Gene expression
+
+``` {r Wrangle Data} 
+  #Select type of features to use (gene/BTM)
+lapply(c("gene"), function(i){
+  
+  inputFeatures=i
+  
+  ##  Save Baseline eset ----
+  eset_BL<-eset[,eset$study_time_collected==0]
+  
+  ## Note, one participant has two Time=0 samples
+  length(unique(eset_BL$participant_id))
+  eset_BL$participant_id[duplicated(eset_BL$participant_id)] # "SUB187457.1289"
+
+  # similar-sih expression in both, will select just one participant 
+  # plot(Biobase::exprs(eset_BL)[,"SUB187457.1289_0_Days_BS974314"]-
+  #   Biobase::exprs(eset_BL)[,"SUB187457.1289_0_Days_BS974383"])
+  
+  ## Select this participant
+  eset_BL=eset_BL[,eset_BL$uid!="SUB187457.1289_0_Days_BS974314"]
+  
+  save(eset_BL, file=paste0("data/FCH_Esets/eset_",inputFeatures,"_BL_",Sys.Date(),".rda"))
+  
+})
+
+```
+
+## 1.4: Wrangle Data to Machine-Learning format
+
+* Wrangle data to a format suitable for Machine-Learning
+* Repeat this for both BTM and Genes
+
+```{r}
+
+### 2 Preparing BL data for ML ----
+for(FUN in c(1)){
+  
+  if(FUN==1){
+    load(paste0("data/FCH_Esets/eset_gene_BL_",Sys.Date(),".rda"))
+    eset=eset_BL; TIME="BL"; TYPE="GENES"
+    rm(eset_BL)}
+  
+  # Make table with number of patients per vaccine
+  tab.vac<-table(eset$pathogen[eset$MFC_p30!="moderateResponder"])
+  write.csv(tab.vac,paste0("data/CurrentBaseData/TotalPatientsPerVaccine",TIME,".csv"))
+  
+  ## get pheno data, PD
+  PD.use<-droplevels(pData(eset))
+  
+  UID<-PD.use$uid
+  
+  ## Prepare expression data
+  EXP<-Biobase::exprs(eset)
+  EXP<-EXP[complete.cases(EXP),UID]
+
+  ## Need to wrangle this into ML format: Gene_Time by PTID
+  EXP.melt<-reshape2::melt(EXP)
+  colnames(EXP.melt)[2]="uid"
+  EXP.melt$uid<-as.character(EXP.melt$uid)
+  
+  ## Final Wrangle, can be slow
+  ptm<-proc.time()
+  EXP.PD<-inner_join(x=EXP.melt[EXP.melt$uid%in%PD.use$uid,],
+                     y=PD.use[,c("uid","participant_id","study_time_collected","time_post_last_vax","age_imputed",
+                                 "gender","pathogen","vaccine_type","maxRBA_p30","MFC_p30","MFC","maxRBA", "pathogen_vaccine_type")],
+                     by="uid")
+  proc.time()[3]-ptm[3]
+  EXP.PD$Gene_Time<-paste0(EXP.PD$Var1, "_",EXP.PD$study_time_collected)
+
+  data.ML<-as.data.frame(dcast.data.table(as.data.table(EXP.PD),
+                                          formula=Var1+Gene_Time+study_time_collected~participant_id,
+                                          value.var = "value"))
+  
+  rownames(data.ML)<-data.ML$Gene_Time
+  
+  # Save none filtered ML
+  data.ML<-data.ML[,-c(1:3)]
+  save(data.ML, file=paste0("data/ML.data.Lewis/ML.Data.",TIME,".",TYPE,".NoFilter_",Sys.Date(),".rda"))
+  
+  # Create and Save Patient Info
+  PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
+                      c('age_imputed','gender','pathogen_vaccine_type',
+                        'maxRBA_p30','MFC_p30',"participant_id","maxRBA","MFC")]
+  
+  rownames(PatientInfo)<-PatientInfo$participant_id
+  PatientInfo<-as.data.frame(PatientInfo)
+
+  save(PatientInfo, file=paste0("PD.Master.",TIME,".",TYPE,"_",Sys.Date(),".rda"))
+  rm(list=ls())
+}
+
+```
+
