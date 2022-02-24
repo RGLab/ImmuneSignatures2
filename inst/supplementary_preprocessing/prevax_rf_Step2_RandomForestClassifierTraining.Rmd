@@ -1,0 +1,177 @@
+---
+title: "PreVax Random Forest Training"
+author: "Lewis Tomalin"
+date: "2/10/2022"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(caret)
+require(parallel)
+require(limma)
+require(plyr)
+require(tidyverse)
+require(tidytext)
+require(caretEnsemble, lib.loc = "R")
+require(caTools)
+
+```
+
+## Loading Pre-vaccination gene-expression data
+
+The code below loads the gene-expression data, as well as the phenotype data (contains response information for each patient).
+
+The phenotype data is filtered to include only high and low responders.
+
+```{r data}
+
+# Gene expression
+load("ML.Data.BL.GENES.NoFilter_2021-06-14.rda")
+
+# Phenotype 
+load("PD.Master.BL.GENES.2021-06-14.rda")
+
+PatientInfo %>% 
+  filter(MFC_p30%in%c("lowResponder","highResponder")) %>%
+  droplevels() %>%
+  mutate(MFC_p30=fct_relevel(MFC_p30, c("highResponder", "lowResponder"))) -> PatientInfo
+
+```
+
+## Specifying X (input) and Y (response) data, and filtering
+
+DevID contains PatientID for high and low responders.
+
+The X and Y is subset to include only these patients, X.Dev Y.Dev (development data)
+
+The development data is then filtered to include only the top 500 most varying genes.
+
+```{r create training data, echo=FALSE}
+
+DevID<-rownames(PatientInfo)
+DevID<-intersect(DevID, colnames(data.ML))
+X.Dev<-data.ML[,DevID]
+rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+
+Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+names(Y.Dev)<-DevID
+
+## Keep top 500 most varying genes ##
+VarVec<-sort(apply(X.Dev, 1, var), decreasing = T)
+keep.genes<-names(VarVec[1:500])
+
+X.Train.t1<-t(X.Dev[keep.genes,])
+
+Y.Train1<-PatientInfo[rownames(X.Train.t1), 'MFC_p30']
+names(Y.Train1)<-rownames(X.Train.t1)
+
+```
+
+## Define parameters for training using trainControl()
+
+Ten fold-CV (adaptive), selecting the tuning parameters with highest AUROC. 
+
+
+```{r}
+SEED<-1987 # a great scientist was born this year
+
+set.seed(SEED)
+ctrl=trainControl(method = "adaptive_cv", 
+                  numer=10,
+                  adaptive = list(min = 5, alpha = 0.05,
+                                  method = "gls", complete = TRUE),
+                  selectionFunction = 'best',
+                  search="grid",
+                  returnResamp = "final",
+                  classProbs = TRUE,
+                  returnData = F,
+                  verboseIter = F,
+                  summaryFunction = twoClassSummary,
+                  savePredictions = T)
+
+
+```
+
+## Run model training for random forest classifier
+
+Training data is centered and scaled. 
+
+A tune length of 10 is used. 
+
+Model is trained to maximize the AUROC.
+
+Parallelization code is provided for mac or windows.
+
+```{r}
+
+## Parallel on mac
+# doMC::registerDoMC(detectCores()-2)
+
+## Parallel on windows
+#require(doParallel)
+# cl<-makePSOCKcluster(detectCores()-2)
+# registerDoParallel(cl)
+
+set.seed(SEED)
+model_list <- train(x=X.Train.t1,
+                    y=Y.Train1[rownames(X.Train.t1)],
+                    trControl=ctrl,
+                    method="rf",
+                    metric="ROC", 
+                    tuneLength=10,
+                    maximize=TRUE,
+                    preProc = c("center", "scale"))
+
+#stopCluster(cl)
+
+#save(model_list, file="Top500_Var_Model.rda")
+
+
+```
+
+## Get Model Predictions and Variable Importance
+
+Extracts 10-CV predictions, Training predictions and feature importance
+
+```{r}
+
+## Feature importance ##
+db.imp<-arrange(varImp(model_list)$importance, desc(Overall))
+#write.csv(db.imp, file="Top500_Var_VarImp.csv")
+
+## Model Predictions 10-CV ##
+db.preds<-model_list$pred %>%
+  mutate(participant_id=rownames(X.Train.t1)[rowIndex],
+         pathogen_vaccine_type=PatientInfo[rownames(X.Train.t1)[rowIndex],"pathogen_vaccine_type"])
+
+preds.train <- predict(model_list, newdata=X.Train.t1, type="prob")
+preds.train <- data.frame(preds.train) %>% mutate(obs=Y.Train1[rownames(preds.train)])
+
+save(db.preds, preds.train, file="DB.PREDS.rda")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

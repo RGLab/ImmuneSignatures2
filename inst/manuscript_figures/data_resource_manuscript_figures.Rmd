@@ -4,6 +4,7 @@ output:
   html_document
 params:
   cache.path: "/share/files/HIPC/IS2/@files/data/data_resource_cache/report_cache/"
+  cache: true
   dataDir: "/share/files/HIPC/IS2/@files/data"
   dataCacheDir: file.path(dataDir, "data_resource_cache")
   datePrefix: ""
@@ -13,7 +14,7 @@ params:
 knitr::opts_chunk$set(echo = TRUE, 
                       message = FALSE,
                       warning = FALSE, 
-                      cache = TRUE,
+                      cache = params$cache,
                       cache.path = params$cache.path,
                       cache.lazy = FALSE)
 ```  

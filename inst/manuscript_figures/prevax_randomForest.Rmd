@@ -1,0 +1,451 @@
+---
+title: "ImmuneSignatures2: Processing and figures for random forest analysis"
+output: 
+  html_document
+params:
+  dataDir: "/share/files/HIPC/IS2/@files/data"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/cache/prevax"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE,
+                      warning = FALSE, 
+                      cache = FALSE)
+
+data_dir <- params$dataCacheDir
+data_cache_dir <- params$dataCacheDir
+```  
+
+```{r, libraries, echo=FALSE, message = FALSE}
+suppressPackageStartupMessages({
+  knitr::opts_chunk$set(echo = TRUE)
+  
+  ## Attach required packages
+  library(Biobase)
+  library(data.table)
+  library(rlang)
+  library(plyr)
+  library(dplyr)
+  library(forcats)
+  library(caret)
+  library(limma)
+})
+
+```  
+
+# Step1: Pre-vaccination Data Preparation 
+
+## 1.1: Load Data
+
+* Add rownames
+* Check order of pheno and expression data
+
+```{r Load Data,eval = !file.exists(file.path(data_cache_dir,"gene_BL_eset.rds"))}
+#Load .rds file, young, normalized, with Response
+
+eset<-readRDS(file.path(
+  data_dir,
+  "young_norm_withResponse_eset.rds"))
+
+rownames(pData(eset))<-pData(eset)$uid
+pData(eset)<-pData(eset)[colnames(Biobase::exprs(eset)),]
+eset$pathogen_vaccine_type=paste0(eset$pathogen,"_",eset$vaccine_type)
+
+```
+
+## 1.2: Data Cleaning
+
+* Select time points of interest
+* Remove samples with fewer than sample cut off at any timepoint 
+
+```{r Wrangle Gene data,eval = !file.exists(file.path(data_cache_dir,"gene_BL_eset.rds"))}
+#Timepoints of interest
+tp_int=c(-7,0)
+
+# Get sample indices for timepoints of interest
+ind=lapply(tp_int, function(x){ which(eset$study_time_collected==x)})
+
+# Retain only samples from timepoints of interest
+eset=eset[,Reduce(union,ind)]
+
+#Recompute timepoint indices after removing extraneous timepoints
+ind=lapply(tp_int, function(x){which(eset$study_time_collected==x)})
+
+# Remove samples from a single study with fewer than sample_cutoff samples at any timepoint
+sample_cutoff = 0
+matrix_uni_tp=lapply(ind,function(x){unique(eset[,x]$matrix)})
+matrix_ind=lapply(1:length(ind),function(x){
+  lapply(1:length(matrix_uni_tp[[x]]), function(y){which(matrix_uni_tp[[x]][[y]]==eset[,ind[[x]]]$matrix)})})
+
+# Create empty vector
+ind_cut_all=vector()
+
+for (i in 1:length(matrix_ind)) {
+  ind_cut=which(sapply(matrix_ind[[i]],length)<sample_cutoff)
+  if (is_empty(ind_cut)==FALSE) {
+    for (j in 1:length(ind_cut)) {
+      ind_cut_all=c(ind_cut_all,ind[[i]][matrix_ind[[i]][[ind_cut[j]]]])
+    }
+  }
+}
+
+if (is_empty(ind_cut_all)==FALSE) {
+  eset=eset[,-ind_cut_all]
+}
+
+# Recompute timepoint indices after removing samples
+tp_int=unique(eset$study_time_collected[which(eset$study_time_collected>=0)])
+ind=lapply(tp_int, function(x) {which(eset$study_time_collected==x)})
+
+# Get Pheno Data
+PD<-pData(eset)
+
+eset=eset[complete.cases(Biobase::exprs(eset)),]
+
+```
+
+## 1.3: Save final gene and BTM eset
+
+* Save Final eset for Gene expression
+
+``` {r Wrangle Data, eval = !file.exists(file.path(data_cache_dir,"gene_BL_eset.rds"))} 
+
+inputFeatures="gene"
+
+##  Save Baseline eset ----
+eset_BL<-eset[,eset$study_time_collected==0]
+
+## Note, one participant has two Time=0 samples
+length(unique(eset_BL$participant_id))
+eset_BL$participant_id[duplicated(eset_BL$participant_id)] # "SUB187457.1289"
+
+# similar-sih expression in both, will select just one participant 
+# plot(Biobase::exprs(eset_BL)[,"SUB187457.1289_0_Days_BS974314"]-
+#   Biobase::exprs(eset_BL)[,"SUB187457.1289_0_Days_BS974383"])
+
+## Select this participant
+eset_BL=eset_BL[,eset_BL$uid!="SUB187457.1289_0_Days_BS974314"]
+
+saveRDS(eset_BL, file=file.path(data_cache_dir,"gene_BL_eset.rds"))
+
+
+```
+
+## 1.4: Wrangle Data to Machine-Learning format
+
+* Wrangle data to a format suitable for Machine-Learning
+* Repeat this for both BTM and Genes
+
+```{r ml-data, eval = !file.exists(file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rds"))}
+if (!exists("eset_BL")) {
+  eset <- readRDS(file.path(data_cache_dir,"gene_BL_eset.rds"))
+} else {
+  eset=eset_BL
+  rm(eset_BL)
+}
+### 2 Preparing BL data for ML ----
+TIME="BL"; TYPE="GENES"
+
+
+## get pheno data, PD
+PD.use<-droplevels(pData(eset))
+
+UID<-PD.use$uid
+
+## Prepare expression data
+EXP<-Biobase::exprs(eset)
+EXP<-EXP[complete.cases(EXP),UID]
+
+## Need to wrangle this into ML format: Gene_Time by PTID
+EXP.melt<-reshape2::melt(EXP)
+colnames(EXP.melt)[2]="uid"
+EXP.melt$uid<-as.character(EXP.melt$uid)
+
+## Final Wrangle, can be slow
+ptm<-proc.time()
+EXP.PD<-inner_join(x=EXP.melt[EXP.melt$uid%in%PD.use$uid,],
+                   y=PD.use[,c("uid","participant_id","study_time_collected","time_post_last_vax","age_imputed",
+                               "gender","pathogen","vaccine_type","maxRBA_p30","MFC_p30","MFC","maxRBA", "pathogen_vaccine_type")],
+                   by="uid")
+proc.time()[3]-ptm[3]
+EXP.PD$Gene_Time<-paste0(EXP.PD$Var1, "_",EXP.PD$study_time_collected)
+
+data.ML<-as.data.frame(dcast.data.table(as.data.table(EXP.PD),
+                                        formula=Var1+Gene_Time+study_time_collected~participant_id,
+                                        value.var = "value"))
+
+rownames(data.ML)<-data.ML$Gene_Time
+
+# Save none filtered ML
+data.ML<-data.ML[,-c(1:3)]
+saveRDS(data.ML, file=file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rds"))
+```
+
+```{r patient-info, eval=!file.exists(file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))}
+if (!exists("data.ML")) {
+  data.ML <- readRDS(file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rds"))
+}
+# Create and Save Patient Info
+PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
+                    c('age_imputed','gender','pathogen_vaccine_type',
+                      'maxRBA_p30','MFC_p30',"participant_id","maxRBA","MFC")]
+
+rownames(PatientInfo)<-PatientInfo$participant_id
+PatientInfo<-as.data.frame(PatientInfo)
+
+writeRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
+
+```
+
+
+# Part 2: Train Random Forest
+
+## Loading Pre-vaccination gene-expression data
+
+The code below loads the gene-expression data, as well as the phenotype data (contains response information for each patient).
+
+The phenotype data is filtered to include only high and low responders.
+
+```{r data, eval=!file.exists(file.path(data_cache_dir, "DB.PREDS.rda"))}
+
+# Gene expression
+if (!exists("data.ML")) {
+  data.ML <- readRDS(file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rda"))
+}
+
+# Phenotype 
+if (!exists("PatientInfo")) {
+  PatientInfo <- readRDS(file.path(data_cache_dir, "PD.Master.BL.GENES.rda"))
+}
+
+PatientInfo %>% 
+  filter(MFC_p30%in%c("lowResponder","highResponder")) %>%
+  droplevels() %>%
+  mutate(MFC_p30=fct_relevel(MFC_p30, c("highResponder", "lowResponder"))) -> PatientInfo
+
+```
+
+## Specifying X (input) and Y (response) data, and filtering
+
+DevID contains PatientID for high and low responders.
+
+The X and Y is subset to include only these patients, X.Dev Y.Dev (development data)
+
+The development data is then filtered to include only the top 500 most varying genes.
+
+```{r create training data, echo=FALSE, eval=!file.exists(file.path(data_cache_dir, "DB.PREDS.rda"))}
+
+DevID<-rownames(PatientInfo)
+DevID<-intersect(DevID, colnames(data.ML))
+X.Dev<-data.ML[,DevID]
+rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+
+Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+names(Y.Dev)<-DevID
+
+## Keep top 500 most varying genes ##
+VarVec<-sort(apply(X.Dev, 1, var), decreasing = T)
+keep.genes<-names(VarVec[1:500])
+
+X.Train.t1<-t(X.Dev[keep.genes,])
+
+Y.Train1<-PatientInfo[rownames(X.Train.t1), 'MFC_p30']
+names(Y.Train1)<-rownames(X.Train.t1)
+
+```
+
+## Define parameters for training using trainControl()
+
+Ten fold-CV (adaptive), selecting the tuning parameters with highest AUROC. 
+
+
+```{r, eval=!file.exists(file.path(data_cache_dir, "DB.PREDS.rda"))}
+SEED<-1987 # a great scientist was born this year
+
+set.seed(SEED)
+ctrl=trainControl(method = "adaptive_cv", 
+                  number=10,
+                  adaptive = list(min = 5, alpha = 0.05,
+                                  method = "gls", complete = TRUE),
+                  selectionFunction = 'best',
+                  search="grid",
+                  returnResamp = "final",
+                  classProbs = TRUE,
+                  returnData = F,
+                  verboseIter = F,
+                  summaryFunction = twoClassSummary,
+                  savePredictions = T)
+
+
+```
+
+## Run model training for random forest classifier
+
+Training data is centered and scaled. 
+
+A tune length of 10 is used. 
+
+Model is trained to maximize the AUROC.
+
+Parallelization code is provided for mac or windows.
+
+```{r, eval=!file.exists(file.path(data_cache_dir, "DB.PREDS.rda"))}
+
+## Parallel on mac
+# doMC::registerDoMC(detectCores()-2)
+
+## Parallel on windows
+#library(doParallel)
+# cl<-makePSOCKcluster(detectCores()-2)
+# registerDoParallel(cl)
+
+set.seed(SEED)
+model_list <- train(x=X.Train.t1,
+                    y=Y.Train1[rownames(X.Train.t1)],
+                    trControl=ctrl,
+                    method="rf",
+                    metric="ROC", 
+                    tuneLength=10,
+                    maximize=TRUE,
+                    preProc = c("center", "scale"))
+
+#stopCluster(cl)
+
+#save(model_list, file="Top500_Var_Model.rda")
+
+
+```
+
+## Get Model Predictions and Variable Importance
+
+Extracts 10-CV predictions, Training predictions and feature importance
+
+```{r, eval=!file.exists(file.path(data_cache_dir, "DB.PREDS.rda"))}
+
+## Feature importance ##
+db.imp<-arrange(varImp(model_list)$importance, desc(Overall))
+#write.csv(db.imp, file="Top500_Var_VarImp.csv")
+
+## Model Predictions 10-CV ##
+db.preds<-model_list$pred %>%
+  mutate(participant_id=rownames(X.Train.t1)[rowIndex],
+         pathogen_vaccine_type=PatientInfo[rownames(X.Train.t1)[rowIndex],"pathogen_vaccine_type"])
+
+preds.train <- predict(model_list, newdata=X.Train.t1, type="prob")
+preds.train <- data.frame(preds.train) %>% mutate(obs=Y.Train1[rownames(preds.train)])
+
+#save(db.preds, preds.train, file=file.path(data_cache_dir, "DB.PREDS.rda"))
+
+```
+
+
+# Part 3: Evaluate model
+
+In this section we are loading the *.rda* called *DB.PREDS.rda*, which contains the observations and predictions for our *random forest* classifier that was trained on all of the data. The object *db.preds* contains the *10-fold cross-validation* predictions, whilst *preds.train* contains the predictions in the training data.
+
+The script then creates an ROC curve for both sets of predictions. 
+
+```{r}
+load(file.path(data_cache_dir, "DB.PREDS.rda"))
+
+par(pty="s")
+
+### 10-CV 
+ROC.OBJ1<-pROC::roc(response = db.preds$obs, 
+                    predictor = db.preds$highResponder, 
+                    levels=c("lowResponder", "highResponder"),
+                    direction="<",
+                    plot=TRUE, legacy.axes=TRUE, percent=TRUE,
+                    xlab="False Positive %", ylab="True Positive %", identity=FALSE,
+                    #main=paste(time, type, meth, bag),
+                    col="black",lwd=4, lty=1, print.auc.x=77, print.auc.y=28,
+                    print.auc.cex=0.9,
+                    ci=TRUE, 
+                    print.auc=TRUE)
+
+### Training
+ROC.OBJ2<-pROC::roc(response = preds.train$obs, 
+                    levels=c("lowResponder", "highResponder"),
+                    predictor = preds.train$highResponder, 
+                    direction="<",
+                    legacy.axes=TRUE, 
+                    percent=TRUE,
+                    ci=TRUE)
+
+pROC::plot.roc(ROC.OBJ2,
+               legacy.axes=TRUE, percent=TRUE,
+               col="gray60",lwd=4,lty=3,print.auc.x=85, print.auc.y=21,
+               print.auc.cex=0.9,
+               ci=TRUE, print.auc=TRUE, add=TRUE)
+
+legend("bottomright", 
+       legend = c("Training","10-CV"),
+       col=c("gray60","black"),
+       lty=c(3,1), lwd=4, cex=0.8, ncol=2)
+par(pty="m")
+
+
+```
+
+This section of code uses the *10-CV* predictions in *db.preds* to calculate performance metrics for each vaccine.
+
+```{r echo=FALSE, message=FALSE}
+
+perf.stats.by.vaccine<-ddply(.data=db.preds,
+                             .variable=c("pathogen_vaccine_type"),
+                             .fun=function(df){
+                               
+                               CONF.MAT<-caret::confusionMatrix(data=relevel(df$pred, ref="highResponder"),
+                                                                reference=relevel(df$obs, ref="highResponder"))
+                               
+                               ROC.OBJ<-pROC::roc(response = df$obs,levels=c("lowResponder", "highResponder"),
+                                                  direction="<", 
+                                                  predictor = df$highResponder)
+                               
+                               AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ))
+                               names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                               
+                               BRIER = ModelMetrics::brier(actual = (as.numeric(df$obs)-1), predicted = df$highResponder)
+                               
+                               N = length(df$pathogen_vaccine_type)
+                               
+                               PROP_TEST<-prop.test((CONF.MAT$overall["Accuracy"]*N)[1], N)
+                               
+                               FISHER_TEST<-fisher.test(df$pred, df$obs)
+                               
+                               VEC=c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, 
+                                     Brier=BRIER, n_vac=N, n_correct=(CONF.MAT$overall["Accuracy"]*N)[[1]],
+                                     n_fail=((1-CONF.MAT$overall["Accuracy"])*N)[[1]],
+                                     PropTestPvalue=PROP_TEST$p.value,
+                                     FisherTestPvalue=FISHER_TEST$p.value)
+                               
+                               return(VEC)})
+
+perf.stats.by.vaccine<-arrange(perf.stats.by.vaccine, desc(AUC))
+
+perf.stats.by.vaccine$n_correct<-perf.stats.by.vaccine$Accuracy*perf.stats.by.vaccine$n_vac
+perf.stats.by.vaccine$n_fail<-perf.stats.by.vaccine$n_vac-perf.stats.by.vaccine$n_correct
+
+perf.stats.by.vaccine<-arrange(perf.stats.by.vaccine, desc(n_vac))
+
+perf.stats.by.vaccine
+```
+
+This section of code uses *ggplot()* to show the *AUC* and confidence intervals for vaccine. 
+
+```{r, out.width=5, out.height=4}
+
+ggplot(perf.stats.by.vaccine, aes(x=reorder(pathogen_vaccine_type, -AUC),
+                       y=AUC, fill=pathogen_vaccine_type))+
+  geom_bar(stat='identity', show.legend = F)+
+  scale_fill_brewer(palette = "Set3")+
+  geom_errorbar(aes(ymin = AUC.CI.LOW, ymax = AUC.CI.HIGH),width = 0.5)+
+  labs(y="AUC (CI)", x = "Vaccine")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
+  geom_text(aes(y=0.05, label=n_vac))+
+  ylim(0,1)
+
+
+```

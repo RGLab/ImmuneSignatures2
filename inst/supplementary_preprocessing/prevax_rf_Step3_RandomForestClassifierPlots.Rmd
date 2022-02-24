@@ -1,0 +1,138 @@
+---
+title: "PreVax Random Forest Results"
+author: "Lewis Tomalin"
+date: "2/10/2022"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = "..")
+
+require(plyr)
+require(limma)
+require(ModelMetrics)
+require(caret)
+require(reshape2)
+require(tidyr)
+require(kableExtra)
+require(pROC)
+
+```
+
+
+In this section we are loading the *.rda* called *DB.PREDS.rda*, which contains the observations and predictions for our *random forest* classifier that was trained on all of the data. The object *db.preds* contains the *10-fold cross-validation* predictions, whilst *preds.train* contains the predictions in the training data.
+
+The script then creates an ROC curve for both sets of predictions. 
+
+```{r}
+load("DB.PREDS.rda")
+
+par(pty="s")
+
+### 10-CV 
+ROC.OBJ1<-pROC::roc(response = db.preds$obs, 
+                    predictor = db.preds$highResponder, levels=c("lowResponder", "highResponder"),
+                    direction="<",
+                    plot=TRUE, legacy.axes=TRUE, percent=TRUE,
+                    xlab="False Positive %", ylab="True Positive %", identity=FALSE,
+                    #main=paste(time, type, meth, bag),
+                    col="black",lwd=4, lty=1, print.auc.x=77, print.auc.y=28,
+                    print.auc.cex=0.9,
+                    ci=TRUE, print.auc=TRUE)
+
+### Training
+ROC.OBJ2<-pROC::roc(response = preds.train$obs, levels=c("lowResponder", "highResponder"),
+                    predictor = preds.train$highResponder, direction="<",
+                    legacy.axes=TRUE, percent=TRUE,
+                    ci=TRUE)
+
+pROC::plot.roc(ROC.OBJ2,
+               legacy.axes=TRUE, percent=TRUE,
+               col="gray60",lwd=4,lty=3,print.auc.x=85, print.auc.y=21,
+               print.auc.cex=0.9,
+               ci=TRUE, print.auc=TRUE, add=TRUE)
+
+legend("bottomright", 
+       legend = c("Training","10-CV"),
+       col=c("gray60","black"),
+       lty=c(3,1), lwd=4, cex=0.8, ncol=2)
+par(pty="m")
+
+
+```
+
+This section of code uses the *10-CV* predictions in *db.preds* to calculate performance metrics for each vaccine and then saves them as a *.csv*.
+
+```{r echo=FALSE, message=FALSE}
+
+perf.stats.by.vaccine<-ddply(.data=db.preds,
+                             .variable=c("pathogen_vaccine_type"),
+                             .fun=function(df){
+                               
+                               CONF.MAT<-caret::confusionMatrix(data=relevel(df$pred, ref="highResponder"),
+                                                                reference=relevel(df$obs, ref="highResponder"))
+                               
+                               ROC.OBJ<-pROC::roc(response = df$obs,levels=c("lowResponder", "highResponder"),
+                                                  direction="<", 
+                                                  predictor = df$highResponder)
+                               
+                               AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ))
+                               names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                               
+                               BRIER = ModelMetrics::brier(actual = (as.numeric(df$obs)-1), predicted = df$highResponder)
+                               
+                               N = length(df$pathogen_vaccine_type)
+                               
+                               PROP_TEST<-prop.test((CONF.MAT$overall["Accuracy"]*N)[1], N)
+                               
+                               FISHER_TEST<-fisher.test(df$pred, df$obs)
+                               
+                               VEC=c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, 
+                                     Brier=BRIER, n_vac=N, n_correct=(CONF.MAT$overall["Accuracy"]*N)[[1]],
+                                     n_fail=((1-CONF.MAT$overall["Accuracy"])*N)[[1]],
+                                     PropTestPvalue=PROP_TEST$p.value,
+                                     FisherTestPvalue=FISHER_TEST$p.value)
+                               
+                               return(VEC)})
+
+perf.stats.by.vaccine<-arrange(perf.stats.by.vaccine, desc(AUC))
+
+perf.stats.by.vaccine$n_correct<-perf.stats.by.vaccine$Accuracy*perf.stats.by.vaccine$n_vac
+perf.stats.by.vaccine$n_fail<-perf.stats.by.vaccine$n_vac-perf.stats.by.vaccine$n_correct
+
+perf.stats.by.vaccine<-arrange(perf.stats.by.vaccine, desc(n_vac))
+
+write.csv(perf.stats.by.vaccine, file=paste0("PerformanceStatsByVaccine.csv"))
+
+```
+
+This section of code uses *ggplot()* to show the *AUC* and confidence intervals for vaccine. 
+
+```{r}
+
+ggplot(perf.stats.by.vaccine, aes(x=reorder(pathogen_vaccine_type, -AUC),
+                       y=AUC, fill=pathogen_vaccine_type))+
+  geom_bar(stat='identity', show.legend = F)+
+  scale_fill_brewer(palette = "Set3")+
+  geom_errorbar(aes(ymin = AUC.CI.LOW, ymax = AUC.CI.HIGH),width = 0.5)+
+  labs(y="AUC (CI)")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
+  geom_text(aes(y=0.05, label=n_vac))+
+  ylim(0,1)
+
+ggsave(file="ByVaccinePlotRF.pdf",
+       width=5, height=4)
+
+```
+
+
+
+
+
+
