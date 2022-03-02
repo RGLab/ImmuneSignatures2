@@ -4,7 +4,7 @@ output:
   html_document
 params:
   dataDir: "/share/files/HIPC/IS2/@files/data"
-  dataCacheDir: "/share/files/HIPC/IS2/@files/cache/prevax"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/cache/prevax/random_forest_output"
 ---
 
 ```{r setup, include=FALSE}
@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE,
                       warning = FALSE, 
                       cache = FALSE)
 
-data_dir <- params$dataCacheDir
+data_dir <- params$dataDir
 data_cache_dir <- params$dataCacheDir
 ```  
 
@@ -180,12 +180,7 @@ rownames(data.ML)<-data.ML$Gene_Time
 # Save none filtered ML
 data.ML<-data.ML[,-c(1:3)]
 saveRDS(data.ML, file=file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rds"))
-```
 
-```{r patient-info, eval=!file.exists(file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))}
-if (!exists("data.ML")) {
-  data.ML <- readRDS(file.path(data_cache_dir, "ML.Data.BL.GENES.NoFilter.rds"))
-}
 # Create and Save Patient Info
 PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
                     c('age_imputed','gender','pathogen_vaccine_type',
@@ -194,8 +189,7 @@ PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
 rownames(PatientInfo)<-PatientInfo$participant_id
 PatientInfo<-as.data.frame(PatientInfo)
 
-writeRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
-
+saveRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
 ```
 
 

@@ -442,7 +442,7 @@
       "Package": "class",
       "Version": "7.3-17",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "9267f5dab59a4ef44229858a142bded1"
     },
     "cli": {
@@ -591,6 +591,13 @@
       "Repository": "RSPM",
       "Hash": "be6b351032f660488e5b19c06927e3a0"
     },
+    "e1071": {
+      "Package": "e1071",
+      "Version": "1.7-4",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "7e9462e3e3e565f51fbec181dfcab890"
+    },
     "egg": {
       "Package": "egg",
       "Version": "0.4.5",
@@ -691,7 +698,7 @@
       "Package": "foreign",
       "Version": "0.8-80",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "ae1b1e15cc6ccb2bc61c0ac33e86d35f"
     },
     "fs": {
@@ -1116,7 +1123,7 @@
       "Package": "nnet",
       "Version": "7.3-14",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "0d87e50e11394a7151a28873637d799a"
     },
     "numDeriv": {
@@ -1452,7 +1459,7 @@
       "Package": "rpart",
       "Version": "4.1-15",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "9787c1fcb680e655d062e7611cadf78e"
     },
     "rprojroot": {
@@ -1508,7 +1515,7 @@
       "Package": "spatial",
       "Version": "7.3-12",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "58a02ce0150652b96c044bc67a0df2e5"
     },
     "statmod": {
@@ -1536,7 +1543,7 @@
       "Package": "survival",
       "Version": "3.2-7",
       "Source": "Repository",
-      "Repository": "CRAN",
+      "Repository": "RSPM",
       "Hash": "39c4ac6d22dad33db0ee37b40810ea12"
     },
     "sys": {
