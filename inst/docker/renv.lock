@@ -31,6 +31,12 @@
       "Source": "Bioconductor",
       "Hash": "f49586e579b712b7e55253aba0c9bc21"
     },
+    "BiocFileCache": {
+      "Package": "BiocFileCache",
+      "Version": "1.14.0",
+      "Source": "Bioconductor",
+      "Hash": "1b129af4e6ee37b16d4d424aebed81f7"
+    },
     "BiocGenerics": {
       "Package": "BiocGenerics",
       "Version": "0.36.1",
@@ -346,6 +352,12 @@
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "dc538ec663e38888807ef3034489403d"
+    },
+    "biomaRt": {
+      "Package": "biomaRt",
+      "Version": "2.46.3",
+      "Source": "Bioconductor",
+      "Hash": "1dba821d9a19d3b70fa324cab2fb4d0b"
     },
     "bit": {
       "Package": "bit",
