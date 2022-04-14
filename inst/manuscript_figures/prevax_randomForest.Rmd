@@ -7,6 +7,7 @@ params:
   dataCacheDir: "/share/files/HIPC/IS2/@files/cache/prevax/random_forest_output"
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, 
                       message = FALSE,
@@ -189,7 +190,7 @@ PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
 rownames(PatientInfo)<-PatientInfo$participant_id
 PatientInfo<-as.data.frame(PatientInfo)
 
-saveRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
+writeRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
 ```
 
 
@@ -377,14 +378,12 @@ legend("bottomright",
        legend = c("Training","10-CV"),
        col=c("gray60","black"),
        lty=c(3,1), lwd=4, cex=0.8, ncol=2)
-par(pty="m")
-
 
 ```
 
 This section of code uses the *10-CV* predictions in *db.preds* to calculate performance metrics for each vaccine.
 
-```{r echo=FALSE, message=FALSE}
+```{r, message=FALSE}
 
 perf.stats.by.vaccine<-ddply(.data=db.preds,
                              .variable=c("pathogen_vaccine_type"),
@@ -428,7 +427,7 @@ perf.stats.by.vaccine
 
 This section of code uses *ggplot()* to show the *AUC* and confidence intervals for vaccine. 
 
-```{r, out.width=5, out.height=4}
+```{r, fig.width=5, fig.height=4}
 
 ggplot(perf.stats.by.vaccine, aes(x=reorder(pathogen_vaccine_type, -AUC),
                        y=AUC, fill=pathogen_vaccine_type))+
@@ -440,6 +439,4 @@ ggplot(perf.stats.by.vaccine, aes(x=reorder(pathogen_vaccine_type, -AUC),
   theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
   geom_text(aes(y=0.05, label=n_vac))+
   ylim(0,1)
-
-
 ```
