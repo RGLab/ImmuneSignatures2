@@ -190,7 +190,7 @@ PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
 rownames(PatientInfo)<-PatientInfo$participant_id
 PatientInfo<-as.data.frame(PatientInfo)
 
-writeRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
+saveRDS(PatientInfo, file=file.path(data_cache_dir, "PD.Master.BL.GENE.rds"))
 ```
 
 
