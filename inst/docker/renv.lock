@@ -496,6 +496,20 @@
       "Source": "Bioconductor",
       "Hash": "2da24c5f66521d18cff602d324834b20"
     },
+    "TFisher": {
+      "Package": "TFisher",
+      "Version": "0.2.0",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "e6b216a490aaae020d2ac09e1e0988b5"
+    },
+    "TH.data": {
+      "Package": "TH.data",
+      "Version": "1.0-10",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "84dffc44f23c419537c1c79cc46347a5"
+    },
     "TSP": {
       "Package": "TSP",
       "Version": "1.1-10",
@@ -1525,6 +1539,13 @@
       "Repository": "RSPM",
       "Hash": "61e4a10781dd00d7d81dd06ca9b94e95"
     },
+    "mathjaxr": {
+      "Package": "mathjaxr",
+      "Version": "1.2-0",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "504090a79821204c1b1c2e7b233dde49"
+    },
     "matrixStats": {
       "Package": "matrixStats",
       "Version": "0.58.0",
@@ -1538,6 +1559,13 @@
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "a0bc51650201a56d00a4798523cc91b3"
+    },
+    "metap": {
+      "Package": "metap",
+      "Version": "1.4",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "a2309cad024d3b0fb9caba763c7fef75"
     },
     "mgcv": {
       "Package": "mgcv",
@@ -1567,12 +1595,26 @@
       "Repository": "RSPM",
       "Hash": "eaee7d2a6f3ed4491df868611cb064cc"
     },
+    "mnormt": {
+      "Package": "mnormt",
+      "Version": "2.0.2",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "7e6ee68a01d6c87c69087d4a250ee763"
+    },
     "modelr": {
       "Package": "modelr",
       "Version": "0.1.8",
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "9fd59716311ee82cba83dc2826fc5577"
+    },
+    "multcomp": {
+      "Package": "multcomp",
+      "Version": "1.4-16",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "4fc62c85d9fd7bbede7868ff88f23982"
     },
     "multtest": {
       "Package": "multtest",
@@ -1586,6 +1628,13 @@
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "6dfe8bf774944bd5595785e3229d8771"
+    },
+    "mutoss": {
+      "Package": "mutoss",
+      "Version": "0.1-12",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "0aa141265a2f405ac251e8fb58c0971b"
     },
     "mvtnorm": {
       "Package": "mvtnorm",
@@ -2069,6 +2118,13 @@
       "Repository": "RSPM",
       "Hash": "a9795ccb2d608330e841998b67156764"
     },
+    "sandwich": {
+      "Package": "sandwich",
+      "Version": "3.0-0",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "10994501b2ed2262168cae1556b29168"
+    },
     "sass": {
       "Package": "sass",
       "Version": "0.3.1",
@@ -2138,6 +2194,13 @@
       "Source": "Repository",
       "Repository": "RSPM",
       "Hash": "0f9ba299f2385e686745b066c6d7a7c4"
+    },
+    "sn": {
+      "Package": "sn",
+      "Version": "1.6-2",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "b4683ffd6b32860bb08d452cdb3345bc"
     },
     "snow": {
       "Package": "snow",
@@ -2290,6 +2353,13 @@
       "RemoteRef": "master",
       "RemoteSha": "863e732e555d6af45fc244d441913e6628f79fea",
       "Hash": "25fea98603ce91c43d30a4849c0db4cd"
+    },
+    "tmvnsim": {
+      "Package": "tmvnsim",
+      "Version": "1.0-2",
+      "Source": "Repository",
+      "Repository": "RSPM",
+      "Hash": "50470c7ed0cc8099cbc17b38f0ef621f"
     },
     "utf8": {
       "Package": "utf8",
