@@ -1,5 +1,5 @@
 ---
-title: "ImmuneSignatures2: Reproduction of analysis and figures for Temporal manuscript"
+title: "HIPC Temporal Response Across Different Vaccines"
 output: 
   html_document: 
     toc: true
@@ -11,7 +11,7 @@ editor_options:
   chunk_output_type: inline
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE} 
 knitr::opts_chunk$set(echo = TRUE, 
                       message = FALSE,
                       warning = FALSE)
@@ -20,19 +20,1299 @@ knitr::opts_chunk$set(echo = TRUE,
 ```{r, libraries}
 suppressPackageStartupMessages({
   library(package = "Biobase")
-  library(package = "ImmuneSignatures2")
+  library(package = "dplyr")
+  library(package = "qusage") # Bioc install
+  library(package = "boot") # Bioc install
+  library(package = "ggplot2")
+  library(package = "ggthemes")
+  library(package = "pheatmap")
 })
 ```
 
 
 ```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache")
-datePrefix <- "2020_12_23_newAnno_"
+dataCacheDir <- file.path("~/Projects/ImmSig2/ImmuneSignatures2", "data_cache", "2021_03_08")
+datePrefix <- "2021_03_08_"
+```
+
+```{r helpers}
+# For every gene set, find out in how many vaccines it is significantly up at
+# any one postvax time point.
+# The same but for down at any postvax time point
+calc_sharing_df <- function(x) {
+  x %>%
+    dplyr::mutate(direction = ifelse(
+      test = activity_score > 0,
+      yes = "up",
+      no = "down"),
+      is_significant = !is.na(FDR) & FDR < 0.05) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  geneset,
+                  direction,
+                  is_significant) %>%
+    dplyr::distinct() %>%
+    dplyr::group_by(geneset, direction) %>%
+    dplyr::summarise(n = sum(is_significant)) %>%
+    dplyr::group_by(geneset) %>%
+    dplyr::arrange(-n) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup()
+}
+
+# Qusage (version 2.18.0) runs very slow on certain datasets, because it uses
+# the convolve() function from stats which itself uses the fft() function. The
+# fft() function runs very slow on certain inputs (e.g. 3 minutes instead of
+# under 1 second with other fft implementations for the same input).
+#
+# Found a report of speed issues with the convolve() function at:
+# https://stat.ethz.ch/pipermail/r-help/2007-December/148777.html
+#
+# Found a solution for the slow convolve() (actually the fft() it uses) at:
+# https://stat.ethz.ch/pipermail/r-help/2007-December/148779.html
+#
+# The solution below requires the fftw library, which on ubuntu required the
+# installation of the fftw-dev package (sudo apt install fftw3-dev) before
+# install.packages("fftw") was successful.
+#
+# Here we override the convolve function to use a different (faster) fft
+# function.
+convolve <- function (x, y, conj = TRUE, type = c("circular", "open", "filter"))
+{
+  type <- match.arg(type)
+  n <- length(x)
+  ny <- length(y)
+  Real <- is.numeric(x) && is.numeric(y)
+  if (type == "circular") {
+    if (ny != n)
+      stop("length mismatch in convolution")
+  }
+  else {
+    n1 <- ny - 1
+    x <- c(rep.int(0, n1), x)
+    n <- length(y <- c(y, rep.int(0, n - 1)))
+  }
+  # Original fft lines:
+  #x <- fft(fft(x) * (if (conj) 
+  #  Conj(fft(y))
+  #  else fft(y)), inverse = TRUE)
+  
+  # Use fftw instead of fft
+  x <- fftw::FFT(fftw::FFT(x) * (if (conj)
+    Conj(fftw::FFT(y))
+    else fftw::FFT(y)), inverse = TRUE)
+  
+  if (type == "filter")
+    (if (Real)
+      Re(x)
+     else x)[-c(1L:n1, (n - n1 + 1L):n)]/n
+  else (if (Real)
+    Re(x)
+    else x)/n
+}
+
+create_signif_label <- function(x) {
+  cut(x, c(-Inf, .001, .01, .05, Inf), labels = c("***", "**", "*", "ns"))
+}
+
+#' Keep only specified symbols in a given list of gene sets
+#' 
+#' @param genesets.symbol list of character vectors
+#' @param symbols2keep character vector
+#' @param min_size minimum number of symbols to keep a gene set
+keep_symbols <- function(genesets.symbol, symbols2keep,
+                         min_size = 2) {
+  stopifnot(is.character(symbols2keep))
+  stopifnot(is.list(genesets.symbol))
+  common_symbols <- intersect(Reduce(union, genesets.symbol), symbols2keep)
+  purrr::map(
+    .x = genesets.symbol,
+    ~.x[.x %in% common_symbols])%>%
+    purrr::discard(~length(.x) < min_size)
+}
+
+# NOTE: function below was copied from
+# https://github.com/RGLab/ImmuneSignatures2/blob/master/R/geneExpressionPreProcessing.R
+#
+#' Remove incomplete rows
+#'
+#' @param eset expressionSet
+#' @export
+#'
+removeAllNArows <- function(eset){
+  em <- Biobase::exprs(eset)
+  allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
+  eset <- eset[ !allNARows, ]
+}
+
+remove_any_NA_rows <- function(eset) {
+  any_NA_rows <- apply(X = Biobase::exprs(eset),
+                       MARGIN = 1,
+                       FUN = function(x)any(is.na(x)))
+  eset[!any_NA_rows,]
+}
+
+#' Keep most recent pre-vaccination time point for each participant
+#' 
+#' @param eset expressionSet
+#' @param drop_postvax if TRUE, postvax time points will be discarded
+#' @export
+#' 
+keep_most_recent_prevax_time_point <- function(eset, drop_postvax) {
+  prevax_uids <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax <= 0) %>%
+    dplyr::arrange(-time_post_last_vax) %>%
+    dplyr::group_by(participant_id) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup() %>%
+    dplyr::pull(uid)
+  postvax_uids <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::pull(uid)
+  if (drop_postvax)
+    uids <- prevax_uids
+  else
+    uids <- union(prevax_uids, postvax_uids)
+  eset[, eset$uid %in% uids]
+}
+
+#' Add 'response_class' column containing maxRBA_p30 values for Influenza and
+#' MFC_p30 values for all other vaccines
+#' 
+#' @param eset expressionSet
+#' @export
+#' 
+add_response_class_column <- function(eset) {
+  # Note: maxRBA measure is used to determine high and low responders for
+  # Influenza, because many participants are unlikely to be naive for this virus
+  # (resulting in high baseline titers and consequently lower fold changes which
+  # maxRBA is designed to take into account)
+  Biobase::pData(eset)$response_class <-
+    as.character(Biobase::pData(eset)$MFC_p30)
+  Biobase::pData(eset)$response_class[
+    Biobase::pData(eset)$pathogen == "Influenza"] <-
+    as.character(Biobase::pData(eset)$maxRBA_p30[
+      Biobase::pData(eset)$pathogen == "Influenza"])
+  eset
+}
+
+#' Keep participants that are high- or low-responders
+#' 
+#' @param eset expressionSet
+#' @param col name of column containing high or low responders
+#' @export
+#' 
+keep_only_high_and_low_responders <- function(eset, col) {
+  eset[, eset[[col]] %in% c("lowResponder", "highResponder")]
+}
+
+#' Perform qusage meta analysis (combinePDFs) on data frame
+#' 
+#' @param x data frame with list column containing QSarray objects
+#' @param group_cols character vector with names of columns to perform grouping
+#' on for meta analysis
+#' @return x with additional column containing output from meta analysis
+meta_qusage <- function(x, group_cols) {
+  require(qusage)
+  if (find("convolve")[1] == "package:stats") {
+    stop("stats::convolve is slow, please load convolve.R")
+  }
+  
+  x %>%
+    dplyr::group_by_at(group_cols) %>%
+    tidyr::nest() %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      meta_qusage_output = purrr::map(
+        .x = data,
+        ~{
+          QSarray_list <- .x$qusage_output %>%
+            purrr::keep(~class(.x) == "QSarray")
+          if (length(QSarray_list) == 0)
+            return(NULL)
+          if (length(QSarray_list) > 1) {
+            cat("Running combinePDFs\n")
+            return(qusage::combinePDFs(QSarrayList = QSarray_list))
+          } else {
+            return(QSarray_list[[1]])
+          }
+        }
+      )) %>%
+    dplyr::select(-data)
+}
+
+#' Replace QSarray objects with a few informative columns
+#' 
+#' @param x data frame containing list column with QSarray objects
+#' @param col string with name of list column
+#' @return x with col replaced with "p.value", "geneset", and "activity_score"
+#' columns
+tidy_qusage_output <- function(x, col) {
+  require(qusage)
+  x %>%
+    dplyr::filter(purrr::map_lgl(.x = !!sym(col),
+                                 ~class(.x) == "QSarray")) %>%
+    dplyr::mutate(
+      tidied =
+        purrr::map(
+          .x = !!sym(col),
+          ~ tibble(
+            p.value = pdf.pVal(.x),
+            geneset = colnames(.x$path.PDF),
+            activity_score = .x$path.mean)
+        )) %>%
+    dplyr::select(-!!sym(col)) %>%
+    tidyr::unnest(tidied)
+}
+
+#' Get confidence intervals for every variable in a bootstrap.
+#' 
+#' @param boot_result an object of class "boot" containing the output of a
+#' bootstrap calculation
+#' @param type character string representing the type of interval required
+tidy_boot_ci <- function(boot_result, type) {
+  stopifnot(class(boot_result) == "boot")
+  stopifnot(is.character(type))
+  purrr::map_df(
+    .x = 1:ncol(boot_result$t),
+    ~{
+      ci <- boot.ci(boot.out = boot_result, type = type, index = .x)
+      # When using "perc" as type, the name in the output list ci is "percent"
+      # Using grep to handle this inconsistency
+      i <- grep(pattern = type, names(ci))[1]
+      tibble(name = names(ci$t0),
+             statistic = ci$t0,
+             ci_low = ci[[i]][4],
+             ci_high = ci[[i]][5])
+    }
+  ) %>%
+    dplyr::mutate(bootstrapped_mean_of_statistic = colMeans(boot_result$t))
+}
+
+# Description: functions to extend pheatmap functionality
+
+pheatmap_add_labels <- function(p, annot_labels,
+                                gp = gpar(col = "#000000", fontsize = 10),
+                                angle_col = 0,
+                                angle_row = 270) {
+  require(pheatmap)
+  require(grid)
+  require(gtable)
+  # Get the column and row annotation rectangles (called "track" in pheatmap)
+  tracks <- list()
+  annot_names <- vector()
+  for (annot_dir in c("col", "row")){
+    track_grob_name <- paste0(annot_dir, "_annotation")
+    track_index <- which(p$gtable$layout$name == track_grob_name)
+    
+    if (length(track_index) == 0){
+      next
+    }
+    track_grob <- p$gtable$grobs[[track_index]]
+    tracks[[annot_dir]] <- list("index" = track_index,
+                                "grob" = track_grob)
+    annot_names <- c(annot_names, colnames(track_grob$gp$fill))
+  }
+  
+  # Get legend grob
+  legend_index <- which(p$gtable$layout$name == "annotation_legend")
+  legend_grob <- p$gtable$grobs[[legend_index]]
+  
+  # Get mapping between annotation labels and annotation colors
+  elem2color <- list()
+  color2label <- list()
+  for (annot_name in annot_names) {
+    # Retrieve from the legend the filled rectangles grob belonging to current annotation
+    cur_grob <- getGrob(gTree = legend_grob,
+                        gPath = childNames(legend_grob)[[paste(annot_name, "r")]])
+    elem2color[[annot_name]] <- cur_grob$gp$fill
+    cur_colors <- as.character(elem2color[[annot_name]])
+    cur_elems <- names(elem2color[[annot_name]])
+    if (annot_name %in% names(annot_labels)) {
+      cur_labels <- as.character(annot_labels[[annot_name]][cur_elems])
+    } else {
+      cur_labels <- rep("", length.out = length(cur_elems))
+    }
+    color2label[[annot_name]] <- cur_labels
+    names(color2label[[annot_name]]) <- cur_colors
+  }
+  
+  # Add labels to annotation legend
+  for (annot_name in annot_names) {
+    target_child_name <- paste(annot_name, "r")
+    cur_grob <- getGrob(gTree = legend_grob,
+                        gPath = childNames(legend_grob)[[target_child_name]])
+    legend_labels <- color2label[[annot_name]][as.character(cur_grob$gp$fill)]
+    
+    res <- gList()
+    res[["rect"]] <- cur_grob
+    res[["text"]] <- textGrob(x = cur_grob$x + 0.5 * cur_grob$width,
+                              y = cur_grob$y - 0.5 * cur_grob$height,
+                              label = legend_labels,
+                              gp = gp)
+    legend_grob$children[[target_child_name]] <- gTree(children = res)
+  }
+  p$gtable$grobs[[legend_index]] <- gTree(children = legend_grob$children)
+  
+  # Add labels to annotation tracks
+  for (track_dir in names(tracks)){
+    track_grob <- tracks[[track_dir]]$grob
+    track_index <- tracks[[track_dir]]$index
+    
+    track_labels <- purrr::map(
+      .x = colnames(track_grob$gp$fill),
+      ~color2label[[.x]][track_grob$gp$fill[,.x]]
+    ) %>%
+      do.call(what = c, args = .)
+    
+    # Add labels to annotation track
+    res <- gList()
+    res[["rect"]] = track_grob
+    res[["text"]] = textGrob(x = track_grob$x,
+                             y = track_grob$y,
+                             label = track_labels,
+                             rot = ifelse(track_dir == "col", yes = angle_col, no = angle_row),
+                             gp = gp)
+    p$gtable$grobs[[track_index]] <- gTree(children = res)
+  }
+  return(p)
+}
+
+# Function based on (and slightly modified, removing the option to make
+# vertically positioned dendrograms)
+# https://github.com/cran/pheatmap/blob/master/R/pheatmap.r
+# on 2019_02_14
+draw_dendrogram = function(hc){
+  h = hc$height / max(hc$height) / 1.05
+  m = hc$merge
+  o = hc$order
+  n = length(o)
+  
+  m[m > 0] = n + m[m > 0] 
+  m[m < 0] = abs(m[m < 0])
+  
+  dist = matrix(0, nrow = 2 * n - 1, ncol = 2, dimnames = list(NULL, c("x", "y"))) 
+  dist[1:n, 1] = 1 / n / 2 + (1 / n) * (match(1:n, o) - 1)
+  
+  for(i in 1:nrow(m)){
+    dist[n + i, 1] = (dist[m[i, 1], 1] + dist[m[i, 2], 1]) / 2
+    dist[n + i, 2] = h[i]
+  }
+  
+  draw_connection = function(x1, x2, y1, y2, y){
+    res = list(
+      x = c(x1, x1, x2, x2),
+      y = c(y1, y, y, y2)
+    )
+    
+    return(res)
+  }
+  
+  x = rep(NA, nrow(m) * 4)
+  y = rep(NA, nrow(m) * 4)
+  id = rep(1:nrow(m), rep(4, nrow(m)))
+  
+  for(i in 1:nrow(m)){
+    c = draw_connection(dist[m[i, 1], 1], dist[m[i, 2], 1], dist[m[i, 1], 2], dist[m[i, 2], 2], h[i])
+    k = (i - 1) * 4 + 1
+    x[k : (k + 3)] = c$x
+    y[k : (k + 3)] = c$y
+  }
+  
+  x = unit(x, "npc")
+  y = unit(y, "npc")
+  
+  return(polylineGrob(x = x, y = y, id = id))
+}
+
+
+# pheatmap variant enabling clustering of groups of columns.
+col_grouped_pheatmap <- function(mat,
+                                 col_groups,
+                                 col_clust_fun = "hclust",
+                                 col_dist_fun = "dist",
+                                 method = "euclidean",
+                                 treeheight_col = 50,
+                                 display_numbers = FALSE,
+                                 silent = TRUE,
+                                 ...) {
+  require(pheatmap)
+  require(grid)
+  require(gtable)
+  stopifnot(is.matrix(mat))
+  stopifnot(any(class(display_numbers) %in% c("logical", "matrix")))
+  
+  col_clust_fun <- match.fun(col_clust_fun)
+  col_dist_fun <- match.fun(col_dist_fun)
+  
+  # Cluster the columns and draw the dendrograms
+  dendro_grobs <- list()
+  for (cur_group in unique(col_groups)) {
+    col_indexes.subset <- which(col_groups == cur_group)
+    #cl <- hclust(d = dist(x = t(mat[, col_indexes.subset]),
+    #                      method = method))
+    cl <- col_clust_fun(d = col_dist_fun(x = t(mat[, col_indexes.subset]),
+                                         method = method))
+    
+    col_indexes <- 1:ncol(mat)
+    col_indexes[col_indexes.subset] <- NA
+    col_indexes[is.na(col_indexes)] <- col_indexes.subset[cl$order]
+    mat <- mat[, col_indexes]
+    
+    dendro_grobs[[length(dendro_grobs) + 1]] <- draw_dendrogram(cl)
+  }
+  
+  # Get column numbers after which a gap occurs
+  gaps_col <- which(
+    purrr::map_lgl(2:length(col_groups),
+                   ~{col_groups[.x] != col_groups[.x-1]}))
+  
+  gap_width <- unit("4", "bigpts")
+  matrix_cell_width <- (1 / ncol(mat)) * (unit(1, "npc") - length(gaps_col) * gap_width)
+  dendro_widths <- base::diff(c(0, gaps_col, ncol(mat))) * matrix_cell_width
+  
+  gap_grob <- rectGrob(gp = gpar(fill = NA, col = NA), width = gap_width)
+  
+  my_grobs <- list(dendro_grobs[[1]])
+  my_widths <- dendro_widths[1]
+  for (i in 1:length(gaps_col)) {
+    my_grobs[[2*i]] <- gap_grob
+    my_grobs[[2*i + 1]] <- dendro_grobs[[i+1]]
+    my_widths <- unit.c(my_widths, gap_width, dendro_widths[i+1])
+  }
+  
+  combined_dendros_grob <- grobTree(gtable_matrix(
+    name = "my_dendrograms",
+    grobs = matrix(my_grobs, ncol = length(my_grobs)),
+    widths = my_widths,
+    heights = unit(1, "null")))
+  
+  if (is.matrix(display_numbers)) {
+    display_numbers <- display_numbers[rownames(mat), colnames(mat)]
+  }
+  
+  p <- pheatmap(mat = mat,
+                display_numbers = display_numbers,
+                gaps_col = gaps_col,
+                treeheight_col = treeheight_col,
+                cluster_cols = FALSE,
+                filename = NA,
+                silent = silent,
+                ...)
+  
+  p$gtable <- gtable_add_grob(
+    x = p$gtable,
+    grobs = combined_dendros_grob,
+    t = 2,
+    l = 3,
+    name = "col_tree")
+  p$gtable$heights[2] <- p$gtable$heights[2] + unit(treeheight_col, "bigpts")
+  p$gtable$heights[4] <- p$gtable$heights[4] - unit(treeheight_col, "bigpts")
+  return(p)
+}
+
+
+```
+
+```{r load}
+
+FDR_THRESHOLD <- 0.05 # Determines if a gene set is significantly up/down
+NUM_PERMUTATIONS <- 10000
+SELECTED_GENESETS <- c("inflammatory response (M33)",
+                       "plasma cells, immunoglobulins (M156.1)")
+
+young.noNorm.noResponse <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "young_noNorm_eset.rds")))
+old.noNorm.noResponse <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "old_noNorm_eset.rds")))
+young.noNorm.withResponse <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "young_noNorm_withResponse_eset.rds")))
+old.noNorm.withResponse <- readRDS(file.path(dataCacheDir, paste0(datePrefix, "old_noNorm_withResponse_eset.rds")))
+
+# Combine young and old with response
+symbols <- intersect(rownames(young.noNorm.withResponse),
+                     rownames(old.noNorm.withResponse))
+pd <- rbind(Biobase::pData(young.noNorm.withResponse) %>%
+              dplyr::mutate(age_group = "young"),
+            Biobase::pData(old.noNorm.withResponse) %>%
+              dplyr::mutate(age_group = "old"))
+ge <- cbind(Biobase::exprs(young.noNorm.withResponse)[symbols, ],
+            Biobase::exprs(old.noNorm.withResponse)[symbols, ])[, pd$uid]
+rownames(pd) <- pd$uid
+young_and_old.noNorm.withResponse <- new("ExpressionSet", 
+            exprs = ge,
+            phenoData = new('AnnotatedDataFrame', pd))
+
+
+btm_list <- readRDS(file = file.path(dataCacheDir, "btm_list_2020_12_23.rds"))
+
+# Colors and abbreviations
+load("../Stanford/adj_path_vt_colors_abbv.RData")
+
 ```
 
 # Figure 1
 
 ## Figure 1a
 __caption and description...__
+
+...
+
+
+# Figure 3
+
+1. Prepare data  
+  1. Create data frame with gene set enrichment scores for postvax vs prevax time points in young adult cohort.
+
+```{r longitudinal-qusage-young}
+longitudinal_qusage_young_df_path <- file.path(dataCacheDir, "longitudinal_qusage_young_df.rds")
+
+if (file.exists(longitudinal_qusage_young_df_path)) {
+  longitudinal_qusage_young_df <- readRDS(longitudinal_qusage_young_df_path)
+} else {
+  young.noNorm.noResponse.filtered <- young.noNorm.noResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    remove_any_NA_rows()
+  
+  # Check that there are no repeated measures at any time point
+  stopifnot(Biobase::pData(young.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id, time_post_last_vax) %>%
+              dplyr::filter(n() > 1) %>%
+              nrow() == 0)
+  
+  # Check that every participant has a baseline time point
+  stopifnot(Biobase::pData(young.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id) %>%
+              dplyr::filter(!any(time_post_last_vax <= 0)) %>%
+              nrow() == 0)
+  
+  btm_list.filtered <- keep_symbols(
+    genesets.symbol = btm_list,
+    symbols2keep = rownames(young.noNorm.noResponse.filtered))
+  
+  # Gene set enrichment analysis: postvax vs prevax time points ------------------
+  
+  eset <- young.noNorm.noResponse.filtered
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(n_participants = NA,
+                  qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  # Took 514s on home desktop
+  for (row_nr in 1:nrow(analysis_df)) {
+    
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.contrast <- paste0(postvax_string, "-", prevax_string)
+    
+    qusage.labels <- ifelse(
+      test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+      yes = postvax_string,
+      no = prevax_string)
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered,
+                          pairVector = cur_eset$participant_id)
+    analysis_df$n_participants[row_nr] <-
+      length(unique(cur_eset$participant_id))
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+
+  }
+  saveRDS(analysis_df, longitudinal_qusage_young_df_path)
+  longitudinal_qusage_young_df <- analysis_df
+}
+
+```
+
+  2. create data frame with meta analysis results of gene set enrichment scores from postvax vs prevax time point of young adults.
+
+```{r tidy_longitudinal_qusage}
+
+longitudinal_qusage_young_meta_df_path <- file.path(dataCacheDir, "longitudinal_qusage_young_meta_df.rds")
+
+if (file.exists(longitudinal_qusage_young_meta_df_path)) {
+  longitudinal_qusage_young_meta_df <- readRDS(longitudinal_qusage_young_meta_df_path) 
+} else {
+  longitudinal_qusage_young_meta_df <- meta_qusage(longitudinal_qusage_young_df, group_cols = c("pathogen",
+                                         "vaccine_type",
+                                         "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_young_meta_df, longitudinal_qusage_young_meta_df_path)
+}
+
+tidy_longitudinal_qusage_young_meta_df <- longitudinal_qusage_young_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output") %>%
+  dplyr::mutate(FDR = p.adjust(p.value, method = "BH"),
+                FDR_signif_label = create_signif_label(FDR))
+
+```
+
+  3. create null distribution of gene set sharing between vaccines
+
+```{r geneset-sharing}
+# Calculate null distribution of gene set sharing between vaccines -------------
+geneset_sharing_young_null_boot_path <- file.path(dataCacheDir, "geneset_sharing_young_null_boot.rds")
+
+if (file.exists(geneset_sharing_young_null_boot_path)) {
+  geneset_sharing_young_null_boot <- readRDS(geneset_sharing_young_null_boot_path)
+} else {
+  nbins <- tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::select(pathogen, vaccine_type) %>%
+    dplyr::distinct() %>%
+    nrow() + 1
+  
+  strata <- tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+    dplyr::group_indices()
+  
+  ncpus <- parallel::detectCores()
+  
+  # Took 73s on home desktop
+  system.time(geneset_sharing_young_null_boot <- boot(
+    data = tidy_longitudinal_qusage_young_meta_df,
+    statistic = function(data, indices){
+      data %>%
+        dplyr::mutate(geneset = geneset[indices]) %>%
+        calc_sharing_df() %>%
+        dplyr::pull(n) %>%
+        `+`(1) %>%
+        tabulate(nbins = nbins)
+    },
+    R = NUM_PERMUTATIONS,
+    sim = "permutation",
+    stype = "i",
+    strata = strata,
+    parallel = "multicore",
+    ncpus = ncpus))
+  
+  saveRDS(object = geneset_sharing_young_null_boot,
+          file = geneset_sharing_young_null_boot_path)
+}
+```
+
+  4. select which gene sets are common in the young adult vaccine response.
+  
+```{r genesets-shared}
+sharing_young_df <- tidy_longitudinal_qusage_young_meta_df %>%
+  calc_sharing_df()
+
+genesets_shared_young_common <- sharing_young_df %>%
+  dplyr::filter(n >= quantile(x = n, probs = 0.95)) %>%
+  dplyr::pull(geneset)
+```
+
+## A. 
+
+```{r fig-3a, fig.width=10, fig.height=7}
+
+nbins <- tidy_longitudinal_qusage_young_meta_df %>%
+  dplyr::select(pathogen, vaccine_type) %>%
+  dplyr::distinct() %>%
+  nrow() + 1
+
+obs_sharing_young_df <- calc_sharing_df(
+  tidy_longitudinal_qusage_young_meta_df) %>%
+  dplyr::pull(n) %>%
+  `+`(1) %>%
+  tabulate(nbins = nbins) %>%
+  dplyr::as_tibble() %>%
+  dplyr::mutate(incidence = dplyr::row_number() - 1) %>%
+  dplyr::rename(incidence_count = value) %>%
+  dplyr::mutate(ymin = NA, ymax = NA, type = "observed") %>%
+  dplyr::select(incidence, incidence_count, ymin, ymax, type)
+
+probs <- c(0.025, 0.975)
+null_sharing_young_df <- geneset_sharing_young_null_boot$t %>%
+  as.data.frame() %>%
+  dplyr::summarise(dplyr::across(.fns = function(col)
+    c(median(col), quantile(col , probs = probs)))) %>%
+  t() %>%
+  as.data.frame()
+colnames(null_sharing_young_df) <- c("incidence_count", "ymin", "ymax")
+null_sharing_young_df <- null_sharing_young_df %>%
+  dplyr::mutate(incidence = dplyr::row_number() - 1,
+                type = "null") %>%
+  dplyr::select(incidence, incidence_count, ymin, ymax, type)
+
+plot_df <- dplyr::bind_rows(obs_sharing_young_df, null_sharing_young_df) %>%
+  dplyr::filter(!(incidence > 1 & incidence_count < 0.1))
+
+ggplot(plot_df, aes(x = incidence, y = incidence_count, fill = type)) +
+  geom_bar(stat = "identity", position = position_dodge(),
+           width = 0.4) +
+  geom_errorbar(aes(ymin = ymin, ymax = ymax),
+                position = position_dodge(width = 0.4),
+                width = 0.4) +
+  xlab("Number of different vaccines (pathogen + vaccine type)") +
+  ylab("Number of genesets") +
+  scale_fill_manual(values = c("null" = "lightgrey", "observed" = "navy")) +
+  scale_x_continuous(breaks = plot_df$incidence) +
+  theme_bw(base_size = 22) +
+  theme(panel.grid = element_blank())
+```
+
+## B. 
+
+```{r fig-3b, fig.width = 29, fig.height = 16}
+
+time_windows <- c(0, 1, 4, 19, Inf)
+
+plot_df <- tidy_longitudinal_qusage_young_meta_df %>%
+  dplyr::filter(geneset %in% genesets_shared_young_common) %>%
+  dplyr::mutate(pvt_tp = paste0(pathogen, " (", vaccine_type, ")", " Day ",
+                                time_post_last_vax)) %>%
+  dplyr::left_join(Biobase::pData(young.noNorm.noResponse) %>%
+                     dplyr::select(pathogen, vaccine_type, adjuvant) %>%
+                     dplyr::distinct(),
+                   by = c("pathogen", "vaccine_type"))
+
+m <- plot_df %>%
+  dplyr::select(pvt_tp, geneset, activity_score) %>%
+  tidyr::pivot_wider(names_from = "pvt_tp", values_from = "activity_score") %>%
+  tibble::column_to_rownames(var = "geneset") %>%
+  as.matrix()
+
+m_fdr <- plot_df %>%
+  dplyr::select(pvt_tp, geneset, FDR) %>%
+  tidyr::pivot_wider(names_from = "pvt_tp", values_from = "FDR") %>%
+  tibble::column_to_rownames(var = "geneset") %>%
+  as.matrix()
+
+# Setup color gradient
+paletteLength <- 50
+myColor <- colorRampPalette(c("navy", "white", "firebrick3"))(paletteLength)
+myBreaks <- c(
+  seq(-max(abs(m)), 0, length.out=ceiling(paletteLength/2) + 1),
+  seq(max(abs(m))/paletteLength, max(m), length.out=floor(paletteLength/2)))
+
+# Column annotations
+myColAnnot <- plot_df %>%
+  dplyr::select(time_post_last_vax, pvt_tp, pathogen, vaccine_type, adjuvant) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(time_post_last_vax, pathogen, vaccine_type, adjuvant) %>%
+  tibble::column_to_rownames(var = "pvt_tp")
+m <- m[, rownames(myColAnnot)]
+
+cor.dist <- function(x, method = NA) {
+  stopifnot(is.na(method))
+  stopifnot(is.matrix(x))
+  as.dist((1-cor(t(x)))/2)
+}
+
+cluster_rows <- hclust(d = cor.dist(m))
+
+cluster_df <- cutree(tree = cluster_rows, k = 3) %>%
+  as.data.frame() %>%
+  tibble:::rownames_to_column(var = "geneset") %>%
+  dplyr::rename(cluster_nr = ".")
+
+vaccine_type <- unique(plot_df$vaccine_type)
+pathogen <- unique(plot_df$pathogen)
+adjuvant <- unique(plot_df$adjuvant)
+myAnnotColors <- list(
+  vaccine_type = adj_path_vt_colors$vaccine_type[vaccine_type],
+  pathogen = adj_path_vt_colors$pathogen[pathogen],
+  adjuvant = adj_path_vt_colors$adjuvant[adjuvant],
+  cluster = setNames(ptol_pal()(3), nm = as.character(1:3))
+  #pathogen = setNames(ptol_pal()(length(pathogen)), nm = pathogen) 
+)
+
+# pdf(file.path(OUTPUT_DIR, paste0("common_shared_BTMs_heatmap_young.pdf")),
+#     width = 29,
+#     height = 16)
+
+p <- col_grouped_pheatmap(
+  mat = m,
+  col_groups = cut(myColAnnot$time_post_last_vax, time_windows),
+  col_dist_fun = cor.dist,
+  method = NA,
+  color = myColor,
+  breaks = myBreaks,
+  cluster_rows = cluster_rows,
+  display_numbers =  ifelse(test = is.na(m_fdr) | m_fdr >= 0.05,
+                            yes = " ",
+                            no = "*"),
+  annotation_col = myColAnnot %>%
+    dplyr::select(pathogen, vaccine_type, adjuvant),
+  annotation_row = cluster_df %>%
+    dplyr::rename(cluster = cluster_nr) %>%
+    dplyr::mutate(cluster = as.character(cluster)) %>%
+    tibble::column_to_rownames(var = "geneset"),
+  annotation_colors = myAnnotColors,
+  main = "",
+  fontsize = 22,
+  fontsize_row = 18,
+  fontsize_col = 10,
+  fontsize_number = 22)
+
+p <- pheatmap_add_labels(
+  p = p,
+  annot_labels = adj_path_vt_abbv)
+p
+# dev.off()
+```
+
+## C.
+
+```{r fig-3c, fig.width=11, fig.height=7}
+
+participant_count_df <- longitudinal_qusage_young_df %>%
+  dplyr::filter(sapply(qusage_output, function(x)class(x) == "QSarray")) %>%
+  dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+  dplyr::summarise(n_participants = sum(n_participants)) %>%
+  dplyr::ungroup()
+
+plot_df <- tidy_longitudinal_qusage_young_meta_df %>%
+  dplyr::left_join(participant_count_df,
+                   by = c("pathogen", "vaccine_type", "time_post_last_vax")) %>%
+  dplyr::filter(geneset %in% SELECTED_GENESETS,
+                time_post_last_vax <= 30,
+                n_participants >= 5) %>%
+  dplyr::mutate(pvt = paste0(pathogen, " (", vaccine_type, ")"))
+
+legend_df <- plot_df %>%
+  dplyr::select(pvt, pathogen, vaccine_type) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(pathogen, vaccine_type) %>%
+  dplyr::mutate(color = adj_path_vt_colors[["pathogen"]][pathogen]) %>%
+  dplyr::group_by(pathogen) %>%
+  dplyr::arrange(vaccine_type) %>%
+  dplyr::mutate(linetype = row_number()) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(pathogen, vaccine_type)
+
+p <- ggplot(plot_df,
+            aes(x = time_post_last_vax, y = activity_score,
+                group = pvt,
+                color = pvt,
+                linetype = pvt)) +
+  geom_vline(xintercept = 7, linetype = "dashed", size = 1, color = "darkgray") +
+  geom_hline(yintercept = 0, size = 1, color = "darkgray") +
+  geom_line(size = 1, alpha = .5) +
+  geom_point(data = plot_df %>%
+               dplyr::filter(FDR < 0.05), show.legend = FALSE) +
+  scale_color_manual(name = "", values = legend_df %>%
+                       dplyr::pull(color, name = pvt)) +
+  scale_linetype_manual(name = "", values = legend_df %>%
+                          dplyr::pull(linetype, name = pvt)) +
+  scale_x_continuous(breaks = sort(unique(round(plot_df$time_post_last_vax, digits = 0)))) +
+  xlab("Time post last vaccination (day)") +
+  ylab("Activity score") +
+  theme_bw(base_size = 14) +
+  theme(panel.grid.minor = element_blank(),
+        axis.title = element_text(size = 24),
+        legend.text = element_text(size = 18),
+        strip.text = element_text(size = 16)) +
+  facet_wrap(vars(geneset), ncol = 1)
+
+p
+```
+
+
+# ...
+
+
+# Figure 6: Comparing young vs old
+
+1. Prepare data  
+  1.  Create data frame with gene set enrichment scores for postvax vs prevax time points in older adult cohort.
+  
+```{r longitudinal-qusage-old}
+longitudinal_qusage_old_df_path <- file.path(dataCacheDir, "longitudinal_qusage_old_df.rds")
+
+if (file.exists(longitudinal_qusage_old_df_path)) {
+  longitudinal_qusage_old_df <- readRDS(longitudinal_qusage_old_df_path)
+} else {
+  old.noNorm.noResponse.filtered <- old.noNorm.noResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    remove_any_NA_rows()
+  
+  # Check that there are no repeated measures at any time point
+  stopifnot(Biobase::pData(old.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id, time_post_last_vax) %>%
+              dplyr::filter(n() > 1) %>%
+              nrow() == 0)
+  
+  # Check that every participant has a baseline time point
+  stopifnot(Biobase::pData(old.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id) %>%
+              dplyr::filter(!any(time_post_last_vax <= 0)) %>%
+              nrow() == 0)
+  
+  btm_list.filtered <- keep_symbols(
+    genesets.symbol = btm_list,
+    symbols2keep = rownames(old.noNorm.noResponse.filtered))
+  
+  # Gene set enrichment analysis: postvax vs prevax time points ------------------
+  
+  eset <- old.noNorm.noResponse.filtered
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(n_participants = NA,
+                  qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  # Took 168s on home desktop
+  system.time(for (row_nr in 1:nrow(analysis_df)) {
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.contrast <- paste0(postvax_string, "-", prevax_string)
+    
+    qusage.labels <- ifelse(
+      test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+      yes = postvax_string,
+      no = prevax_string)
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered,
+                          pairVector = cur_eset$participant_id)
+    analysis_df$n_participants[row_nr] <-
+      length(unique(cur_eset$participant_id))
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+  })
+  
+  saveRDS(analysis_df, longitudinal_qusage_old_df_path)
+  longitudinal_qusage_old_df <- analysis_df
+}
+```
+  
+  2. Create data frame with meta analysis results of gene set enrichment scores from postvax vs prevax time point of young adults. 
+  
+```{r tidy_longitudinal_qusage_old}
+
+longitudinal_qusage_old_meta_df_path <- file.path(dataCacheDir, "longitudinal_qusage_old_meta_df.rds")
+
+if (file.exists(longitudinal_qusage_old_meta_df_path)) {
+  longitudinal_qusage_old_meta_df <- readRDS(longitudinal_qusage_old_meta_df_path) 
+} else {
+  longitudinal_qusage_old_meta_df <- longitudinal_qusage_old_df %>%
+    meta_qusage(group_cols = c("pathogen",
+                               "vaccine_type",
+                               "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_old_meta_df, longitudinal_qusage_old_meta_df_path)
+}
+
+tidy_longitudinal_qusage_old_meta_df <- longitudinal_qusage_old_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output") %>%
+  dplyr::mutate(FDR = p.adjust(p.value, method = "BH"),
+                FDR_signif_label = create_signif_label(FDR))
+```
+
+  3. create data frame with gene set enrichment scores for high vs low responders, separate scores for young and older adults.
+```{r longitudinal_qusage_HR_vs_LR}
+longitudinal_qusage_HR_vs_LR_file <- file.path(dataCacheDir, "longitudinal_qusage_HR_vs_LR_df.rds")
+
+if (file.exists(longitudinal_qusage_HR_vs_LR_file)) {
+  longitudinal_qusage_HR_vs_LR_df <- readRDS(longitudinal_qusage_HR_vs_LR_file)
+} else {
+  
+  eset <- young_and_old.noNorm.withResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    add_response_class_column() %>%
+    keep_only_high_and_low_responders(col = "response_class") %>%
+    remove_any_NA_rows()
+  
+  btm_list.filtered <- keep_symbols(genesets.symbol = btm_list,
+                                    symbols2keep = rownames(eset),
+                                    min_size = 2)
+  
+  # Longitudinal GSEA of high vs low responders ----------------------------------
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(age_group, pathogen, vaccine_type, time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(age_group, pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  # Took 1916s on home desktop
+  system.time(for (row_nr in 1:nrow(analysis_df)) {
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$age_group, " ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$age_group == row$age_group &
+                       eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.labels <- paste0(
+      cur_eset$response_class, ".",
+      ifelse(test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+             yes = postvax_string,
+             no = prevax_string))
+    qusage.contrast <- paste0(
+      "(highResponder.", postvax_string, "-highResponder.", prevax_string, ") - ",
+      "(lowResponder.", postvax_string, "-lowResponder.", prevax_string, ")")
+    
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered)
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+  })
+  
+  longitudinal_qusage_HR_vs_LR_df <- analysis_df
+  saveRDS(longitudinal_qusage_HR_vs_LR_df, longitudinal_qusage_HR_vs_LR_file)
+}
+```
+
+  4. create data frame with longitudinal meta analysis results of gene set enrichment scores from high vs low responders (longitudinal_qusage_HR_vs_LR_df).
+  
+```{r tidy_longitudinal_qusage_hr_lr}
+longitudinal_qusage_HR_vs_LR_meta_file <- file.path(dataCacheDir, "longitudinal_qusage_HR_vs_LR_meta.rds")
+
+if (file.exists(longitudinal_qusage_HR_vs_LR_meta_file)) {
+  longitudinal_qusage_HR_vs_LR_meta_df <- readRDS(longitudinal_qusage_HR_vs_LR_meta_file)
+} else {
+  longitudinal_qusage_HR_vs_LR_meta_df <-
+    longitudinal_qusage_HR_vs_LR_df %>%
+    meta_qusage(c("age_group", "pathogen", "vaccine_type",
+                  "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_HR_vs_LR_meta_df, longitudinal_qusage_HR_vs_LR_meta_file)
+}
+
+tidy_longitudinal_qusage_HR_vs_LR_meta_df <- longitudinal_qusage_HR_vs_LR_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output")
+```
+
+## A. 
+
+```{r fig6a, fig.width=12, fig.height=12}
+
+plot_df <- dplyr::inner_join(
+  tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::select(pathogen, vaccine_type, time_post_last_vax, geneset,
+                  activity_score),
+  tidy_longitudinal_qusage_old_meta_df %>%
+    dplyr::select(pathogen, vaccine_type, time_post_last_vax, geneset,
+                  activity_score),
+  by = c("pathogen", "vaccine_type", "time_post_last_vax", "geneset"),
+  suffix = c(".young", ".old")) %>%
+  dplyr::filter(time_post_last_vax %in% c(1, 3, 7))
+
+lm_df <- plot_df %>%
+  dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+  tidyr::nest() %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    lm = purrr::map(
+      .x = data,
+      ~lm(activity_score.old ~ activity_score.young, data = .x)),
+    r2 = purrr::map(
+      .x = lm,
+      ~tibble(
+        adj.r.squared = summary(.x)$adj.r.squared,
+        r.squared = summary(.x)$r.squared,
+        intercept = coef(.x)[1],
+        slope = coef(.x)[2],
+        p.value = broom::glance(.x)$p.value)
+    )
+  ) %>%
+  tidyr::unnest(r2) %>%
+  dplyr::mutate(signif_label = cut(p.value, c(-Inf, .001, .01, .05, Inf),
+                                   labels = c("***", "**", "*", "ns")),
+                r2_label = sapply(adj.r.squared, function(x)
+                  substitute(
+                    expr = italic(R)^2~"="~r2,
+                    env = list(r2 = format(x, digits = 2)))))
+
+# Plot figure ------------------------------------------------------------------
+
+p <- ggplot(plot_df, aes(x = activity_score.young, y = activity_score.old,
+                         color = pathogen)) +
+  geom_point() +
+  geom_vline(xintercept= 0, color = "gray") +
+  geom_hline(yintercept = 0, color = "gray") +
+  geom_abline(intercept = 0, slope = 1, color = "lightgray") +
+  geom_abline(data = lm_df, aes(intercept = intercept, slope = slope),
+              color = "lightgray", linetype = "dashed") +
+  geom_text(data = lm_df,
+            x = -0.2, y = 0.9,
+            aes(label = r2_label),
+            color = "black",
+            parse = TRUE,
+            show.legend = FALSE) +
+  geom_text(data = lm_df, x = -0.2, y = 0.6,
+            aes(label = paste0("p = ",
+                               formatC(p.value, digits = 2, format = "e"),
+                               " (", signif_label, ")")),
+            color = "black") +
+  coord_equal(xlim = c(-1, 1), ylim = c(-1, 1)) +
+  theme_bw(base_size = 24) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        legend.position = "bottom",
+        legend.title = element_blank()) +
+  facet_grid(pathogen + vaccine_type ~ paste0("Day ", time_post_last_vax)) +
+  ggtitle("Common response module activity")
+
+p
+```
+
+## ...
+
+## D. 
+
+```{r fig6d, fig.width=12, fig.height=12}
+
+# Create data frames for plotting ----------------------------------------------
+
+plot_df <- tidy_longitudinal_qusage_HR_vs_LR_meta_df %>%
+  dplyr::group_by(pathogen, vaccine_type) %>%
+  dplyr::filter(all(c("young", "old") %in% age_group)) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter(time_post_last_vax %in% c(1, 3, 7))
+
+# Not using p-values because of very non-uniform distribution of p-values:
+# hist(plot_df$p.value)
+# The p-value distribution starts low around p = 0 and steadily increases in
+# frequency to p = 1
+
+plot_df <- plot_df %>%
+  dplyr::select(age_group, pathogen, vaccine_type, time_post_last_vax,
+                geneset, activity_score) %>%
+  tidyr::pivot_wider(names_from = "age_group",
+                     values_from = "activity_score",
+                     names_prefix = "activity_score.")
+
+lm_df <- plot_df %>%
+  dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+  tidyr::nest() %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    lm = purrr::map(
+      .x = data,
+      ~lm(activity_score.old ~ activity_score.young, data = .x)),
+    r2 = purrr::map(
+      .x = lm,
+      ~tibble(
+        adj.r.squared = summary(.x)$adj.r.squared,
+        r.squared = summary(.x)$r.squared,
+        intercept = coef(.x)[1],
+        slope = coef(.x)[2],
+        p.value = broom::glance(.x)$p.value)
+    )
+  ) %>%
+  tidyr::unnest(r2) %>%
+  dplyr::mutate(signif_label = cut(p.value, c(-Inf, .001, .01, .05, Inf),
+                                   labels = c("***", "**", "*", "ns")),
+                r2_label = sapply(adj.r.squared, function(x)
+                  substitute(
+                    expr = italic(R)^2~"="~r2,
+                    env = list(r2 = format(x, digits = 2)))))
+
+# Plot figure ------------------------------------------------------------------
+
+p <- ggplot(data = plot_df, mapping = aes(x = activity_score.young,
+                                     y = activity_score.old,
+                                     color = pathogen)) +
+  geom_point() +
+  geom_vline(xintercept= 0, color = "gray") +
+  geom_hline(yintercept = 0, color = "gray") +
+  geom_abline(intercept = 0, slope = 1, color = "lightgray") +
+  geom_abline(data = lm_df, aes(intercept = intercept, slope = slope),
+              color = "lightgray", linetype = "dashed") +
+  geom_text(data = lm_df,
+            x = -0.5, y = 0.9,
+            aes(label = r2_label),
+            color = "black",
+            parse = TRUE,
+            show.legend = FALSE) +
+  geom_text(data = lm_df, x = -0.5, y = 0.7,
+            aes(label = paste0("p = ",
+                               formatC(p.value, digits = 2, format = "e"),
+                               " (", signif_label, ")")),
+            color = "black") +
+  coord_equal(xlim = c(-1, 1), ylim = c(-1.5, 1)) +
+  theme_bw(base_size = 24) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        legend.position = "bottom",
+        legend.title = element_blank()) +
+  facet_grid(pathogen + vaccine_type ~ paste0("Day ", time_post_last_vax))
+p
+```
+
+
+
+
+
+
 
 
