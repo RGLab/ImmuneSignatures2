@@ -7,8 +7,16 @@ params:
   dataDir: "/share/files/HIPC/IS2/@files/data"
   dataCacheDir: "/share/files/HIPC/IS2/@files/cache/prevax"
   cache.path: "/share/files/HIPC/IS2/@files/cache/prevax/report_cache"
-  cache: true
+  cache: false
 ---
+
+<script>
+setTimeout(() => {
+  btns = document.querySelectorAll(".code-folding-btn");
+  btns.forEach((x) => (x.style.display = "none"));
+  console.log("hid the buttons");
+}, 2000);
+</script>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo       = TRUE, 

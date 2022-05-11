@@ -1,38 +1,2152 @@
 ---
-title: "ImmuneSignatures2: Reproduction of analysis and figures for Temporal manuscript"
+title: "ImmuneSignatures2: Reproduction of analysis and figures for pre-vaccination manuscript"
 output: 
-  html_document: 
-    toc: true
-    toc_float: true
-    df_print: paged
-    code_folding: hide
+  html_document
 date: "`r format(Sys.time(), '%d %B, %Y')`"
-editor_options: 
-  chunk_output_type: inline
+params:
+  dataDir: "/share/files/HIPC/IS2/@files/data"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/cache/temporal"
+  cache.path: "/share/files/HIPC/IS2/@files/cache/temporal/report_cache/"
+  cache: true
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo       = TRUE, 
+                      message    = FALSE,
+                      warning    = FALSE, 
+                      cache = params$cache,
+                      cache.path = params$cache.path)
+dataDir <- params$dataDir
+dataCacheDir <- params$dataCacheDir
+```
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, 
                       message = FALSE,
-                      warning = FALSE)
+                      warning = FALSE, 
+                      cache = FALSE, 
+                      cache.path = "/share/files/HIPC/IS2/@files/cache/temporal/report_cache/")
 ```
+1. setup: Load libraries and helper functions
 
 ```{r, libraries}
 suppressPackageStartupMessages({
   library(package = "Biobase")
-  library(package = "ImmuneSignatures2")
+  library(package = "tidyverse")
+  library(package = "qusage") # Bioc install
+  library(package = "boot") # Bioc install
+  library(package = "ggthemes")
+  library(package = "pheatmap")
+  library(package = "matrixStats")
+  library(package = "RColorBrewer")
+  library(package = "reshape2")
+  library(package = "lme4")
+  library(package = "metap")
+  library(package = "circlize")
+  library(package = "corrplot")
+  library(package = "ComplexHeatmap")
+  library(package = "ggpubr")
 })
 ```
+```{r helpers}
+# For every gene set, find out in how many vaccines it is significantly up at
+# any one postvax time point.
+# The same but for down at any postvax time point
+calc_sharing_df <- function(x) {
+  x %>%
+    dplyr::mutate(direction = ifelse(
+      test = activity_score > 0,
+      yes = "up",
+      no = "down"),
+      is_significant = !is.na(FDR) & FDR < 0.05) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  geneset,
+                  direction,
+                  is_significant) %>%
+    dplyr::distinct() %>%
+    dplyr::group_by(geneset, direction) %>%
+    dplyr::summarise(n = sum(is_significant)) %>%
+    dplyr::group_by(geneset) %>%
+    dplyr::arrange(-n) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup()
+}
+# Qusage (version 2.18.0) runs very slow on certain datasets, because it uses
+# the convolve() function from stats which itself uses the fft() function. The
+# fft() function runs very slow on certain inputs (e.g. 3 minutes instead of
+# under 1 second with other fft implementations for the same input).
+#
+# Found a report of speed issues with the convolve() function at:
+# https://stat.ethz.ch/pipermail/r-help/2007-December/148777.html
+#
+# Found a solution for the slow convolve() (actually the fft() it uses) at:
+# https://stat.ethz.ch/pipermail/r-help/2007-December/148779.html
+#
+# The solution below requires the fftw library, which on ubuntu required the
+# installation of the fftw-dev package (sudo apt install fftw3-dev) before
+# install.packages("fftw") was successful.
+#
+# Here we override the convolve function to use a different (faster) fft
+# function.
+convolve <- function (x, y, conj = TRUE, type = c("circular", "open", "filter"))
+{
+  type <- match.arg(type)
+  n <- length(x)
+  ny <- length(y)
+  Real <- is.numeric(x) && is.numeric(y)
+  if (type == "circular") {
+    if (ny != n)
+      stop("length mismatch in convolution")
+  }
+  else {
+    n1 <- ny - 1
+    x <- c(rep.int(0, n1), x)
+    n <- length(y <- c(y, rep.int(0, n - 1)))
+  }
+  # Original fft lines:
+  #x <- fft(fft(x) * (if (conj) 
+  #  Conj(fft(y))
+  #  else fft(y)), inverse = TRUE)
+  
+  # Use fftw instead of fft
+  x <- fftw::FFT(fftw::FFT(x) * (if (conj)
+    Conj(fftw::FFT(y))
+    else fftw::FFT(y)), inverse = TRUE)
+  
+  if (type == "filter")
+    (if (Real)
+      Re(x)
+     else x)[-c(1L:n1, (n - n1 + 1L):n)]/n
+  else (if (Real)
+    Re(x)
+    else x)/n
+}
+create_signif_label <- function(x) {
+  cut(x, c(-Inf, .001, .01, .05, Inf), labels = c("***", "**", "*", "ns"))
+}
+#' Keep only specified symbols in a given list of gene sets
+#' 
+#' @param genesets.symbol list of character vectors
+#' @param symbols2keep character vector
+#' @param min_size minimum number of symbols to keep a gene set
+keep_symbols <- function(genesets.symbol, symbols2keep,
+                         min_size = 2) {
+  stopifnot(is.character(symbols2keep))
+  stopifnot(is.list(genesets.symbol))
+  common_symbols <- intersect(Reduce(union, genesets.symbol), symbols2keep)
+  purrr::map(
+    .x = genesets.symbol,
+    ~.x[.x %in% common_symbols])%>%
+    purrr::discard(~length(.x) < min_size)
+}
+# NOTE: function below was copied from
+# https://github.com/RGLab/ImmuneSignatures2/blob/master/R/geneExpressionPreProcessing.R
+#
+#' Remove incomplete rows
+#'
+#' @param eset expressionSet
+#' @export
+#'
+removeAllNArows <- function(eset){
+  em <- Biobase::exprs(eset)
+  allNARows <- apply(em, 1, function(x){ all(is.na(x)) })
+  eset <- eset[ !allNARows, ]
+}
+remove_any_NA_rows <- function(eset) {
+  any_NA_rows <- apply(X = Biobase::exprs(eset),
+                       MARGIN = 1,
+                       FUN = function(x)any(is.na(x)))
+  eset[!any_NA_rows,]
+}
+#' Keep most recent pre-vaccination time point for each participant
+#' 
+#' @param eset expressionSet
+#' @param drop_postvax if TRUE, postvax time points will be discarded
+#' @export
+#' 
+keep_most_recent_prevax_time_point <- function(eset, drop_postvax) {
+  prevax_uids <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax <= 0) %>%
+    dplyr::arrange(-time_post_last_vax) %>%
+    dplyr::group_by(participant_id) %>%
+    dplyr::slice(1) %>%
+    dplyr::ungroup() %>%
+    dplyr::pull(uid)
+  postvax_uids <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::pull(uid)
+  if (drop_postvax)
+    uids <- prevax_uids
+  else
+    uids <- union(prevax_uids, postvax_uids)
+  eset[, eset$uid %in% uids]
+}
+#' Add 'response_class' column containing maxRBA_p30 values for Influenza and
+#' MFC_p30 values for all other vaccines
+#' 
+#' @param eset expressionSet
+#' @export
+#' 
+add_response_class_column <- function(eset) {
+  # Note: maxRBA measure is used to determine high and low responders for
+  # Influenza, because many participants are unlikely to be naive for this virus
+  # (resulting in high baseline titers and consequently lower fold changes which
+  # maxRBA is designed to take into account)
+  Biobase::pData(eset)$response_class <-
+    as.character(Biobase::pData(eset)$MFC_p30)
+  Biobase::pData(eset)$response_class[
+    Biobase::pData(eset)$pathogen == "Influenza"] <-
+    as.character(Biobase::pData(eset)$maxRBA_p30[
+      Biobase::pData(eset)$pathogen == "Influenza"])
+  eset
+}
+#' Keep participants that are high- or low-responders
+#' 
+#' @param eset expressionSet
+#' @param col name of column containing high or low responders
+#' @export
+#' 
+keep_only_high_and_low_responders <- function(eset, col) {
+  eset[, eset[[col]] %in% c("lowResponder", "highResponder")]
+}
+#' Perform qusage meta analysis (combinePDFs) on data frame
+#' 
+#' @param x data frame with list column containing QSarray objects
+#' @param group_cols character vector with names of columns to perform grouping
+#' on for meta analysis
+#' @return x with additional column containing output from meta analysis
+meta_qusage <- function(x, group_cols) {
+  require(qusage)
+  if (find("convolve")[1] == "package:stats") {
+    stop("stats::convolve is slow, please load convolve.R")
+  }
+  
+  x %>%
+    dplyr::group_by_at(group_cols) %>%
+    tidyr::nest() %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      meta_qusage_output = purrr::map(
+        .x = data,
+        ~{
+          QSarray_list <- .x$qusage_output %>%
+            purrr::keep(~class(.x) == "QSarray")
+          if (length(QSarray_list) == 0)
+            return(NULL)
+          if (length(QSarray_list) > 1) {
+            cat("Running combinePDFs\n")
+            return(qusage::combinePDFs(QSarrayList = QSarray_list))
+          } else {
+            return(QSarray_list[[1]])
+          }
+        }
+      )) %>%
+    dplyr::select(-data)
+}
+#' Replace QSarray objects with a few informative columns
+#' 
+#' @param x data frame containing list column with QSarray objects
+#' @param col string with name of list column
+#' @return x with col replaced with "p.value", "geneset", and "activity_score"
+#' columns
+tidy_qusage_output <- function(x, col) {
+  require(qusage)
+  x %>%
+    dplyr::filter(purrr::map_lgl(.x = !!sym(col),
+                                 ~class(.x) == "QSarray")) %>%
+    dplyr::mutate(
+      tidied =
+        purrr::map(
+          .x = !!sym(col),
+          ~ tibble(
+            p.value = pdf.pVal(.x),
+            geneset = colnames(.x$path.PDF),
+            activity_score = .x$path.mean)
+        )) %>%
+    dplyr::select(-!!sym(col)) %>%
+    tidyr::unnest(tidied)
+}
+#' Get confidence intervals for every variable in a bootstrap.
+#' 
+#' @param boot_result an object of class "boot" containing the output of a
+#' bootstrap calculation
+#' @param type character string representing the type of interval required
+tidy_boot_ci <- function(boot_result, type) {
+  stopifnot(class(boot_result) == "boot")
+  stopifnot(is.character(type))
+  purrr::map_df(
+    .x = 1:ncol(boot_result$t),
+    ~{
+      ci <- boot.ci(boot.out = boot_result, type = type, index = .x)
+      # When using "perc" as type, the name in the output list ci is "percent"
+      # Using grep to handle this inconsistency
+      i <- grep(pattern = type, names(ci))[1]
+      tibble(name = names(ci$t0),
+             statistic = ci$t0,
+             ci_low = ci[[i]][4],
+             ci_high = ci[[i]][5])
+    }
+  ) %>%
+    dplyr::mutate(bootstrapped_mean_of_statistic = colMeans(boot_result$t))
+}
+# Description: functions to extend pheatmap functionality
+pheatmap_add_labels <- function(p, annot_labels,
+                                gp = gpar(col = "#000000", fontsize = 10),
+                                angle_col = 0,
+                                angle_row = 270) {
+  require(pheatmap)
+  require(grid)
+  require(gtable)
+  # Get the column and row annotation rectangles (called "track" in pheatmap)
+  tracks <- list()
+  annot_names <- vector()
+  for (annot_dir in c("col", "row")){
+    track_grob_name <- paste0(annot_dir, "_annotation")
+    track_index <- which(p$gtable$layout$name == track_grob_name)
+    
+    if (length(track_index) == 0){
+      next
+    }
+    track_grob <- p$gtable$grobs[[track_index]]
+    tracks[[annot_dir]] <- list("index" = track_index,
+                                "grob" = track_grob)
+    annot_names <- c(annot_names, colnames(track_grob$gp$fill))
+  }
+  
+  # Get legend grob
+  legend_index <- which(p$gtable$layout$name == "annotation_legend")
+  legend_grob <- p$gtable$grobs[[legend_index]]
+  
+  # Get mapping between annotation labels and annotation colors
+  elem2color <- list()
+  color2label <- list()
+  for (annot_name in annot_names) {
+    # Retrieve from the legend the filled rectangles grob belonging to current annotation
+    cur_grob <- getGrob(gTree = legend_grob,
+                        gPath = childNames(legend_grob)[[paste(annot_name, "r")]])
+    elem2color[[annot_name]] <- cur_grob$gp$fill
+    cur_colors <- as.character(elem2color[[annot_name]])
+    cur_elems <- names(elem2color[[annot_name]])
+    if (annot_name %in% names(annot_labels)) {
+      cur_labels <- as.character(annot_labels[[annot_name]][cur_elems])
+    } else {
+      cur_labels <- rep("", length.out = length(cur_elems))
+    }
+    color2label[[annot_name]] <- cur_labels
+    names(color2label[[annot_name]]) <- cur_colors
+  }
+  
+  # Add labels to annotation legend
+  for (annot_name in annot_names) {
+    target_child_name <- paste(annot_name, "r")
+    cur_grob <- getGrob(gTree = legend_grob,
+                        gPath = childNames(legend_grob)[[target_child_name]])
+    legend_labels <- color2label[[annot_name]][as.character(cur_grob$gp$fill)]
+    
+    res <- gList()
+    res[["rect"]] <- cur_grob
+    res[["text"]] <- textGrob(x = cur_grob$x + 0.5 * cur_grob$width,
+                              y = cur_grob$y - 0.5 * cur_grob$height,
+                              label = legend_labels,
+                              gp = gp)
+    legend_grob$children[[target_child_name]] <- gTree(children = res)
+  }
+  p$gtable$grobs[[legend_index]] <- gTree(children = legend_grob$children)
+  
+  # Add labels to annotation tracks
+  for (track_dir in names(tracks)){
+    track_grob <- tracks[[track_dir]]$grob
+    track_index <- tracks[[track_dir]]$index
+    
+    track_labels <- purrr::map(
+      .x = colnames(track_grob$gp$fill),
+      ~color2label[[.x]][track_grob$gp$fill[,.x]]
+    ) %>%
+      do.call(what = c, args = .)
+    
+    # Add labels to annotation track
+    res <- gList()
+    res[["rect"]] = track_grob
+    res[["text"]] = textGrob(x = track_grob$x,
+                             y = track_grob$y,
+                             label = track_labels,
+                             rot = ifelse(track_dir == "col", yes = angle_col, no = angle_row),
+                             gp = gp)
+    p$gtable$grobs[[track_index]] <- gTree(children = res)
+  }
+  return(p)
+}
+# Function based on (and slightly modified, removing the option to make
+# vertically positioned dendrograms)
+# https://github.com/cran/pheatmap/blob/master/R/pheatmap.r
+# on 2019_02_14
+draw_dendrogram <- function(hc) {
+  h = hc$height / max(hc$height) / 1.05
+  m = hc$merge
+  o = hc$order
+  n = length(o)
+  
+  m[m > 0] = n + m[m > 0] 
+  m[m < 0] = abs(m[m < 0])
+  
+  dist = matrix(0, nrow = 2 * n - 1, ncol = 2, dimnames = list(NULL, c("x", "y"))) 
+  dist[1:n, 1] = 1 / n / 2 + (1 / n) * (match(1:n, o) - 1)
+  
+  for(i in 1:nrow(m)){
+    dist[n + i, 1] = (dist[m[i, 1], 1] + dist[m[i, 2], 1]) / 2
+    dist[n + i, 2] = h[i]
+  }
+  
+  draw_connection = function(x1, x2, y1, y2, y){
+    res = list(
+      x = c(x1, x1, x2, x2),
+      y = c(y1, y, y, y2)
+    )
+    
+    return(res)
+  }
+  
+  x = rep(NA, nrow(m) * 4)
+  y = rep(NA, nrow(m) * 4)
+  id = rep(1:nrow(m), rep(4, nrow(m)))
+  
+  for(i in 1:nrow(m)){
+    c = draw_connection(dist[m[i, 1], 1], dist[m[i, 2], 1], dist[m[i, 1], 2], dist[m[i, 2], 2], h[i])
+    k = (i - 1) * 4 + 1
+    x[k : (k + 3)] = c$x
+    y[k : (k + 3)] = c$y
+  }
+  
+  x = unit(x, "npc")
+  y = unit(y, "npc")
+  
+  return(polylineGrob(x = x, y = y, id = id))
+}
+# pheatmap variant enabling clustering of groups of columns.
+col_grouped_pheatmap <- function(mat,
+                                 col_groups,
+                                 col_clust_fun = "hclust",
+                                 col_dist_fun = "dist",
+                                 method = "euclidean",
+                                 treeheight_col = 50,
+                                 display_numbers = FALSE,
+                                 silent = TRUE,
+                                 ...) {
+  require(pheatmap)
+  require(grid)
+  require(gtable)
+  stopifnot(is.matrix(mat))
+  stopifnot(any(class(display_numbers) %in% c("logical", "matrix")))
+  
+  col_clust_fun <- match.fun(col_clust_fun)
+  col_dist_fun <- match.fun(col_dist_fun)
+  
+  # Cluster the columns and draw the dendrograms
+  dendro_grobs <- list()
+  for (cur_group in unique(col_groups)) {
+    col_indexes.subset <- which(col_groups == cur_group)
+    #cl <- hclust(d = dist(x = t(mat[, col_indexes.subset]),
+    #                      method = method))
+    cl <- col_clust_fun(d = col_dist_fun(x = t(mat[, col_indexes.subset]),
+                                         method = method))
+    
+    col_indexes <- 1:ncol(mat)
+    col_indexes[col_indexes.subset] <- NA
+    col_indexes[is.na(col_indexes)] <- col_indexes.subset[cl$order]
+    mat <- mat[, col_indexes]
+    
+    dendro_grobs[[length(dendro_grobs) + 1]] <- draw_dendrogram(cl)
+  }
+  
+  # Get column numbers after which a gap occurs
+  gaps_col <- which(
+    purrr::map_lgl(2:length(col_groups),
+                   ~{col_groups[.x] != col_groups[.x-1]}))
+  
+  gap_width <- unit("4", "bigpts")
+  matrix_cell_width <- (1 / ncol(mat)) * (unit(1, "npc") - length(gaps_col) * gap_width)
+  dendro_widths <- base::diff(c(0, gaps_col, ncol(mat))) * matrix_cell_width
+  
+  gap_grob <- rectGrob(gp = gpar(fill = NA, col = NA), width = gap_width)
+  
+  my_grobs <- list(dendro_grobs[[1]])
+  my_widths <- dendro_widths[1]
+  for (i in 1:length(gaps_col)) {
+    my_grobs[[2*i]] <- gap_grob
+    my_grobs[[2*i + 1]] <- dendro_grobs[[i+1]]
+    my_widths <- unit.c(my_widths, gap_width, dendro_widths[i+1])
+  }
+  
+  combined_dendros_grob <- grobTree(gtable_matrix(
+    name = "my_dendrograms",
+    grobs = matrix(my_grobs, ncol = length(my_grobs)),
+    widths = my_widths,
+    heights = unit(1, "null")))
+  
+  if (is.matrix(display_numbers)) {
+    display_numbers <- display_numbers[rownames(mat), colnames(mat)]
+  }
+  
+  p <- pheatmap::pheatmap(mat = mat,
+                display_numbers = display_numbers,
+                gaps_col = gaps_col,
+                treeheight_col = treeheight_col,
+                cluster_cols = FALSE,
+                filename = NA,
+                silent = silent,
+                ...)
+  
+  p$gtable <- gtable_add_grob(
+    x = p$gtable,
+    grobs = combined_dendros_grob,
+    t = 2,
+    l = 3,
+    name = "col_tree")
+  p$gtable$heights[2] <- p$gtable$heights[2] + unit(treeheight_col, "bigpts")
+  p$gtable$heights[4] <- p$gtable$heights[4] - unit(treeheight_col, "bigpts")
+  return(p)
+}
+#Principal Variant Component Analysis (PVCA) function
+pvca <- function (abatch,expInfo) {
+	theDataMatrix=abatch
+	dataRowN <- nrow(theDataMatrix)
+	dataColN <- ncol(theDataMatrix)
+
+	########## Center the data (center rows) ##########
+	theDataMatrixCentered <- matrix(data = 0, nrow = dataRowN, ncol = dataColN)
+	theDataMatrixCentered_transposed = apply(theDataMatrix, 1, scale, center = TRUE, scale = FALSE)
+	theDataMatrixCentered = t(theDataMatrixCentered_transposed)
+
+	########## Compute correlation matrix &  Obtain eigenvalues ##########
+
+	theDataCor <- cor(theDataMatrixCentered)
+	eigenData <- eigen(theDataCor)
+	eigenValues = eigenData$values
+	ev_n <- length(eigenValues)
+	eigenVectorsMatrix = eigenData$vectors
+	eigenValuesSum = sum(eigenValues)
+	percents_PCs = eigenValues /eigenValuesSum 
+
+	##===========================================
+	##	Getting the experimental information
+	##===========================================
+	
+	exp_design <- as.data.frame(expInfo)
+	expDesignRowN <- nrow(exp_design)
+	expDesignColN <- ncol(exp_design)
+
+	########## Merge experimental file and eigenvectors for n components ##########
+
+	## pc_n is the number of principal components to model
+	
+	## Use fixed pc_n
+	pc_n=5
+
+	pc_data_matrix <- matrix(data = 0, nrow = (expDesignRowN*pc_n), ncol = 1)
+	mycounter = 0
+	for (i in 1:pc_n){
+		for (j in 1:expDesignRowN){
+			mycounter <- mycounter + 1
+			pc_data_matrix[mycounter,1] = eigenVectorsMatrix[j,i]
+		}
+	}
+
+	AAA <- exp_design[rep(1:expDesignRowN,pc_n),]
+	Data <- cbind(AAA,pc_data_matrix)
 
 
-```{r, global-variables, echo=FALSE}
-dataCacheDir <- here("data_cache")
-datePrefix <- "2020_12_23_newAnno_"
+	####### Edit these variables according to your factors #######
+
+	variables <-c (colnames(exp_design))
+	for (i in 1:length(variables))
+	{
+		Data$variables[i] <- as.factor(Data$variables[i] )
+	}
+
+
+	########## Mixed linear model ##########
+	op <- options(warn = (-1)) 
+	effects_n = expDesignColN+1 #effects size without interaction terms
+	randomEffectsMatrix <- matrix(data = 0, nrow = pc_n, ncol = effects_n)
+
+	##============================#
+	##	Get model functions
+	##============================#
+	model.func <- c()
+	index <- 1
+
+	##	level-1
+	for (i in 1:length(variables))
+	{	
+		mod = paste("(1|", variables[i], ")",   sep="")
+		model.func[index] = mod
+		index = index + 1
+	}
+
+	function.mods <- paste (model.func , collapse = " + ")
+
+	##============================#
+	##	Get random effects	#
+	##============================#
+
+	for (i in 1:pc_n){
+		y = (((i-1)*expDesignRowN)+1)
+		funct <- paste ("pc_data_matrix", function.mods, sep =" ~ ")
+                Rm1ML <- lmer( funct ,
+                              Data[y:(((i-1)*expDesignRowN)+expDesignRowN),],
+                              REML = TRUE, verbose = FALSE, na.action = na.omit)
+                randomEffects <- Rm1ML
+                randomEffectsMatrix[i,] <- c(unlist(VarCorr(Rm1ML)),resid=sigma(Rm1ML)^2)
+	}
+	effectsNames <- c(names(getME(Rm1ML,"cnms")),"resid")
+
+	########## Standardize Variance ##########
+	randomEffectsMatrixStdze <- matrix(data = 0, nrow = pc_n, ncol = effects_n)
+	for (i in 1:pc_n){
+		mySum = sum(randomEffectsMatrix[i,])
+		for (j in 1:effects_n){
+			randomEffectsMatrixStdze[i,j] = randomEffectsMatrix[i,j]/mySum	
+		}
+	}
+
+	########## Compute Weighted Proportions ##########
+
+	randomEffectsMatrixWtProp <- matrix(data = 0, nrow = pc_n, ncol = effects_n)
+	for (i in 1:pc_n){
+		weight = eigenValues[i]/eigenValuesSum
+		for (j in 1:effects_n){
+			randomEffectsMatrixWtProp[i,j] = randomEffectsMatrixStdze[i,j]*weight
+		}
+	}
+
+	########## Compute Weighted Ave Proportions ##########
+
+	randomEffectsSums <- matrix(data = 0, nrow = 1, ncol = effects_n)
+	randomEffectsSums <-colSums(randomEffectsMatrixWtProp)
+	totalSum = sum(randomEffectsSums)
+	randomEffectsMatrixWtAveProp <- matrix(data = 0, nrow = 1, ncol = effects_n)
+
+	for (j in 1:effects_n){
+		randomEffectsMatrixWtAveProp[j] = randomEffectsSums[j]/totalSum 	
+	}
+	return(list(dat=randomEffectsMatrixWtAveProp, label=effectsNames))
+}
+```
+```{r load}
+FDR_THRESHOLD <- 0.05 # Determines if a gene set is significantly up/down
+NUM_PERMUTATIONS <- 10000
+
+young.noNorm.noResponse <- readRDS(file.path(dataDir,"young_noNorm_eset.rds"))
+old.noNorm.noResponse <- readRDS(file.path(dataDir, "old_noNorm_eset.rds"))
+young.noNorm.withResponse <- readRDS(file.path(dataDir, "young_noNorm_withResponse_eset.rds"))
+old.noNorm.withResponse <- readRDS(file.path(dataDir,  "old_noNorm_withResponse_eset.rds"))
+# Combine young and old with response
+symbols <- intersect(rownames(young.noNorm.withResponse),
+                     rownames(old.noNorm.withResponse))
+pd <- rbind(Biobase::pData(young.noNorm.withResponse) %>%
+              dplyr::mutate(age_group = "young"),
+            Biobase::pData(old.noNorm.withResponse) %>%
+              dplyr::mutate(age_group = "old"))
+ge <- cbind(Biobase::exprs(young.noNorm.withResponse)[symbols, ],
+            Biobase::exprs(old.noNorm.withResponse)[symbols, ])[, pd$uid]
+rownames(pd) <- pd$uid
+young_and_old.noNorm.withResponse <- new("ExpressionSet", 
+            exprs = ge,
+            phenoData = new('AnnotatedDataFrame', pd))
+btm_list <- readRDS(file = file.path(dataDir, "btm_list_2020_12_23.rds"))
+
+##Create fold change dataset for downstream use
+eset=readRDS(file.path(dataDir, "young_norm_eset.rds"))
+colnames(eset)=eset$uid
+#Create combined vaccine type/pathogen column
+eset$pt=paste(eset$pathogen," (",eset$vaccine_type,")", sep='')
+#Create combined SDY/pathogen/vaccine type column
+eset$SDY_pt=paste(eset$study,eset$pt)
+#Find samples at timepoints >=0
+tp_int=sort(unique(eset$time_post_last_vax[which(eset$time_post_last_vax>=0)])) 
+ind=lapply(tp_int, function(x) which(eset$time_post_last_vax==x))
+#Combine indices of all timepoints of interest
+ind_all=Reduce(union,ind)
+#Retain only samples from timepoints of interest
+eset=eset[,ind_all]
+#Recompute timepoint indices after removing extraneous timepoints
+ind=lapply(tp_int, function(x) which(eset$time_post_last_vax==x))
+#Remove samples from a single study with fewer than sample_cutoff samples at any timepoint
+sample_cutoff=3
+matrix_uni_tp=lapply(ind,function(x) unique(eset[,x]$matrix))
+matrix_ind=lapply(1:length(ind),function(x)
+  lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==eset[,ind[[x]]]$matrix)))
+ind_cut_all=vector()
+for (i in 1:length(matrix_ind)) {
+  ind_cut=which(sapply(matrix_ind[[i]],length)<sample_cutoff)
+  if (is_empty(ind_cut)==FALSE) {
+    for (j in 1:length(ind_cut)){
+      ind_cut_all=c(ind_cut_all,ind[[i]][matrix_ind[[i]][[ind_cut[j]]]])
+    }
+  }
+}
+if (is_empty(ind_cut_all)==FALSE) {
+  eset=eset[,-ind_cut_all]
+}
+#Create unique list of studies
+matrix_uni=unique(eset$matrix)
+#Remove matrices with only D0 expression
+matrix_tp=lapply(matrix_uni, function(x) unique(eset$time_post_last_vax[eset$matrix==x]))
+matrix_d0_only=matrix_uni[sapply(matrix_tp, function(x) identical(x,0))]
+eset=eset[,!(eset$matrix %in% matrix_d0_only)]
+#Remove genes with NA
+eset=eset[complete.cases(exprs(eset)),]
+#Recompute timepoint indices after removing samples
+tp_int=sort(unique(eset$time_post_last_vax[which(eset$time_post_last_vax>=0)]))
+ind=lapply(tp_int, function(x) which(eset$time_post_last_vax==x))
+#Create BTM-level eset
+#Remove BTMs which have no matching genes in dataset
+btm_list=btm_list[!sapply(btm_list, function(x) is_empty(intersect(x,rownames(eset))))]
+#Collapse - find arithmetic mean of genes in each BTM for each sample
+eset_BTM=do.call(rbind, lapply(btm_list, function(x) colMeans(exprs(eset[na.omit(match(x,rownames(eset))),]),na.rm=TRUE)))
+#Create BTM-level eset
+eset_BTM=ExpressionSet(as.matrix(eset_BTM), eset@phenoData)
+
+#Compute D0 normalized FC
+ind_D0=which(0==eset$time_post_last_vax)
+common=lapply(2:length(ind),function(x) intersect(eset$participant_id[ind[[x]]],eset$participant_id[ind_D0]))
+ia=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset$participant_id[ind[[x]]])))
+ib=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset$participant_id[ind_D0])))
+exp_FC=lapply(2:length(ind),function(x) eset[,ind[[x]][ia[[x-1]]]])
+exp_FC=lapply(2:length(ind),function(x) {exprs(exp_FC[[x-1]])=exprs(exp_FC[[x-1]])-exprs(eset[,ind_D0[ib[[x-1]]]]); exp_FC[[x-1]]})
+exp_FC_BTM=lapply(2:length(ind),function(x) eset_BTM[,ind[[x]][ia[[x-1]]]])
+exp_FC_BTM=lapply(2:length(ind),function(x) {exprs(exp_FC_BTM[[x-1]])=exprs(exp_FC_BTM[[x-1]])-exprs(eset_BTM[,ind_D0[ib[[x-1]]]]); exp_FC_BTM[[x-1]]})
+tp_FC=tp_int[-1] #Store timepoints for FC data (remove Day 0)
+# Colors and abbreviations
+load(file.path(dataDir, "adj_path_vt_colors_abbv.RData"))
+```
+# Figure 1. An integrated database of transcriptional responses to vaccination
+
+
+Figure 1d: Bar plot representing the proportion of variance in post-vaccination transcriptional responses that can be attributed to clinical (age, sex, ethnicity) and experimental variables (time after vaccination, vaccine) via Principal Component Variance Analysis 
+
+```{r PVCA}
+#Merge FC data into one eset
+exp_FC_all=do.call(Biobase::combine,exp_FC)
+exp_FC_all_pData=pData(exp_FC_all)
+
+#Collect variables for PVCA
+TP_variables=data.frame(Timepoint=exp_FC_all_pData$study_time_collected,
+                        Vaccine=exp_FC_all_pData$pt,
+                        Gender=exp_FC_all_pData$gender,
+                        Age=exp_FC_all_pData$age_reported,
+                        Ethnicity=exp_FC_all_pData$ethnicity)
+rownames(TP_variables)=rownames(exp_FC_all_pData)
+
+#Call PVCA function
+pvcaObj=pvca(exprs(exp_FC_all),TP_variables)
+
+#Create plot
+par(mar=c(9,6,4,1))
+p <- barplot(pvcaObj$dat, ylab = "Proportion variance explained",
+             ylim= c(0,1.1),col = c("blue"), las=2, cex.axis=1, cex.names=1)
+axis(1, at = p, labels = pvcaObj$label, cex.axis = 1, las=2)
 ```
 
-# Figure 1
+# Figure S1. Overlap in differentially expressed genes/modules and kinetics of common module clusters
 
-## Figure 1a
-__caption and description...__
+1. Prepare data  
+  1. Create data frame with gene set enrichment scores for postvax vs prevax time points in young adult cohort.
+  
+```{r longitudinal-qusage-young}
+longitudinal_qusage_young_df_path <- file.path(dataCacheDir, "longitudinal_qusage_young_df.rds")
+if (file.exists(longitudinal_qusage_young_df_path)) {
+  longitudinal_qusage_young_df <- readRDS(longitudinal_qusage_young_df_path)
+} else {
+  young.noNorm.noResponse.filtered <- young.noNorm.noResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    remove_any_NA_rows()
+  
+  # Check that there are no repeated measures at any time point
+  stopifnot(Biobase::pData(young.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id, time_post_last_vax) %>%
+              dplyr::filter(n() > 1) %>%
+              nrow() == 0)
+  
+  # Check that every participant has a baseline time point
+  stopifnot(Biobase::pData(young.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id) %>%
+              dplyr::filter(!any(time_post_last_vax <= 0)) %>%
+              nrow() == 0)
+  
+  btm_list.filtered <- keep_symbols(
+    genesets.symbol = btm_list,
+    symbols2keep = rownames(young.noNorm.noResponse.filtered))
+  
+  # Gene set enrichment analysis: postvax vs prevax time points ------------------
+  
+  eset <- young.noNorm.noResponse.filtered
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(n_participants = NA,
+                  qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  for (row_nr in 1:nrow(analysis_df)) {
+    
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.contrast <- paste0(postvax_string, "-", prevax_string)
+    
+    qusage.labels <- ifelse(
+      test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+      yes = postvax_string,
+      no = prevax_string)
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered,
+                          pairVector = cur_eset$participant_id)
+    analysis_df$n_participants[row_nr] <-
+      length(unique(cur_eset$participant_id))
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+  }
+  saveRDS(analysis_df, longitudinal_qusage_young_df_path)
+  longitudinal_qusage_young_df <- analysis_df
+}
+```
+       
+  2. create data frame with meta analysis results of gene set enrichment scores from postvax vs prevax time point of young adults.
+     
+```{r tidy_longitudinal_qusage}
+longitudinal_qusage_young_meta_df_path <- file.path(dataCacheDir, "longitudinal_qusage_young_meta_df.rds")
+if (file.exists(longitudinal_qusage_young_meta_df_path)) {
+  longitudinal_qusage_young_meta_df <- readRDS(longitudinal_qusage_young_meta_df_path) 
+} else {
+  longitudinal_qusage_young_meta_df <- meta_qusage(longitudinal_qusage_young_df, group_cols = c("pathogen",
+                                         "vaccine_type",
+                                         "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_young_meta_df, longitudinal_qusage_young_meta_df_path)
+}
+tidy_longitudinal_qusage_young_meta_df <- longitudinal_qusage_young_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output") %>%
+  dplyr::mutate(FDR = p.adjust(p.value, method = "BH"),
+                FDR_signif_label = create_signif_label(FDR))
+```
+  
+  3. create null distribution of gene set sharing between vaccines
+  
+```{r geneset-sharing}
+# Calculate null distribution of gene set sharing between vaccines -------------
+geneset_sharing_young_null_boot_path <- file.path(dataCacheDir, "geneset_sharing_young_null_boot.rds")
+if (file.exists(geneset_sharing_young_null_boot_path)) {
+  geneset_sharing_young_null_boot <- readRDS(geneset_sharing_young_null_boot_path)
+} else {
+  nbins <- tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::select(pathogen, vaccine_type) %>%
+    dplyr::distinct() %>%
+    nrow() + 1
+  
+  strata <- tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+    dplyr::group_indices()
+  
+  ncpus <- parallel::detectCores()
+  
+  system.time(geneset_sharing_young_null_boot <- boot(
+    data = tidy_longitudinal_qusage_young_meta_df,
+    statistic = function(data, indices){
+      data %>%
+        dplyr::mutate(geneset = geneset[indices]) %>%
+        calc_sharing_df() %>%
+        dplyr::pull(n) %>%
+        `+`(1) %>%
+        tabulate(nbins = nbins)
+    },
+    R = NUM_PERMUTATIONS,
+    sim = "permutation",
+    stype = "i",
+    strata = strata,
+    parallel = "multicore",
+    ncpus = ncpus))
+  
+  saveRDS(object = geneset_sharing_young_null_boot,
+          file = geneset_sharing_young_null_boot_path)
+}
+```
+  
+  4. select which gene sets are common in the young adult vaccine response.
+  
+```{r genesets-shared}
+sharing_young_df <- tidy_longitudinal_qusage_young_meta_df %>%
+  calc_sharing_df()
+genesets_shared_young_common <- sharing_young_df %>%
+  dplyr::filter(n >= quantile(x = n, probs = 0.95)) %>%
+  dplyr::pull(geneset)
+```
+
+Figure S1A. Histogram of overlap in DEGs
+
+```{r fig-S2a}
+#bram
+```
+
+Figure S1B. Histogram of overlap in differentially expressed modules
+
+```{r fig-S2b, fig.width=10, fig.height=7}
+nbins <- tidy_longitudinal_qusage_young_meta_df %>%
+  dplyr::select(pathogen, vaccine_type) %>%
+  dplyr::distinct() %>%
+  nrow() + 1
+obs_sharing_young_df <- calc_sharing_df(
+  tidy_longitudinal_qusage_young_meta_df) %>%
+  dplyr::pull(n) %>%
+  `+`(1) %>%
+  tabulate(nbins = nbins) %>%
+  dplyr::as_tibble() %>%
+  dplyr::mutate(incidence = dplyr::row_number() - 1) %>%
+  dplyr::rename(incidence_count = value) %>%
+  dplyr::mutate(ymin = NA, ymax = NA, type = "observed") %>%
+  dplyr::select(incidence, incidence_count, ymin, ymax, type)
+probs <- c(0.025, 0.975)
+null_sharing_young_df <- geneset_sharing_young_null_boot$t %>%
+  as.data.frame() %>%
+  dplyr::summarise(dplyr::across(.fns = function(col)
+    c(median(col), quantile(col , probs = probs)))) %>%
+  t() %>%
+  as.data.frame()
+colnames(null_sharing_young_df) <- c("incidence_count", "ymin", "ymax")
+null_sharing_young_df <- null_sharing_young_df %>%
+  dplyr::mutate(incidence = dplyr::row_number() - 1,
+                type = "null") %>%
+  dplyr::select(incidence, incidence_count, ymin, ymax, type)
+plot_df <- dplyr::bind_rows(obs_sharing_young_df, null_sharing_young_df) %>%
+  dplyr::filter(!(incidence > 1 & incidence_count < 0.1))
+ggplot(plot_df, aes(x = incidence, y = incidence_count, fill = type)) +
+  geom_bar(stat = "identity", position = position_dodge(),
+           width = 0.9) +
+  geom_errorbar(aes(ymin = ymin, ymax = ymax),
+                position = position_dodge(width = 0.9),
+                width = 0.4) +
+  xlab("Number of different vaccines") +
+  ylab("Number of BTMs") +
+  scale_fill_manual(values = c("null" = "lightgrey", "observed" = "navy")) +
+  scale_x_continuous(breaks = plot_df$incidence) +
+  theme_bw(base_size = 22) +
+  theme(panel.grid = element_blank())
+```
+
+# Figure 2: Common and unique transcriptional responses across different vaccines
+
+Figure 2A. Heatmap of common differentially expressed modules (regulated in 7 or more vaccines) over time
+```{r fig-2a, fig.width = 29, fig.height = 18}
+n_clusters=4 #Number of module clusters
+common_tp=c(1,3,7,14,21) #Common timepoints to plot
+time_windows <- c(0, 1, 4, 10, 15, Inf)
+#Subset qusage results to most common timepoints
+tidy_longitudinal_qusage_young_meta_df_commontp=tidy_longitudinal_qusage_young_meta_df[tidy_longitudinal_qusage_young_meta_df$time_post_last_vax %in% common_tp,]
+plot_df <- tidy_longitudinal_qusage_young_meta_df_commontp %>%
+  dplyr::filter(geneset %in% genesets_shared_young_common) %>%
+  dplyr::mutate(pvt_tp = paste0(pathogen, " (", vaccine_type, ")", " Day ",
+                                time_post_last_vax)) %>%
+  dplyr::left_join(Biobase::pData(young.noNorm.noResponse) %>%
+                     dplyr::select(pathogen, vaccine_type, adjuvant) %>%
+                     dplyr::distinct(),
+                   by = c("pathogen", "vaccine_type"))
+m <- plot_df %>%
+  dplyr::select(pvt_tp, geneset, activity_score) %>%
+  tidyr::pivot_wider(names_from = "pvt_tp", values_from = "activity_score") %>%
+  tibble::column_to_rownames(var = "geneset") %>%
+  as.matrix()
+m_fdr <- plot_df %>%
+  dplyr::select(pvt_tp, geneset, FDR) %>%
+  tidyr::pivot_wider(names_from = "pvt_tp", values_from = "FDR") %>%
+  tibble::column_to_rownames(var = "geneset") %>%
+  as.matrix()
+# Setup color gradient
+paletteLength <- 50
+myColor <- colorRampPalette(c("navy", "white", "firebrick3"))(paletteLength)
+myBreaks <- c(
+  seq(-max(abs(m)), 0, length.out=ceiling(paletteLength/2) + 1),
+  seq(max(abs(m))/paletteLength, max(m), length.out=floor(paletteLength/2)))
+# Column annotations
+myColAnnot <- plot_df %>%
+  dplyr::select(time_post_last_vax, pvt_tp, pathogen, vaccine_type, adjuvant) %>%
+  dplyr::distinct() %>%
+  dplyr::arrange(time_post_last_vax, pathogen, vaccine_type, adjuvant) %>%
+  tibble::column_to_rownames(var = "pvt_tp")
+m <- m[, rownames(myColAnnot)]
+cor.dist <- function(x, method = NA) {
+  stopifnot(is.na(method))
+  stopifnot(is.matrix(x))
+  as.dist((1-cor(t(x)))/2)
+}
+cluster_rows <- hclust(d = cor.dist(m))
+cluster_df <- cutree(tree = cluster_rows, k = n_clusters) %>%
+  as.data.frame() %>%
+  tibble:::rownames_to_column(var = "geneset") %>%
+  dplyr::rename(cluster_nr = ".")
+vaccine_type <- unique(plot_df$vaccine_type)
+pathogen <- unique(plot_df$pathogen)
+adjuvant <- unique(plot_df$adjuvant)
+myAnnotColors <- list(
+  vaccine_type = adj_path_vt_colors$vaccine_type[vaccine_type],
+  pathogen = adj_path_vt_colors$pathogen[pathogen],
+  adjuvant = adj_path_vt_colors$adjuvant[adjuvant],
+  cluster = setNames(ptol_pal()(n_clusters), nm = as.character(1:n_clusters))
+)
+
+#Manually change cluster labels for aesthetics
+cluster_df$cluster_nr[cluster_df$cluster_nr==4]=5
+cluster_df$cluster_nr[cluster_df$cluster_nr==2]=4
+cluster_df$cluster_nr[cluster_df$cluster_nr==3]=2
+cluster_df$cluster_nr[cluster_df$cluster_nr==5]=3
+
+p <- col_grouped_pheatmap(
+  mat = m,
+  col_groups = cut(myColAnnot$time_post_last_vax, time_windows),
+  col_dist_fun = cor.dist,
+  method = NA,
+  color = myColor,
+  breaks = myBreaks,
+  cluster_rows = cluster_rows,
+  display_numbers =  ifelse(test = is.na(m_fdr) | m_fdr >= FDR_THRESHOLD,
+                            yes = " ",
+                            no = "*"),
+  annotation_col = myColAnnot %>%
+    dplyr::select(pathogen, vaccine_type, adjuvant),
+  annotation_row = cluster_df %>%
+    dplyr::rename(cluster = cluster_nr) %>%
+    dplyr::mutate(cluster = as.character(cluster)) %>%
+    tibble::column_to_rownames(var = "geneset"),
+  annotation_colors = myAnnotColors,
+  main = "",
+  fontsize = 22,
+  fontsize_row = 18,
+  fontsize_col = 18,
+  fontsize_number = 22)
+p <- pheatmap_add_labels(
+  p = p,
+  annot_labels = adj_path_vt_abbv)
+print(p)
+```
+
+Figure 2B-C, Figure S1C-D. Kinetics of the mean FC of module clusters across vaccines.
+
+```{r fig2b-c_figS1c-d, fig.width = 10, fig.height = 5}
+#Create color/linetype paired list for pathogen/vaccine type combination
+cols=colorRampPalette(brewer.pal(ceiling(length(unique(eset$pt))/3), "Set1"))
+pt_line_color_anno=list('color'=setNames(rep(cols(ceiling(length(unique(eset$pt))/3)),3), unique(eset$pt)),
+                        'linetype'=setNames(rep(c('solid','dashed','dotted'),ceiling(length(unique(eset$pt))/3)), unique(eset$pt)))
+#Create list from BTM clustering in common BTM heatmap
+BTM_clust=lapply(unique(cluster_df$cluster_nr), function(x) cluster_df$geneset[which(cluster_df$cluster_nr==x)])
+names(BTM_clust)=unique(cluster_df$cluster_nr)
+#Get BTM FC data for common timepoints
+common_tp=c(1,3,7,14,21)
+exp_FC_BTM_commonTP=exp_FC_BTM[tp_FC %in% common_tp]
+#Collapse BTM FC data to cluster-level
+exp_FC_BTM_cluster=lapply(exp_FC_BTM_commonTP, function(x) {z=do.call(rbind, lapply(BTM_clust, function(y) colMeans(exprs(x[match(y,rownames(x)),])))); ExpressionSet(as.matrix(z), x@phenoData)})
+#For each study, average expression across all subjects
+matrix_uni_tp=lapply(exp_FC_BTM_cluster,function(x) x$matrix[!duplicated(x$matrix)])
+#Store study metadata
+matrix_uni_tp_metaData=lapply(exp_FC_BTM_cluster,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                rownames_to_column() %>%
+                                dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt) %>%
+                                column_to_rownames(var = "matrix"))
+#Find sample indices per matrix
+matrix_ind=lapply(1:length(exp_FC_BTM_cluster),
+                  function(x) lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==exp_FC_BTM_cluster[[x]]$matrix)))
+#Study size
+exp_FC_BTM_cluster_n=lapply(1:length(exp_FC_BTM_cluster),
+                function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) length(matrix_ind[[x]][[y]])))
+#Average FC
+exp_FC_BTM_cluster_mean=lapply(1:length(exp_FC_BTM_cluster),
+                   function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) rowMeans(exprs(exp_FC_BTM_cluster[[x]][,matrix_ind[[x]][[y]]]))))
+
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp=lapply(matrix_uni_tp_metaData,function(x) x$pt[!duplicated(x$pt)])
+pt_metaData=lapply(1:length(matrix_uni_tp_metaData),
+                   function(x) dplyr::select(
+                     matrix_uni_tp_metaData[[x]][!duplicated(matrix_uni_tp_metaData[[x]]$pt),],
+                     vaccine_type, pathogen, adjuvant))
+#Vaccine size
+exp_FC_BTM_cluster_pt_n=lapply(1:length(exp_FC_BTM_cluster),
+                   function(x) sapply(1:length(pt_uni_tp[[x]]), function(y) length(which(exp_FC_BTM_cluster[[x]]$pt==pt_uni_tp[[x]][y]))))
+#Add weight (1/vaccine sample size) to pData for all samples
+n_weight=lapply(1:length(exp_FC_BTM_cluster),
+                function(x) sapply(1:ncol(exp_FC_BTM_cluster[[x]]), function(y) exp_FC_BTM_cluster_pt_n[[x]][which(pt_uni_tp[[x]]==exp_FC_BTM_cluster[[x]]$pt[y])]))
+for (i in 1:length(exp_FC_BTM_cluster)) {
+  exp_FC_BTM_cluster[[i]]$n_weight=1/n_weight[[i]]
+}
+
+#Compute mean FC and p values per cluster per vaccine (pt-pathogen/vaccine type)
+pt_ind=vector("list",length(exp_FC_BTM_cluster))
+pt_FC_mean=vector("list",length(exp_FC_BTM_cluster))
+for (i in 1:length(exp_FC_BTM_cluster)) {
+  #For each vaccine
+  pt_FC_mean[[i]]=matrix(NA, nrow=nrow(exp_FC_BTM_cluster[[i]]), ncol=length(pt_uni_tp[[i]]))
+  for (j in 1:length(pt_uni_tp[[i]])) {
+    pt_ind[[i]][[j]]=which(pt_uni_tp[[i]][[j]]==matrix_uni_tp_metaData[[i]]$pt)
+    #If there is more than 1 study, compute weighted average
+    if (length(pt_ind[[i]][[j]])>1) {
+      #Average FCs (weighted by n)
+      pt_FC_mean[[i]][,j]=rowWeightedMeans(exp_FC_BTM_cluster_mean[[i]][,pt_ind[[i]][[j]]], w=exp_FC_BTM_cluster_n[[i]][pt_ind[[i]][[j]]])
+      #Otherwise store single value
+    } else {
+      pt_FC_mean[[i]][,j]=exp_FC_BTM_cluster_mean[[i]][,pt_ind[[i]][[j]]]
+    }
+  }
+  colnames(pt_FC_mean[[i]])=pt_uni_tp[[i]]
+  rownames(pt_FC_mean[[i]])=rownames(exp_FC_BTM_cluster_mean[[i]])
+}
+
+#Set clusters of interest, plot kinetics
+BTM_clust_int=names(BTM_clust)
+for (i in 1:length(BTM_clust_int)) {
+  #Lookup BTM
+  ind=which(rownames(exp_FC_BTM_cluster_mean[[i]])==BTM_clust_int[i])
+  #Build matrix of avg common gene exp over time per vaccine
+  BTM_clust_int_FC_mat=array(NA, dim=c(length(unique(eset$pt)),ncol=length(exp_FC_BTM_cluster)+1),
+                       dimnames=list(unique(eset$pt),c(0,common_tp)))
+  #Set D0 FC to 0
+  BTM_clust_int_FC_mat[,1]=0
+  #Fill in other day FCs per vaccine
+  for (j in 1:length(exp_FC_BTM_cluster)) {
+    ind_pt=match(pt_uni_tp[[j]],unique(eset$pt))
+    BTM_clust_int_FC_mat[ind_pt,j+1]=pt_FC_mean[[j]][ind,]
+  }
+  #Plot line graph of most common DEG avg per vaccine
+  #Convert matrix to long format
+  BTM_clust_int_FC_mat=data.frame(BTM_clust_int_FC_mat) %>% tibble::rownames_to_column(var = "Vaccine") %>%
+    pivot_longer(-Vaccine, names_to='Timepoint', values_to='FC')
+  #Convert timepoint back to numeric
+  BTM_clust_int_FC_mat$Timepoint=as.numeric(str_replace(BTM_clust_int_FC_mat$Timepoint, 'X', ''))
+  #Plot
+  p=ggplot(BTM_clust_int_FC_mat, aes(x=Timepoint, y=FC, group=Vaccine)) +
+    geom_line(aes(linetype=Vaccine, color=Vaccine), size=1.07)+
+    theme_classic()+
+    scale_color_manual(values=pt_line_color_anno$color)+
+    scale_linetype_manual(values=pt_line_color_anno$linetype)+
+    scale_x_continuous(breaks=c(0,1,3,7,14,21))+
+    xlab("Day post-last vaccination")+
+    ylab("Mean FC (log2)")+
+    ggtitle(paste0('Cluster ',BTM_clust_int[i]))+
+    theme(plot.title = element_text(hjust = 0.5), text = element_text(size=20))
+  print(p)
+}
+
+```
+
+# Figure 3: Overlap in transcriptional responses across vaccines.
+
+```{r fig3, fig.width=20, fig.height=20}
+#Collect processed qusage results
+qusage_df=tidy_longitudinal_qusage_young_meta_df
+#Load BTM groups
+load(file.path(dataCacheDir,'BTM_groups.rda'))
+#Optional:Remove BTMs without subgroup
+BTM_groups=BTM_groups[sapply(BTM_groups$SUBGROUP, function(x) nchar(x)>0),]
+#Set BTM group as factor and manually set order
+BTM_groups$SUBGROUP=factor(BTM_groups$SUBGROUP,
+                           levels=c('ANTIGEN PRESENTATION', 'INFLAMMATORY/TLR/CHEMOKINES','INTERFERON/ANTIVIRAL SENSING',
+                                    'MONOCYTES', 'DC ACTIVATION', 'NEUTROPHILS', 'SIGNAL TRANSDUCTION', 'ECM AND MIGRATION',
+                                    'ENERGY METABOLISM', 'CELL CYCLE', 'NK CELLS', 'T CELLS', 'B CELLS', 'PLASMA CELLS'))
+#Sort BTM list by subgroup
+BTM_groups=BTM_groups[order(BTM_groups$SUBGROUP),]
+rownames(BTM_groups)=BTM_groups$NAME
+#Match qusage BTM names with list
+common_BTMs=intersect(sub('.*\\(S','S',sub('.*\\(M','M',BTM_groups$NAME)), sub('.*\\(S','S',sub('.*\\(M','M',unique(qusage_df$geneset))))
+#Remove qusage BTMs without group
+qusage_df=qusage_df[sub('.*\\(S','S',sub('.*\\(M','M',qusage_df$geneset)) %in% common_BTMs,]
+#Rename to match BTM_groups
+qusage_df$geneset=BTM_groups$NAME[match(sub('.*\\(S','S',sub('.*\\(M','M',qusage_df$geneset)),sub('.*\\(S','S',sub('.*\\(M','M',BTM_groups$NAME)))]
+#Remove BTMs missing from qusage results
+BTM_groups=BTM_groups[sub('.*\\(S','S',sub('.*\\(M','M',BTM_groups$NAME)) %in% common_BTMs,]
+#Add pathogen_type (vaccine) column
+qusage_df$pt=paste(qusage_df$pathogen," (",qusage_df$vaccine_type,")", sep='')
+#Subset data to timepoints of interest
+circos_tp=c(1,3,7)
+qusage_df=qusage_df[qusage_df$time_post_last_vax %in% circos_tp,]
+pt_uni=unique(qusage_df$pt)
+pt_uni_tp=lapply(circos_tp, function(x) unique(qusage_df$pt[qusage_df$time_post_last_vax==x]))
+#Split by timepoint
+qusage_df=lapply(circos_tp, function(x) qusage_df[qusage_df$time_post_last_vax==x,])
+#Convert to wide format
+pt_FC_NES=lapply(qusage_df, function(x) data.frame(spread(x[,c('pt','geneset','activity_score')], pt, activity_score)))
+pt_FC_NES=lapply(pt_FC_NES, function(x) {rownames(x)=x$geneset; x[,-1]})
+pt_FC_NES=lapply(1:length(pt_FC_NES), function(x) {colnames(pt_FC_NES[[x]])=pt_uni_tp[[x]]; pt_FC_NES[[x]]})
+pt_FC_p=lapply(qusage_df, function(x) data.frame(spread(x[,c('pt','geneset','FDR')], pt, FDR)))
+pt_FC_p=lapply(pt_FC_p, function(x) {rownames(x)=x$geneset; x[,-1]})
+pt_FC_p=lapply(1:length(pt_FC_p), function(x) {colnames(pt_FC_p[[x]])=pt_uni_tp[[x]]; pt_FC_p[[x]]})
+#Reorder qusage results to match BTM_groups
+pt_FC_NES=lapply(pt_FC_NES, function(x) x[match(BTM_groups$NAME,rownames(x)),])
+pt_FC_p=lapply(pt_FC_p, function(x) x[match(BTM_groups$NAME,rownames(x)),])
+
+#Compute overlap in sig BTMs
+comb=vector("list",length(pt_FC_NES))
+pt_BTM_ind_sig_NES=vector("list",length(pt_FC_NES))
+pt_BTM_ind_sig_up=vector("list",length(pt_FC_NES))
+pt_BTM_ind_sig_down=vector("list",length(pt_FC_NES))
+pt_BTM_up_overlap=vector("list",length(pt_FC_NES))
+pt_BTM_down_overlap=vector("list",length(pt_FC_NES))
+for (i in 1:length(pt_FC_NES)) {
+  pt_BTM_ind_sig_NES[[i]]=vector("list",ncol(pt_FC_NES[[i]]))
+  names(pt_BTM_ind_sig_NES[[i]])=colnames(pt_FC_NES[[i]])
+  for (j in 1:ncol(pt_FC_NES[[i]])) {
+    #Find signifiant pathways
+    pt_BTM_ind_sig_NES[[i]][[j]]=which(pt_FC_p[[i]][,j]<FDR_THRESHOLD)
+    pt_BTM_ind_sig_up[[i]][[j]]=intersect(pt_BTM_ind_sig_NES[[i]][[j]],which(pt_FC_NES[[i]][,j]>0))
+    pt_BTM_ind_sig_down[[i]][[j]]=intersect(pt_BTM_ind_sig_NES[[i]][[j]],which(pt_FC_NES[[i]][,j]<0))
+  }
+  #Pairwise combinations
+  comb[[i]]=combn(seq.int(1,length(pt_uni_tp[[i]])),2,simplify = FALSE)
+  pt_BTM_up_overlap[[i]]=
+    lapply(comb[[i]],function(x) intersect(pt_BTM_ind_sig_up[[i]][[x[1]]] , pt_BTM_ind_sig_up[[i]][[x[2]]]))
+  pt_BTM_down_overlap[[i]]=
+    lapply(comb[[i]],function(x) intersect(pt_BTM_ind_sig_down[[i]][[x[1]]] , pt_BTM_ind_sig_down[[i]][[x[2]]]))
+}
 
 
+
+#Circos plot of BTMs
+#Set vaccine colors
+cols=colorRampPalette(brewer.pal(length(pt_uni), "Set3"))
+mycolors_vac=cols(length(pt_uni))
+#Create link colors by BTM group
+cols=colorRampPalette(brewer.pal(length(unique(BTM_groups$SUBGROUP)), "Set1"))
+mycolors_BTM=cols(length(unique(BTM_groups$SUBGROUP)))
+for (i in 1:length(pt_FC_NES)) {
+  #Create df with sectors
+  df_sector_list=lapply(1:length(pt_uni_tp[[i]]),
+                        function(y) data.frame(factors=replicate(nrow(pt_FC_NES[[i]]),pt_uni_tp[[i]][[y]]),
+                                               x=seq.int(1,nrow(pt_FC_NES[[i]]))))
+  #Combine into one df
+  df=bind_rows(df_sector_list)
+  #Set barplot limits
+  bar_lim=ceiling(max(abs(pt_FC_NES[[i]]), na.rm = TRUE)*2)/2
+  #Draw sectors
+  #pdf(paste('BTM_circos_day',circos_tp[i],'.pdf',sep=''), width = 20,height = 20)
+  circos.par(cell.padding = c(0.02, 0, 0.02, 0), circle.margin=c(0.01,0.4,0.01,0.01), track.margin=c(0,0))
+  circos.initialize(factors = df$factors, x = df$x)
+  circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
+    #chr = CELL_META$sector.index
+    xlim = CELL_META$xlim
+    ylim = CELL_META$ylim
+    circos.rect(xlim[1], 0, xlim[2], 1, col = mycolors_vac[which(pt_uni_tp[[i]][CELL_META$sector.numeric.index]==pt_uni)])
+    #Add labels
+    circos.text(nrow(pt_FC_NES[[i]])/2, 0.5, CELL_META$sector.index, CELL_META$sector.index, 1, facing = "bending.outside", niceFacing=TRUE, cex = 1.5)
+  }, track.height = 0.2, bg.border = NA)
+  #Add barplots
+  circos.track(ylim = c(-bar_lim, bar_lim), cell.padding=c(0,0,0,0), panel.fun = function(x, y) {
+    value=pt_FC_NES[[i]][,CELL_META$sector.numeric.index]
+    #Replace nonsignificant NES with 0
+    value[pt_FC_p[[i]][,CELL_META$sector.numeric.index]>=FDR_THRESHOLD]=0
+    circos.barplot(value, 1:nrow(pt_FC_NES[[i]]),
+                   col = ifelse(value > 0, '#FF0000', '#0000FF'), border = NA)
+    #circos.yaxis(side='right')
+  }, track.height = 0.2)
+  #Add BTM group color blocks
+  circos.track(ylim = c(0, 1), panel.fun = function(x, y) {
+    for (j in 1:length(unique(BTM_groups$SUBGROUP))) {
+      #Get start/ending indices of BTM group
+      start=match(unique(BTM_groups$SUBGROUP)[j],BTM_groups$SUBGROUP)
+      end=length(BTM_groups$SUBGROUP)-match(unique(BTM_groups$SUBGROUP)[j],rev(BTM_groups$SUBGROUP))+1
+      circos.rect(start, 0, end, 1, col = mycolors_BTM[j])
+    }
+  }, track.height = 0.05, bg.border = NA)
+  #Draw common DEG links (up)
+  for (j in 1:length(pt_BTM_up_overlap[[i]])) {
+    if (length(pt_BTM_up_overlap[[i]][[j]])>0){
+      for (k in 1:length(pt_BTM_up_overlap[[i]][[j]])) {
+        if (!is.na(pt_BTM_up_overlap[[i]][[j]][k])) {
+          circos.link(pt_uni_tp[[i]][[comb[[i]][[j]][1]]], pt_BTM_up_overlap[[i]][[j]][k],
+                      pt_uni_tp[[i]][[comb[[i]][[j]][2]]], pt_BTM_up_overlap[[i]][[j]][k],
+                      col=mycolors_BTM[[which(BTM_groups$SUBGROUP[pt_BTM_up_overlap[[i]][[j]][k]]==unique(BTM_groups$SUBGROUP))]])
+        }
+      }
+    }
+  }
+  #Legend
+  lgd_lines = Legend(at = unique(BTM_groups$SUBGROUP), type = "lines",
+                     legend_gp = gpar(col = mycolors_BTM, lwd = 4), title_position = "topleft",
+                     labels_gp= gpar(fontsize = 14), title = "BTM", background = NA)
+  lgd_list_vertical = packLegend(lgd_lines)
+  pushViewport(viewport(x = unit(40, "cm"), y = unit(40, "cm"),
+                        width = widthDetails(lgd_list_vertical), height = heightDetails(lgd_list_vertical), just = c("left", "bottom")))
+  grid.draw(lgd_list_vertical)
+  upViewport()
+  dev.off()
+}
+
+```
+
+# Figure 4: Early adaptive and delayed innate transcriptional signatures of yellow fever vaccine
+
+Figure 4A, Figure S2A-B. Correlation matrices of pairwise Spearman correlations of gene-level fold changes between vaccines at each timepoint.
+```{r fig4a_figS2a-b}
+#Get FC data for common timepoints
+common_tp=c(1,3,7,14,21)
+exp_FC_commonTP=exp_FC[tp_FC %in% common_tp]
+#For each study, average expression across all subjects
+matrix_uni_tp=lapply(exp_FC_commonTP,function(x) x$matrix[!duplicated(x$matrix)])
+#Store study metadata
+matrix_uni_tp_metaData=lapply(exp_FC_commonTP,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                rownames_to_column() %>%
+                                dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt) %>%
+                                column_to_rownames(var = "matrix"))
+#Find sample indices per matrix
+matrix_ind=lapply(1:length(exp_FC_commonTP),
+                  function(x) lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==exp_FC_commonTP[[x]]$matrix)))
+#Study size
+exp_FC_commonTP_n=lapply(1:length(exp_FC_commonTP),
+                            function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) length(matrix_ind[[x]][[y]])))
+#Average FC
+exp_FC_commonTP_mean=lapply(1:length(exp_FC_commonTP),
+                               function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) rowMeans(exprs(exp_FC_commonTP[[x]][,matrix_ind[[x]][[y]]]))))
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp=lapply(matrix_uni_tp_metaData,function(x) x$pt[!duplicated(x$pt)])
+pt_metaData=lapply(1:length(matrix_uni_tp_metaData),
+                   function(x) dplyr::select(
+                     matrix_uni_tp_metaData[[x]][!duplicated(matrix_uni_tp_metaData[[x]]$pt),],
+                     vaccine_type, pathogen, adjuvant))
+#Vaccine size
+exp_FC_commonTP_pt_n=lapply(1:length(exp_FC_commonTP),
+                               function(x) sapply(1:length(pt_uni_tp[[x]]), function(y) length(which(exp_FC_commonTP[[x]]$pt==pt_uni_tp[[x]][y]))))
+#Add weight (1/vaccine sample size) to pData for all samples
+n_weight=lapply(1:length(exp_FC_commonTP),
+                function(x) sapply(1:ncol(exp_FC_commonTP[[x]]), function(y) exp_FC_commonTP_pt_n[[x]][which(pt_uni_tp[[x]]==exp_FC_commonTP[[x]]$pt[y])]))
+for (i in 1:length(exp_FC_commonTP)) {
+  exp_FC_commonTP[[i]]$n_weight=1/n_weight[[i]]
+}
+
+#Compute mean FC and p values per cluster per vaccine (pt-pathogen/vaccine type)
+pt_ind=vector("list",length(exp_FC_commonTP))
+pt_FC_mean=vector("list",length(exp_FC_commonTP))
+for (i in 1:length(exp_FC_commonTP)) {
+  #For each vaccine
+  pt_FC_mean[[i]]=matrix(NA, nrow=nrow(exp_FC_commonTP[[i]]), ncol=length(pt_uni_tp[[i]]))
+  for (j in 1:length(pt_uni_tp[[i]])) {
+    pt_ind[[i]][[j]]=which(pt_uni_tp[[i]][[j]]==matrix_uni_tp_metaData[[i]]$pt)
+    #If there is more than 1 study, compute weighted average
+    if (length(pt_ind[[i]][[j]])>1) {
+      #Average FCs (weighted by n)
+      pt_FC_mean[[i]][,j]=rowWeightedMeans(exp_FC_commonTP_mean[[i]][,pt_ind[[i]][[j]]], w=exp_FC_commonTP_n[[i]][pt_ind[[i]][[j]]])
+      #Otherwise store single value
+    } else {
+      pt_FC_mean[[i]][,j]=exp_FC_commonTP_mean[[i]][,pt_ind[[i]][[j]]]
+    }
+  }
+  colnames(pt_FC_mean[[i]])=pt_uni_tp[[i]]
+  rownames(pt_FC_mean[[i]])=rownames(exp_FC_commonTP_mean[[i]])
+}
+
+#Compute rank-based correlation matrices at each timepoint using gene FC
+pt_FC_cor=lapply(1:length(pt_FC_mean), function(x) cor(pt_FC_mean[[x]], method='spearman'))
+#Plot correlation matrices
+colorLS=colorRampPalette(colors = c("blue", "white", "red"))(n = 100)
+breakLS=seq(from = -1, to = 1, length.out = 100)
+tp_plot=c(1,3,7)
+for (i in 1:length(tp_plot)) {
+  df=pt_FC_cor[[which(common_tp==tp_plot[i])]]
+  diag(df)=0
+  #df_lim=ceiling(max(abs(df*10), na.rm = TRUE))/10
+  df_lim=1
+  # p=corrplot(df, order='hclust', col=colorLS, tl.col='black', col.lim = c(-df_lim, df_lim),
+  #            is.corr = FALSE, tl.cex=1.5, cl.cex=1.5, title=paste0('Day ',tp_plot[i]))
+  p=corrplot(df, order='hclust', col=colorLS, tl.col='black', col.lim = c(-df_lim, df_lim), #smaller label version
+             is.corr = FALSE, tl.cex=1, cl.cex=1, title=paste0('Day ',tp_plot[i]))
+}
+
+```
+
+Figure S2C-D. Scatterplots of Day 1 gene FCs between vaccines
+```{r figS2c-d}
+#Plot example scatterplots for YF vs Pnemococcus (best negative) and Malaria vs HIV (best positive)
+pt_plot_pairs=list(c('Yellow Fever','Pneumococcus'), c('Malaria','HIV'))
+for (i in 1:length(pt_plot_pairs)) {
+  ind1=grep(pt_plot_pairs[[i]][1],pt_uni_tp[[1]])
+  ind2=grep(pt_plot_pairs[[i]][2], pt_uni_tp[[1]])
+  df=setNames(data.frame(pt_FC_mean[[1]][,c(ind1,ind2)]), c('X','Y'))
+  p=ggscatter(df, x='X', y='Y',
+              xlab=paste(pt_uni_tp[[1]][ind1],'Day 1 log2 FC'),
+              ylab=paste(pt_uni_tp[[1]][ind2],'Day 1 log2 FC'),
+              add = "reg.line",
+              add.params = list(color = "blue", fill = "lightgray"))
+  # Add correlation coefficient, set scales
+  p+stat_cor(method = "pearson")+theme(text = element_text(size=20))
+  print(p)
+}
+
+```
+
+Figure 4B-C. Activity score heatmaps of modules differentially expressed in response to YF vaccination 
+```{r fig4b-c}
+#Collect processed qusage results
+qusage_df=tidy_longitudinal_qusage_young_meta_df
+#Subset data to timepoints of interest
+tp_plot=c(1,7)
+qusage_df=qusage_df[qusage_df$time_post_last_vax %in% tp_plot,]
+qusage_df$pt=paste(qusage_df$pathogen," (",qusage_df$vaccine_type,")", sep='')
+pt_uni=unique(qusage_df$pt)
+pt_uni_tp=lapply(tp_plot, function(x) unique(qusage_df$pt[qusage_df$time_post_last_vax==x]))
+#Split by timepoint
+qusage_df=lapply(tp_plot, function(x) qusage_df[qusage_df$time_post_last_vax==x,])
+#Convert to wide format
+pt_FC_NES=lapply(qusage_df, function(x) data.frame(spread(x[,c('pt','geneset','activity_score')], pt, activity_score)))
+pt_FC_NES=lapply(pt_FC_NES, function(x) {rownames(x)=x$geneset; x[,-1]})
+pt_FC_NES=lapply(1:length(pt_FC_NES), function(x) {colnames(pt_FC_NES[[x]])=pt_uni_tp[[x]]; pt_FC_NES[[x]]})
+pt_FC_p=lapply(qusage_df, function(x) data.frame(spread(x[,c('pt','geneset','FDR')], pt, FDR)))
+pt_FC_p=lapply(pt_FC_p, function(x) {rownames(x)=x$geneset; x[,-1]})
+pt_FC_p=lapply(1:length(pt_FC_p), function(x) {colnames(pt_FC_p[[x]])=pt_uni_tp[[x]]; pt_FC_p[[x]]})
+#Reorder qusage results to match BTM_groups
+pt_FC_NES=lapply(pt_FC_NES, function(x) x[match(BTM_groups$NAME,rownames(x)),])
+pt_FC_p=lapply(pt_FC_p, function(x) x[match(BTM_groups$NAME,rownames(x)),])
+
+#Find significant BTMs
+ind_sig=vector("list",length(pt_FC_NES))
+for (i in 1:length(pt_FC_NES)) {
+  ind_sig[[i]]=vector("list",ncol(pt_FC_NES[[i]]))
+  names(ind_sig[[i]])=colnames(pt_FC_NES[[i]])
+  for (j in 1:ncol(pt_FC_NES[[i]])) {
+    if (tp_plot[i]==1) {
+      ind=which(pt_FC_p[[i]][,j]<0.2)
+      ind_sig[[i]][[j]]=intersect(ind,which(abs(pt_FC_NES[[i]][,j])>0))
+    } else if (tp_plot[i]==7)
+    ind=which(pt_FC_p[[i]][,j]<0.05)
+    ind_sig[[i]][[j]]=intersect(ind,which(abs(pt_FC_NES[[i]][,j])>0.2))
+  }
+}
+#Find all significant BTMs at each timepoint
+ind_sig_pertp=lapply(ind_sig, function(x) Reduce(union,x))
+#Use YF only to define sig BTMs
+ind_sig_pertp=lapply(ind_sig, function(x) unlist(x['Yellow Fever (Live attenuated)']))
+#Plot heatmap of significant BTMs
+NES_cutoff=0.2
+for (i in 1:length(pt_FC_NES)) {
+  df=pt_FC_NES[[i]][ind_sig_pertp[[i]],]
+  #df_anno=pathogen_type_metaData[[i]][,c('vaccine_type', 'pathogen')]
+  ph_lim=ceiling(max(abs(df), na.rm = TRUE))
+  #ha=HeatmapAnnotation(df=df_anno, col=path_vt_colors)
+  p=Heatmap(df,
+            #top_annotation=ha,
+            #column_labels=pathogen_type_metaData[[i]][,'adjuvant'],
+            column_labels=colnames(df),
+            column_names_side="top",
+            name='Activity Score', col=colorRamp2(c(-ph_lim, 0, ph_lim), c("blue", "white", "red")),
+            row_names_gp = gpar(fontsize = 12),
+            column_names_gp = gpar(fontsize = 12))
+  print(p)
+}
+
+```
+
+Figure 4D. Kinetics of the mean FC of module M75 across vaccines.
+
+```{r fig4d, fig.width = 10, fig.height = 5}
+#For each study, average expression across all subjects
+matrix_uni_tp=lapply(exp_FC_BTM_commonTP,function(x) x$matrix[!duplicated(x$matrix)])
+#Store study metadata
+matrix_uni_tp_metaData=lapply(exp_FC_BTM_commonTP,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                 rownames_to_column() %>%
+                                 dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt) %>%
+                                 column_to_rownames(var = "matrix"))
+#Get study indices
+matrix_ind=lapply(1:length(exp_FC_BTM_commonTP),
+                   function(x) lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==exp_FC_BTM_commonTP[[x]]$matrix)))
+#Study size
+exp_FC_BTM_commonTP_n=lapply(1:length(exp_FC_BTM_commonTP),
+                              function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) length(matrix_ind[[x]][[y]])))
+#Average FC
+exp_FC_BTM_commonTP_mean=lapply(1:length(exp_FC_BTM_commonTP),
+                                 function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) rowMeans(exprs(exp_FC_BTM_commonTP[[x]][,matrix_ind[[x]][[y]]]))))
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp=lapply(matrix_uni_tp_metaData,function(x) x$pt[!duplicated(x$pt)])
+pt_ind=lapply(1:length(pt_uni_tp), function(x) lapply(1:length(pt_uni_tp[[x]]), function(y) which(pt_uni_tp[[x]][[y]]==matrix_uni_tp_metaData[[x]]$pt)))
+#Compute average expression for each vaccine across studies (weighted by sample size)
+pt_FC_mean=lapply(1:length(exp_FC_BTM_commonTP), function(x) sapply(setNames(1:length(pt_uni_tp[[x]]), pt_uni_tp[[x]]), function(y) if(length(pt_ind[[x]][[y]])>1) 
+  rowWeightedMeans(exp_FC_BTM_commonTP_mean[[x]][,pt_ind[[x]][[y]]], w=exp_FC_BTM_commonTP_n[[x]][pt_ind[[x]][[y]]], useNames=T) else exp_FC_BTM_commonTP_mean[[x]][,pt_ind[[x]][[y]]]))
+#Set BTM of interest list, plot kinetics
+BTM_int=c('M75)')
+#Lookup BTM
+ind=grep(BTM_int, rownames(exp_FC_BTM_commonTP[[1]]), fixed=TRUE)
+#Build matrix of avg common gene exp over time per vaccine
+BTM_int_FC_mat=array(NA, dim=c(length(unique(eset$pt)),ncol=length(exp_FC_BTM_commonTP)+1),
+                      dimnames=list(unique(eset$pt),c(0,common_tp)))
+#Set D0 FC to 0
+BTM_int_FC_mat[,1]=0
+for (j in 1:length(exp_FC_BTM_commonTP)) {
+  ind_pt=match(pt_uni_tp[[j]],unique(eset$pt))
+  BTM_int_FC_mat[ind_pt,j+1]=pt_FC_mean[[j]][ind,]
+}
+#Convert matrix to long format
+BTM_int_FC_mat=data.frame(BTM_int_FC_mat) %>% tibble::rownames_to_column(var = "Vaccine") %>%
+  pivot_longer(-Vaccine, names_to='Timepoint', values_to='FC')
+#Convert timepoint back to numeric
+BTM_int_FC_mat$Timepoint=as.numeric(str_replace(BTM_int_FC_mat$Timepoint, 'X', ''))
+#Plot
+p=ggplot(BTM_int_FC_mat, aes(x=Timepoint, y=FC, group=Vaccine)) +
+  geom_line(aes(linetype=Vaccine, color=Vaccine), size=1.07)+
+  theme_classic()+
+  scale_color_manual(values=pt_line_color_anno$color)+
+  scale_linetype_manual(values=pt_line_color_anno$linetype)+
+  scale_x_continuous(breaks=c(0,common_tp))+
+  xlab("Day post-last vaccination")+
+  ylab("Mean FC (log2)")+
+  ggtitle(rownames(exp_FC_BTM[[1]][ind,]))+
+  theme(plot.title = element_text(hjust = 0.5), text = element_text(size=12))
+print(p)
+```
+
+Figure 4E. Heatmaps of the post-vaccination FC of genes in module M75
+```{r fig4e}
+
+#Get FC data for common timepoints
+common_tp=c(1,3,7,14,21)
+exp_FC_commonTP=exp_FC[tp_FC %in% common_tp]
+#For each study, average expression across all subjects
+matrix_uni_tp=lapply(exp_FC_commonTP,function(x) x$matrix[!duplicated(x$matrix)])
+#Store study metadata
+matrix_uni_tp_metaData=lapply(exp_FC_commonTP,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                rownames_to_column() %>%
+                                dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt) %>%
+                                column_to_rownames(var = "matrix"))
+#Find sample indices per matrix
+matrix_ind=lapply(1:length(exp_FC_commonTP),
+                  function(x) lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==exp_FC_commonTP[[x]]$matrix)))
+#Study size
+exp_FC_commonTP_n=lapply(1:length(exp_FC_commonTP),
+                            function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) length(matrix_ind[[x]][[y]])))
+#Average FC
+exp_FC_commonTP_mean=lapply(1:length(exp_FC_commonTP),
+                               function(x) sapply(1:length(matrix_uni_tp[[x]]), function(y) rowMeans(exprs(exp_FC_commonTP[[x]][,matrix_ind[[x]][[y]]]))))
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp=lapply(matrix_uni_tp_metaData,function(x) x$pt[!duplicated(x$pt)])
+pt_metaData=lapply(1:length(matrix_uni_tp_metaData),
+                   function(x) dplyr::select(
+                     matrix_uni_tp_metaData[[x]][!duplicated(matrix_uni_tp_metaData[[x]]$pt),],
+                     vaccine_type, pathogen, adjuvant))
+#Vaccine size
+exp_FC_commonTP_pt_n=lapply(1:length(exp_FC_commonTP),
+                               function(x) sapply(1:length(pt_uni_tp[[x]]), function(y) length(which(exp_FC_commonTP[[x]]$pt==pt_uni_tp[[x]][y]))))
+#Add weight (1/vaccine sample size) to pData for all samples
+n_weight=lapply(1:length(exp_FC_commonTP),
+                function(x) sapply(1:ncol(exp_FC_commonTP[[x]]), function(y) exp_FC_commonTP_pt_n[[x]][which(pt_uni_tp[[x]]==exp_FC_commonTP[[x]]$pt[y])]))
+for (i in 1:length(exp_FC_commonTP)) {
+  exp_FC_commonTP[[i]]$n_weight=1/n_weight[[i]]
+}
+
+#Compute mean FC and p values per cluster per vaccine (pt-pathogen/vaccine type)
+pt_ind=vector("list",length(exp_FC_commonTP))
+pt_FC_mean=vector("list",length(exp_FC_commonTP))
+for (i in 1:length(exp_FC_commonTP)) {
+  #For each vaccine
+  pt_FC_mean[[i]]=matrix(NA, nrow=nrow(exp_FC_commonTP[[i]]), ncol=length(pt_uni_tp[[i]]))
+  for (j in 1:length(pt_uni_tp[[i]])) {
+    pt_ind[[i]][[j]]=which(pt_uni_tp[[i]][[j]]==matrix_uni_tp_metaData[[i]]$pt)
+    #If there is more than 1 study, compute weighted average
+    if (length(pt_ind[[i]][[j]])>1) {
+      #Average FCs (weighted by n)
+      pt_FC_mean[[i]][,j]=rowWeightedMeans(exp_FC_commonTP_mean[[i]][,pt_ind[[i]][[j]]], w=exp_FC_commonTP_n[[i]][pt_ind[[i]][[j]]])
+      #Otherwise store single value
+    } else {
+      pt_FC_mean[[i]][,j]=exp_FC_commonTP_mean[[i]][,pt_ind[[i]][[j]]]
+    }
+  }
+  colnames(pt_FC_mean[[i]])=pt_uni_tp[[i]]
+  rownames(pt_FC_mean[[i]])=rownames(exp_FC_commonTP_mean[[i]])
+}
+
+#Plot BTM genes
+BTM_int='M75'
+for (i in 1:length(pt_FC_mean)) {
+  ind=with(pt_metaData[[i]], order(vaccine_type, adjuvant, pathogen))
+  gene_int=btm_list[[grep(BTM_int,names(btm_list))]]
+  #Create data frame and annotation
+  df=pt_FC_mean[[i]][na.omit(match(gene_int,rownames(eset))),ind]
+  df_anno=pt_metaData[[i]][ind, c('vaccine_type', 'pathogen', 'adjuvant')]
+  ph_lim=ceiling(max(abs(df), na.rm = TRUE))
+  ph_lim=2
+  colorLS=colorRampPalette(colors = c("blue", "white", "red"))(n = 100)
+  breakLS=seq(from = -ph_lim, to = ph_lim, length.out = 100)
+  #Plotting with pheatmap
+  p=pheatmap::pheatmap(mat = df,
+                  color = colorLS,
+                  breaks = breakLS,
+                  cluster_cols = FALSE,
+                  cluster_rows = FALSE,
+                  clustering_distance_rows = "euclidean",
+                  clustering_distance_cols = "euclidean",
+                  clustering_method = "ward.D2",
+                  show_colnames = TRUE,
+                  show_rownames = TRUE,
+                  annotation_col = df_anno,
+                  annotation_colors = adj_path_vt_colors,
+                  fontsize = 10,
+                  cellheight = 10,
+                  cellwidth = 15,
+                  main=paste0('Day ',common_tp[i]))
+}
+
+```
+
+Figure S2E-F. Boxplots of Day 1 FCs in xCell estimated B and CD8+ T cell frequencies across vaccines
+
+```{r figS2e-f}
+common_tp=c(0,1,3,7,14,21)
+cellFreq_p_cutoff=0.2 #cutoff for discarding cell frequency estimations below a confidence threshold
+#Load xCell data
+freqDF=read.delim(file.path(dataCacheDir,'xcell_Vax_noResponse.csv'), sep=',', row.names=1)
+freqDF_p=read.delim(file.path(dataCacheDir,'pval_xcell_Vax_noResponse.csv'), sep=',', row.names=1)
+#Replace nonsignificant cell scores with NA
+freqDF[freqDF_p>=cellFreq_p_cutoff]=NA
+#Select only subjects with both pData and est freq, create expressionset
+common=intersect(colnames(eset), colnames(freqDF))
+eset_freq=ExpressionSet(as.matrix(log2(freqDF[,match(common,colnames(freqDF))])),
+                        eset@phenoData[match(common,colnames(eset))])
+#Recompute timepoint indices after removing samples
+ind=lapply(common_tp, function(x) which(eset_freq$time_post_last_vax==x))
+
+#Compute D0 normalized FC
+ind_D0=which(0==eset_freq$time_post_last_vax)
+common=lapply(2:length(ind),function(x) intersect(eset_freq$participant_id[ind[[x]]],eset_freq$participant_id[ind_D0]))
+ia=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset_freq$participant_id[ind[[x]]])))
+ib=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset_freq$participant_id[ind_D0])))
+exp_FC_freq=lapply(2:length(ind),function(x) eset_freq[,ind[[x]][ia[[x-1]]]])
+exp_FC_freq=lapply(2:length(ind),function(x) {exprs(exp_FC_freq[[x-1]])=exprs(exp_FC_freq[[x-1]])-exprs(eset_freq[,ind_D0[ib[[x-1]]]]); exp_FC_freq[[x-1]]})
+#For each study, average expression across all subjects
+matrix_uni_tp_freq=lapply(exp_FC_freq,function(x) x$matrix[!duplicated(x$matrix)])
+#Store study metadata
+matrix_uni_tp_metaData_freq=lapply(exp_FC_freq,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                rownames_to_column() %>%
+                                dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt) %>%
+                                column_to_rownames(var = "matrix"))
+#Compute average expression/t-statistic
+matrix_ind_freq=lapply(1:length(exp_FC_freq),
+                  function(x) lapply(1:length(matrix_uni_tp_freq[[x]]), function(y) which(matrix_uni_tp_freq[[x]][[y]]==exp_FC_freq[[x]]$matrix)))
+#Study size
+exp_FC_freq_n=lapply(1:length(exp_FC_freq),
+                function(x) sapply(1:length(matrix_uni_tp_freq[[x]]), function(y) length(matrix_ind_freq[[x]][[y]])))
+#Average FC
+exp_FC_freq_mean=lapply(1:length(exp_FC_freq),
+                   function(x) sapply(1:length(matrix_uni_tp_freq[[x]]), function(y) rowMeans(exprs(exp_FC_freq[[x]][,matrix_ind_freq[[x]][[y]]]))))
+#t-test/p value
+exp_FC_freq_p_less=
+  lapply(1:length(exp_FC_freq),
+         function(x) sapply(1:length(matrix_uni_tp_freq[[x]]),
+                            function(y) apply(exprs(exp_FC_freq[[x]][,matrix_ind_freq[[x]][[y]]]), 1,
+                                              function(z) if(length(which(!is.na(z)))>2) t.test(z, alternative='less')$p.value else NA)))
+exp_FC_freq_p_greater=
+  lapply(1:length(exp_FC_freq),
+         function(x) sapply(1:length(matrix_uni_tp_freq[[x]]),
+                            function(y) apply(exprs(exp_FC_freq[[x]][,matrix_ind_freq[[x]][[y]]]), 1,
+                                              function(z) if(length(which(!is.na(z)))>2) t.test(z, alternative='greater')$p.value else NA)))
+#Replace NaN p values with 0.9999
+exp_FC_freq_p_less=lapply(exp_FC_freq_p_less, function(x) replace(x,is.nan(x),0.9999))
+exp_FC_freq_p_greater=lapply(exp_FC_freq_p_greater, function(x) replace(x,is.nan(x),0.9999))
+#Replace 1 p values with 0.9999 (for compatibility with sumz)
+exp_FC_freq_p_less=lapply(exp_FC_freq_p_less, function(x) replace(x,x>0.9999,0.9999))
+exp_FC_freq_p_greater=lapply(exp_FC_freq_p_greater, function(x) replace(x,x>0.9999,0.9999))
+
+##Compute DE cells by pathogen/vaccine type
+#Integrate p values across multiple studies by Stouffer's method
+
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp_freq=lapply(matrix_uni_tp_metaData_freq,function(x) x$pt[!duplicated(x$pt)])
+pt_metaData_freq=lapply(1:length(matrix_uni_tp_metaData_freq),
+                   function(x) dplyr::select(
+                     matrix_uni_tp_metaData_freq[[x]][!duplicated(matrix_uni_tp_metaData_freq[[x]]$pt),],
+                     vaccine_type, pathogen, adjuvant))
+#Vaccine size
+exp_FC_freq_pt_n=lapply(1:length(exp_FC_freq),
+                   function(x) sapply(1:length(pt_uni_tp_freq[[x]]), function(y) length(which(exp_FC_freq[[x]]$pt==pt_uni_tp_freq[[x]][y]))))
+#Add weight (1/vaccine sample size) to pData for all samples
+n_weight_freq=lapply(1:length(exp_FC_freq),
+                function(x) sapply(1:ncol(exp_FC_freq[[x]]), function(y) exp_FC_freq_pt_n[[x]][which(pt_uni_tp_freq[[x]]==exp_FC_freq[[x]]$pt[y])]))
+for (i in 1:length(exp_FC_freq)) {
+  exp_FC_freq[[i]]$n_weight_freq=1/n_weight_freq[[i]]
+}
+
+
+pt_ind_freq=vector("list",length(exp_FC_freq))
+pt_FC_mean_freq=vector("list",length(exp_FC_freq))
+pt_p_freq=vector("list",length(exp_FC_freq))
+pt_q_freq=vector("list",length(exp_FC_freq))
+for (i in 1:length(exp_FC_freq)) {
+  #For each pathogen/type combo
+  pt_FC_mean_freq[[i]]=matrix(NA, nrow=nrow(eset_freq), ncol=length(pt_uni_tp_freq[[i]]))
+  pt_p_freq[[i]]=matrix(NA, nrow=nrow(eset_freq), ncol=length(pt_uni_tp_freq[[i]]))
+  pt_q_freq[[i]]=matrix(NA, nrow=nrow(eset_freq), ncol=length(pt_uni_tp_freq[[i]]))
+  for (j in 1:length(pt_uni_tp_freq[[i]])) {
+    pt_ind_freq[[i]][[j]]=which(pt_uni_tp_freq[[i]][[j]]==matrix_uni_tp_metaData_freq[[i]]$pt)
+    #If there is more than 1 study, integrate p values by Stouffer's method
+    if (length(pt_ind_freq[[i]][[j]])>1) {
+      #Average FCs (weighted by n)
+      pt_FC_mean_freq[[i]][,j]=rowWeightedMeans(exp_FC_freq_mean[[i]][,pt_ind_freq[[i]][[j]]], w=exp_FC_freq_n[[i]][pt_ind_freq[[i]][[j]]], na.rm=T)
+      #Directional Stouffer's method using sumz function (weighted by sqrt(n))
+      pt_p_freq_less=vapply(1:nrow(eset_freq), FUN.VALUE=1, function(x)
+        sumz(exp_FC_freq_p_less[[i]][x,pt_ind_freq[[i]][[j]]],sqrt(exp_FC_freq_n[[i]][pt_ind_freq[[i]][[j]]]), na.action=na.omit)$p)
+      pt_p_freq_greater=vapply(1:nrow(eset_freq), FUN.VALUE=1, function(x)
+        sumz(exp_FC_freq_p_greater[[i]][x,pt_ind_freq[[i]][[j]]],sqrt(exp_FC_freq_n[[i]][pt_ind_freq[[i]][[j]]]), na.action=na.omit)$p)
+      pt_p_freq[[i]][,j]=2*pmin(pt_p_freq_less,pt_p_freq_greater)
+
+      #Otherwise store single p values
+    } else {
+      pt_FC_mean_freq[[i]][,j]=exp_FC_freq_mean[[i]][,pt_ind_freq[[i]][[j]]]
+      pt_p_freq[[i]][,j]=2*pmin(exp_FC_freq_p_less[[i]][,pt_ind_freq[[i]][[j]]],exp_FC_freq_p_greater[[i]][,pt_ind_freq[[i]][[j]]])
+    }
+    #Correct p values >1
+    pt_p_freq[[i]][(pt_p_freq[[i]][,j]>1),j]=1
+    #Convert p values to q values (FDR correction)
+    pt_q_freq[[i]][,j]=p.adjust(pt_p_freq[[i]][,j],method="BH") #BH method
+  }
+  colnames(pt_FC_mean_freq[[i]])=pt_uni_tp_freq[[i]]
+  rownames(pt_FC_mean_freq[[i]])=rownames(fData(eset_freq))
+  colnames(pt_p_freq[[i]])=pt_uni_tp_freq[[i]]
+  rownames(pt_p_freq[[i]])=rownames(fData(eset_freq))
+  colnames(pt_q_freq[[i]])=pt_uni_tp_freq[[i]]
+  rownames(pt_q_freq[[i]])=rownames(fData(eset_freq))
+  rownames(pt_metaData_freq[[i]])=pt_uni_tp_freq[[i]]
+}
+
+#Plot boxplot for total B cells and CD4 T cells on D1
+cells_plot=c('B-cells','CD8+ T-cells')
+for (i in 1:length(cells_plot)) {
+  ind=match(cells_plot[i], rownames(eset_freq))
+  df=data.frame(value=exprs(exp_FC_freq[[1]])[ind,], vaccine=exp_FC_freq[[1]]$pt)
+  p=ggplot(df, aes(x=vaccine, y=value, fill=vaccine)) +
+    geom_boxplot(outlier.shape=NA,width=0.5,notch=FALSE, alpha=0.3)+
+    geom_jitter(pch=21, width=0.1)+
+    ylab('log2(FC)')+
+    xlab('')+
+    ggtitle(paste0('Day 1 ',cells_plot[i]))+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "none")
+  print(p)
+}
+
+```
+
+Figure S2G-H. Kinetics of the mean FC of modules M47.0 and M75 across Yellow Fever vaccine studies
+```{r figS2g-h, fig.width = 10, fig.height = 5}
+#Keep only YF studies from FC data
+exp_FC_BTM_YF=lapply(exp_FC_BTM, function(x){y=x[,x$pathogen=='Yellow Fever']; y})
+#Add vaccine+study column to pData
+exp_FC_BTM_YF=lapply(exp_FC_BTM_YF, function(x){x$pt_sdy=paste(x$pt, x$study_accession); x})
+#Keep only up to day 14
+exp_FC_BTM_YF=exp_FC_BTM_YF[which(tp_FC %in% c(1,3,7,14))]
+
+
+#For each matrix, average expression across all subjects
+matrix_uni_tp_YF=lapply(exp_FC_BTM_YF,function(x) x$matrix[!duplicated(x$matrix)])
+#Store matrix metadata
+matrix_uni_tp_YF_metaData=lapply(exp_FC_BTM_YF,function(x) pData(x)[!duplicated(x$matrix),] %>%
+                                   rownames_to_column() %>%
+                                   dplyr::select(matrix, vaccine, vaccine_type, pathogen, adjuvant, pt_sdy) %>%
+                                   column_to_rownames(var = "matrix"))
+#Find matrix indices
+matrix_ind_YF=lapply(1:length(exp_FC_BTM_YF),
+                     function(x) lapply(1:length(matrix_uni_tp_YF[[x]]), function(y) which(matrix_uni_tp_YF[[x]][[y]]==exp_FC_BTM_YF[[x]]$matrix)))
+#Matrix size
+exp_FC_BTM_YF_n=lapply(1:length(exp_FC_BTM_YF),
+                       function(x) sapply(1:length(matrix_uni_tp_YF[[x]]), function(y) length(matrix_ind_YF[[x]][[y]])))
+#Average FC
+exp_FC_BTM_YF_mean=lapply(1:length(exp_FC_BTM_YF),
+                          function(x) sapply(1:length(matrix_uni_tp_YF[[x]]), function(y) rowMeans(exprs(exp_FC_BTM_YF[[x]][,matrix_ind_YF[[x]][[y]]]))))
+
+#Find unique pathogen/vaccine types by timepoint
+pt_uni_tp_YF=lapply(matrix_uni_tp_YF_metaData,function(x) x$pt_sdy[!duplicated(x$pt_sdy)])
+pt_metaData_YF=lapply(1:length(matrix_uni_tp_YF_metaData),
+                      function(x) dplyr::select(
+                        matrix_uni_tp_YF_metaData[[x]][!duplicated(matrix_uni_tp_YF_metaData[[x]]$pt_sdy),],
+                        vaccine_type, pathogen, adjuvant))
+#Vaccine size
+exp_FC_BTM_YF_pt_n=lapply(1:length(exp_FC_BTM_YF),
+                          function(x) sapply(1:length(pt_uni_tp_YF[[x]]), function(y) length(which(exp_FC_BTM_YF[[x]]$pt_sdy==pt_uni_tp_YF[[x]][y]))))
+#Add weight (1/vaccine sample size) to pData for all samples
+n_weight=lapply(1:length(exp_FC_BTM_YF),
+                function(x) sapply(1:ncol(exp_FC_BTM_YF[[x]]), function(y) exp_FC_BTM_YF_pt_n[[x]][which(pt_uni_tp_YF[[x]]==exp_FC_BTM_YF[[x]]$pt_sdy[y])]))
+for (i in 1:length(exp_FC_BTM_YF)) {
+  exp_FC_BTM_YF[[i]]$n_weight=1/n_weight[[i]]
+}
+
+
+pt_ind_YF=vector("list",length(exp_FC_BTM_YF))
+pt_FC_mean_BTM_YF=vector("list",length(exp_FC_BTM_YF))
+for (i in 1:length(exp_FC_BTM_YF)) {
+  #For each pathogen/type combo
+  pt_FC_mean_BTM_YF[[i]]=matrix(NA, nrow=nrow(exp_FC_BTM_YF[[1]]), ncol=length(pt_uni_tp_YF[[i]]))
+  for (j in 1:length(pt_uni_tp_YF[[i]])) {
+    pt_ind_YF[[i]][[j]]=which(pt_uni_tp_YF[[i]][[j]]==matrix_uni_tp_YF_metaData[[i]]$pt_sdy)
+    #If there is more than 1 study
+    if (length(pt_ind_YF[[i]][[j]])>1) {
+      #Average FCs (weighted by n)
+      pt_FC_mean_BTM_YF[[i]][,j]=rowWeightedMeans(exp_FC_BTM_YF_mean[[i]][,pt_ind_YF[[i]][[j]]], w=exp_FC_BTM_YF_n[[i]][pt_ind_YF[[i]][[j]]])
+      #Otherwise store single p values
+    } else {
+      pt_FC_mean_BTM_YF[[i]][,j]=exp_FC_BTM_YF_mean[[i]][,pt_ind_YF[[i]][[j]]]
+    }
+  }
+  colnames(pt_FC_mean_BTM_YF[[i]])=pt_uni_tp_YF[[i]]
+  rownames(pt_FC_mean_BTM_YF[[i]])=rownames(rownames(exp_FC_BTM_YF[[1]]))
+  rownames(pt_metaData_YF[[i]])=pt_uni_tp_YF[[i]]
+}
+
+#Set BTM of interest list, plot kinetics
+BTM_int=c('M47.0)', 'M75)')
+for (i in 1:length(BTM_int)) {
+  #Lookup BTM
+  ind=grep(BTM_int[i], names(btm_list), fixed=TRUE)
+  #Build matrix of avg common gene exp over time per vaccine
+  BTM_int_FC_mat=array(NA, dim=c(length(unique(exp_FC_BTM_YF[[2]]$pt_sdy)),ncol=length(exp_FC_BTM_YF)+1),
+                       dimnames=list(unique(exp_FC_BTM_YF[[2]]$pt_sdy),c(0,1,3,7,14)))
+  #Set D0 FC to 0
+  BTM_int_FC_mat[,1]=0
+  #Lookup values for other timepoints
+  for (j in 1:length(exp_FC_BTM_YF)) {
+    ind_pt=match(pt_uni_tp_YF[[j]],unique(exp_FC_BTM_YF[[2]]$pt_sdy))
+    BTM_int_FC_mat[ind_pt,j+1]=pt_FC_mean_BTM_YF[[j]][ind,]
+  }
+  #Plot line graph
+  #Convert matrix to long format
+  BTM_int_FC_mat=data.frame(BTM_int_FC_mat) %>% tibble::rownames_to_column(var = "Study") %>%
+    pivot_longer(-Study, names_to='Timepoint', values_to='FC')
+  #Convert timepoint back to numeric
+  BTM_int_FC_mat$Timepoint=as.numeric(str_replace(BTM_int_FC_mat$Timepoint, 'X', ''))
+  #Add vaccine column
+  BTM_int_FC_mat$Vaccine=gsub(' SDY.*','',BTM_int_FC_mat$Study)
+  #Fix study labels
+  BTM_int_FC_mat$Study=str_replace_all(BTM_int_FC_mat$Study, 'Yellow Fever \\(Live attenuated\\) ', '')
+  #Plot
+  p=ggplot(BTM_int_FC_mat, aes(x=Timepoint, y=FC, group=Study)) +
+    geom_line(aes(color=Study), size=1.07)+
+    theme_classic()+
+    scale_x_continuous(breaks=c(0,1,3,7,14))+
+    xlab("Day post-last vaccination")+
+    ylab("Mean FC (log2)")+
+    ggtitle(names(btm_list[ind]))+
+    theme(plot.title = element_text(hjust = 0.5), text = element_text(size=20))
+  print(p)
+}
+
+```
+
+# Figure 5: Time-adjusted transcriptional predictors of antibody responses
+
+Click [here](https://test.immunespace.org/reports/HIPC/IS2/runReport.view?reportId=db%3A190) to view Figure 5 and its code.
+                   
+<!-- Figure 5C. Kinetics of the predictive power of M156.1 across vaccines. -->
+<!-- ```{r fig5c} -->
+<!-- #bram -->
+<!-- ``` -->
+
+# Figure 6: Impact of aging on transcriptional responses to vaccination  
+
+Figure 6B. Modules differentially expressed between young and older participants in response to inactivated influenza vaccination
+```{r fig6b}
+#bram
+```
+
+Figure 6D. Kinetics of the predictive power of modules M156.1 across vaccines in young and older participants
+```{r fig6d}
+#bram
+```
+
+Figure S4A. Scatterplots of module activity scores in each vaccine among young and older participants
+1. Prepare data  
+  1.  Create data frame with gene set enrichment scores for postvax vs prevax time points in older adult cohort.
+  
+  
+```{r longitudinal-qusage-old}
+longitudinal_qusage_old_df_path <- file.path(dataCacheDir, "longitudinal_qusage_old_df.rds")
+if (file.exists(longitudinal_qusage_old_df_path)) {
+  longitudinal_qusage_old_df <- readRDS(longitudinal_qusage_old_df_path)
+} else {
+  old.noNorm.noResponse.filtered <- old.noNorm.noResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    remove_any_NA_rows()
+  
+  # Check that there are no repeated measures at any time point
+  stopifnot(Biobase::pData(old.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id, time_post_last_vax) %>%
+              dplyr::filter(n() > 1) %>%
+              nrow() == 0)
+  
+  # Check that every participant has a baseline time point
+  stopifnot(Biobase::pData(old.noNorm.noResponse.filtered) %>%
+              dplyr::group_by(participant_id) %>%
+              dplyr::filter(!any(time_post_last_vax <= 0)) %>%
+              nrow() == 0)
+  
+  btm_list.filtered <- keep_symbols(
+    genesets.symbol = btm_list,
+    symbols2keep = rownames(old.noNorm.noResponse.filtered))
+  
+  # Gene set enrichment analysis: postvax vs prevax time points ------------------
+  
+  eset <- old.noNorm.noResponse.filtered
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(pathogen,
+                  vaccine_type,
+                  time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(n_participants = NA,
+                  qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  # Took 168s on home desktop
+  system.time(for (row_nr in 1:nrow(analysis_df)) {
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.contrast <- paste0(postvax_string, "-", prevax_string)
+    
+    qusage.labels <- ifelse(
+      test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+      yes = postvax_string,
+      no = prevax_string)
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered,
+                          pairVector = cur_eset$participant_id)
+    analysis_df$n_participants[row_nr] <-
+      length(unique(cur_eset$participant_id))
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+  })
+  
+  saveRDS(analysis_df, longitudinal_qusage_old_df_path)
+  longitudinal_qusage_old_df <- analysis_df
+}
+```
+  
+  2. Create data frame with meta analysis results of gene set enrichment scores from postvax vs prevax time point of young adults. 
+  
+```{r tidy_longitudinal_qusage_old}
+longitudinal_qusage_old_meta_df_path <- file.path(dataCacheDir, "longitudinal_qusage_old_meta_df.rds")
+if (file.exists(longitudinal_qusage_old_meta_df_path)) {
+  longitudinal_qusage_old_meta_df <- readRDS(longitudinal_qusage_old_meta_df_path) 
+} else {
+  longitudinal_qusage_old_meta_df <- longitudinal_qusage_old_df %>%
+    meta_qusage(group_cols = c("pathogen",
+                               "vaccine_type",
+                               "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_old_meta_df, longitudinal_qusage_old_meta_df_path)
+}
+tidy_longitudinal_qusage_old_meta_df <- longitudinal_qusage_old_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output") %>%
+  dplyr::mutate(FDR = p.adjust(p.value, method = "BH"),
+                FDR_signif_label = create_signif_label(FDR))
+```
+  3. create data frame with gene set enrichment scores for high vs low responders, separate scores for young and older adults.  
+     
+```{r longitudinal_qusage_HR_vs_LR}
+longitudinal_qusage_HR_vs_LR_file <- file.path(dataCacheDir, "longitudinal_qusage_HR_vs_LR_df.rds")
+if (file.exists(longitudinal_qusage_HR_vs_LR_file)) {
+  longitudinal_qusage_HR_vs_LR_df <- readRDS(longitudinal_qusage_HR_vs_LR_file)
+} else {
+  
+  eset <- young_and_old.noNorm.withResponse %>%
+    keep_most_recent_prevax_time_point(drop_postvax = FALSE) %>%
+    add_response_class_column() %>%
+    keep_only_high_and_low_responders(col = "response_class") %>%
+    remove_any_NA_rows()
+  
+  btm_list.filtered <- keep_symbols(genesets.symbol = btm_list,
+                                    symbols2keep = rownames(eset),
+                                    min_size = 2)
+  
+  # Longitudinal GSEA of high vs low responders ----------------------------------
+  
+  analysis_df <- Biobase::pData(eset) %>%
+    dplyr::filter(time_post_last_vax > 0) %>%
+    dplyr::select(age_group, pathogen, vaccine_type, time_post_last_vax,
+                  study_accession) %>%
+    dplyr::arrange(age_group, pathogen, vaccine_type, time_post_last_vax,
+                   study_accession) %>%
+    dplyr::distinct() %>%
+    dplyr::mutate(qusage_contrast = NA,
+                  qusage_output = list(NULL),
+                  error = list(NULL)) %>%
+    dplyr::as_tibble()
+  
+  safe_qusage <- purrr::safely(.f = qusage::qusage,
+                               otherwise = NULL, quiet = TRUE)
+  
+  # Took 1916s on home desktop
+  system.time(for (row_nr in 1:nrow(analysis_df)) {
+    row <- analysis_df[row_nr,, drop = FALSE]
+    cat(paste0("Row ", row_nr, "/", nrow(analysis_df),
+               ": ", row$age_group, " ", row$pathogen, " ",
+               row$vaccine_type, " ", row$time_post_last_vax, " ",
+               row$study_accession, "\n"))
+    cur_eset <- eset[, eset$age_group == row$age_group &
+                       eset$pathogen == row$pathogen &
+                       eset$vaccine_type == row$vaccine_type &
+                       eset$study_accession == row$study_accession &
+                       (eset$time_post_last_vax <= 0 |
+                          eset$time_post_last_vax == row$time_post_last_vax)]
+    
+    prevax_string <- "baseline"
+    postvax_string <- paste0("Day", row$time_post_last_vax)
+    
+    qusage.labels <- paste0(
+      cur_eset$response_class, ".",
+      ifelse(test = cur_eset$time_post_last_vax == row$time_post_last_vax,
+             yes = postvax_string,
+             no = prevax_string))
+    qusage.contrast <- paste0(
+      "(highResponder.", postvax_string, "-highResponder.", prevax_string, ") - ",
+      "(lowResponder.", postvax_string, "-lowResponder.", prevax_string, ")")
+    
+    result <- safe_qusage(eset = cur_eset,
+                          labels = qusage.labels,
+                          contrast = qusage.contrast,
+                          geneSets = btm_list.filtered)
+    if (!is.null(result$result))
+      analysis_df$qusage_output[[row_nr]] <- result$result
+    analysis_df$qusage_contrast[row_nr] <- qusage.contrast
+    if (!is.null(result$error))
+      analysis_df$error[[row_nr]] <- result$error
+  })
+  
+  longitudinal_qusage_HR_vs_LR_df <- analysis_df
+  saveRDS(longitudinal_qusage_HR_vs_LR_df, longitudinal_qusage_HR_vs_LR_file)
+}
+```
+  4. create data frame with longitudinal meta analysis results of gene set enrichment scores from high vs low responders (longitudinal_qusage_HR_vs_LR_df).
+  
+```{r tidy_longitudinal_qusage_hr_lr}
+longitudinal_qusage_HR_vs_LR_meta_file <- file.path(dataCacheDir, "longitudinal_qusage_HR_vs_LR_meta.rds")
+if (file.exists(longitudinal_qusage_HR_vs_LR_meta_file)) {
+  longitudinal_qusage_HR_vs_LR_meta_df <- readRDS(longitudinal_qusage_HR_vs_LR_meta_file)
+} else {
+  longitudinal_qusage_HR_vs_LR_meta_df <-
+    longitudinal_qusage_HR_vs_LR_df %>%
+    meta_qusage(c("age_group", "pathogen", "vaccine_type",
+                  "time_post_last_vax"))
+  saveRDS(longitudinal_qusage_HR_vs_LR_meta_df, longitudinal_qusage_HR_vs_LR_meta_file)
+}
+tidy_longitudinal_qusage_HR_vs_LR_meta_df <- longitudinal_qusage_HR_vs_LR_meta_df %>%
+  tidy_qusage_output(col = "meta_qusage_output")
+```
+  
+Figure S4A 
+  
+```{r figS4a, fig.width=12, fig.height=12}
+plot_df <- dplyr::inner_join(
+  tidy_longitudinal_qusage_young_meta_df %>%
+    dplyr::select(pathogen, vaccine_type, time_post_last_vax, geneset,
+                  activity_score),
+  tidy_longitudinal_qusage_old_meta_df %>%
+    dplyr::select(pathogen, vaccine_type, time_post_last_vax, geneset,
+                  activity_score),
+  by = c("pathogen", "vaccine_type", "time_post_last_vax", "geneset"),
+  suffix = c(".young", ".old")) %>%
+  dplyr::filter(time_post_last_vax %in% c(1, 3, 7))
+lm_df <- plot_df %>%
+  dplyr::group_by(pathogen, vaccine_type, time_post_last_vax) %>%
+  tidyr::nest() %>%
+  dplyr::ungroup() %>%
+  dplyr::mutate(
+    lm = purrr::map(
+      .x = data,
+      ~lm(activity_score.old ~ activity_score.young, data = .x)),
+    r2 = purrr::map(
+      .x = lm,
+      ~tibble(
+        adj.r.squared = summary(.x)$adj.r.squared,
+        r.squared = summary(.x)$r.squared,
+        intercept = coef(.x)[1],
+        slope = coef(.x)[2],
+        p.value = broom::glance(.x)$p.value)
+    )
+  ) %>%
+  tidyr::unnest(r2) %>%
+  dplyr::mutate(signif_label = cut(p.value, c(-Inf, .001, .01, .05, Inf),
+                                   labels = c("***", "**", "*", "ns")),
+                r2_label = sapply(adj.r.squared, function(x)
+                  substitute(
+                    expr = italic(R)^2~"="~r2,
+                    env = list(r2 = format(x, digits = 2)))))
+# Plot figure ------------------------------------------------------------------
+p <- ggplot(plot_df, aes(x = activity_score.young, y = activity_score.old,
+                         color = pathogen)) +
+  geom_point() +
+  geom_vline(xintercept= 0, color = "gray") +
+  geom_hline(yintercept = 0, color = "gray") +
+  geom_abline(intercept = 0, slope = 1, color = "lightgray") +
+  geom_abline(data = lm_df, aes(intercept = intercept, slope = slope),
+              color = "lightgray", linetype = "dashed") +
+  geom_text(data = lm_df,
+            x = -0.2, y = 0.9,
+            aes(label = r2_label),
+            color = "black",
+            parse = TRUE,
+            show.legend = FALSE) +
+  geom_text(data = lm_df, x = -0.2, y = 0.6,
+            aes(label = paste0("p = ",
+                               formatC(p.value, digits = 2, format = "e"),
+                               " (", signif_label, ")")),
+            color = "black") +
+  coord_equal(xlim = c(-1, 1), ylim = c(-1, 1)) +
+  theme_bw(base_size = 24) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        legend.position = "bottom",
+        legend.title = element_blank()) +
+  facet_grid(pathogen + vaccine_type ~ paste0("Day ", time_post_last_vax)) +
+  ggtitle("Common response module activity")
+p
+```

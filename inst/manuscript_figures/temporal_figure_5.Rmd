@@ -1,0 +1,1083 @@
+---
+title: "Temporal Manuscript Figures"
+output: 
+  html_document
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+params:
+  dataDir: "/share/files/HIPC/IS2/@files/data"
+  dataCacheDir: "/share/files/HIPC/IS2/@files/cache/temporal"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo       = TRUE, 
+                      message    = FALSE,
+                      cache      = TRUE,
+                      warning    = FALSE, 
+                      cache.path = "/share/files/HIPC/IS2/@files/cache/temporal/report_cache_lewis/")
+
+dataDir <- "/share/files/HIPC/IS2/@files/data"
+dataCacheDir <- "/share/files/HIPC/IS2/@files/cache/temporal"
+if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
+```
+
+
+```{r}
+
+require(Biobase)
+require(GSVA)
+require(dplyr)
+require(rlang)
+require(reshape2)
+require(data.table)
+require(limma)
+require(caret)
+require(caretEnsemble)
+require(WeightedROC)
+require(nlme)
+require(emmeans)
+require(plyr)
+require(plotROC)
+
+```
+
+## Step 1: Create fold-change data  ##
+
+This code calculates ssGSEA scores for each BTM and then calculates the fold-change in ssGSEA score (from Day 0) at Day 3, 7, 14 and 21. 
+
+
+```{r}
+eset<-readRDS(paste0(dataDir, "/young_norm_withResponse_eset.rds"))
+
+# Code below adds row-names equal to uid (uid is columnID for the Expression Data)
+rownames(pData(eset))<-pData(eset)$uid
+# ensuring order of pheno-data matchs expression data. 
+pData(eset)<-pData(eset)[colnames(Biobase::exprs(eset)),]
+
+#Create column with combined vaccine type/pathogen
+eset$pathogen_vaccine_type=paste0(eset$pathogen,"_",eset$vaccine_type)
+
+# Time points to calculate
+tp_int=c(0, 3, 7, 14, 21)
+
+inputFeatures <- "BTM"
+
+#Create combined vaccine type/pathogen column
+eset$pathogen_vaccine_type=paste0(eset$pathogen,"_",eset$vaccine_type)
+#table(eset$pathogen_vaccine_type)
+
+#Remove subjects with Inf/NA MFC measurements
+eset=eset[,!is.na(eset$MFC)]
+eset=eset[,!(eset$MFC == Inf)]  
+
+#For subjects with D-7 but no D0 measurement, convert to D0 for FC calculation
+sub_noD0=setdiff(eset[,which(eset$study_time_collected==-7)]$participant_id,eset[,which(eset$study_time_collected==0)]$participant_id)
+eset$study_time_collected[intersect(which(eset$study_time_collected==-7),which(eset$participant_id %in% sub_noD0))]=0
+
+#Find samples from timepoints of interest
+ind=lapply(tp_int, function(x) which(eset$study_time_collected==x))
+#Retain only samples from timepoints of interest
+eset=eset[,Reduce(union,ind)]
+#Recompute timepoint indices after removing extraneous timepoints
+ind=lapply(tp_int, function(x) which(eset$study_time_collected==x))
+
+#Remove samples from a single study with fewer than sample_cutoff samples at any timepoint
+sample_cutoff = 3
+matrix_uni_tp=lapply(ind,function(x) unique(eset[,x]$matrix))
+matrix_ind=lapply(1:length(ind),function(x)
+  lapply(1:length(matrix_uni_tp[[x]]), function(y) which(matrix_uni_tp[[x]][[y]]==eset[,ind[[x]]]$matrix)))
+ind_cut_all=vector()
+for (i in 1:length(matrix_ind)) {
+  ind_cut=which(sapply(matrix_ind[[i]],length)<sample_cutoff)
+  if (is_empty(ind_cut)==FALSE) {
+    for (j in 1:length(ind_cut)) {
+      ind_cut_all=c(ind_cut_all,ind[[i]][matrix_ind[[i]][[ind_cut[j]]]])
+    }
+  }
+}
+if (is_empty(ind_cut_all)==FALSE) {
+  eset=eset[,-ind_cut_all]
+}
+
+#Recompute timepoint indices after removing samples
+tp_int=unique(eset$study_time_collected[which(eset$study_time_collected>=0)])
+ind=lapply(tp_int, function(x) which(eset$study_time_collected==x))
+
+PD<-pData(eset)
+#unique(subset(PD,participant_id%in%participant_id[ind[[2]]])$study_time_collected)
+
+eset=eset[complete.cases(Biobase::exprs(eset)),]
+
+BTM_list <- readRDS(file.path(dataDir, "btm_list_2020_12_23.rds"))
+
+# Gene names
+GeneNames<-featureNames(eset)
+
+#Remove BTMs which have no matching genes in dataset
+BTM_list=BTM_list[!sapply(BTM_list, function(x){is_empty(intersect(x, GeneNames))})]
+
+eset_BTM<-gsva(expr=eset, ## Gene-expressiopn data, rows genes, cols samples
+               BTM_list, ## PTW list
+               verbose=FALSE,
+               method="ssgsea")
+
+#Replace eset with BTM eset
+eset=eset_BTM
+rm(eset_BTM)
+
+#Compute D0 normalized FC - for individual genes/BTMs - exp_FC has 3 large matrix with D1, D3, D7 timepoints
+ind_D0=which(0==eset$study_time_collected)
+common=lapply(2:length(ind),function(x) intersect(eset$participant_id[ind[[x]]],eset$participant_id[ind_D0]))  
+#get participant id with timepoint and D0 data
+ia=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset$participant_id[ind[[x]]]))) 
+#included participant IDs match with participant IDs at diff timepoints in eset
+ib=lapply(2:length(ind),function(x) na.omit(match(common[[x-1]],eset$participant_id[ind_D0])))  
+#participant IDs match with D0 to get indices in ind_D0
+exp_FC=lapply(2:length(ind),function(x) eset[,ind[[x]][ia[[x-1]]]])  #get expression data of the 3 timepoints
+
+exp_FC=lapply(2:length(ind),
+              function(x) {Biobase::exprs(exp_FC[[x-1]])=Biobase::exprs(exp_FC[[x-1]])-Biobase::exprs(eset[,ind_D0[ib[[x-1]]]]) 
+              exp_FC[[x-1]]
+              }) #compute FC
+
+names(exp_FC)<-paste0("Day", tp_int[-1])
+
+save(exp_FC, file=paste0(dataCacheDir, "/FCH_EsetList.", inputFeatures,".rda"))
+```
+
+
+## Step 1.2: Wrangle FCH data to machine learning format ##
+
+This code creates a seperate data set for each time point. 
+
+
+```{r}
+
+inputFeatures <- "BTM"
+   
+#load(paste0("FCH_EsetList.BTM.rda"))
+
+lapply(names(exp_FC), function(DAY){
+  
+#print(DAY)
+
+eset<-exp_FC[[DAY]]
+
+PD<-pData(eset)
+
+# remove patients with duplicate time points
+PD$SubjTime<-paste0(PD$participant_id,"_",PD$study_time_collected)
+tab<-table(PD$SubjTime)
+
+patientsDuplic<-names(tab[tab!=1])
+
+## Keep only patients with 0, 1 and 3 days
+numbrero<-as.numeric(gsub("Day", "", DAY))
+
+PD.sub<-subset(PD, study_time_collected%in%c(numbrero))
+
+PD.sub[PD.sub$pathogen_vaccine_type=="Yellow Fever Live attenuated",c("participant_id","study_time_collected","cell_type","MFC_p30")]
+
+PD.use<-PD.sub
+PD.use<-droplevels(PD.use)
+
+UID<-PD.use$uid
+
+## Prepare expression data
+EXP<-Biobase::exprs(eset)
+
+## Figure out a good filter
+SDVec<-apply(EXP, 1, sd)
+
+GENES<-names(SDVec[SDVec>=quantile(SDVec,0.75)])
+
+## I will keep genes with an SD>= the median SD
+
+## Need to wrangle this into ML format: Gene_Time by PTID
+EXP.melt<-reshape2::melt(EXP)
+colnames(EXP.melt)[2]="uid"
+
+EXP.PD<-inner_join(x=EXP.melt[EXP.melt$uid%in%PD.use$uid,],
+                   y=PD.use[,c("uid","participant_id","study_time_collected","time_post_last_vax",
+                               "age_imputed",'study_accession',
+                               "gender","pathogen","vaccine_type","maxRBA_p30","MFC_p30","MFC","maxRBA")],
+                   by="uid")
+
+EXP.PD$Gene_Time<-paste0(EXP.PD$Var1, "_",EXP.PD$study_time_collected)
+EXP.PD$pathogen_vaccine_type<-paste0(EXP.PD$pathogen, "_", EXP.PD$vaccine_type)
+
+data.ML<-as.data.frame(dcast.data.table(as.data.table(EXP.PD),
+                                        formula=Var1+Gene_Time+study_time_collected~participant_id,
+                                        value.var = "value"))
+
+rownames(data.ML)<-gsub(paste0("_",numbrero,"$"), 
+                        paste0("_D",numbrero,"FCH"), 
+                        data.ML$Gene_Time)
+
+data.ML.filter<-data.ML[data.ML$Var1%in%GENES,-c(1:3)]
+
+save(data.ML.filter, file=paste0(dataCacheDir,"/ML.Data.", paste0("D",numbrero,"FCH."), inputFeatures,".SDFilter75.rda"))
+
+data.ML<-data.ML[,-c(1:3)]
+
+save(data.ML, file=paste0(dataCacheDir,"/ML.Data.", paste0("D",numbrero,"FCH."), inputFeatures,".NoFilter.rda"))
+
+PatientInfo<-EXP.PD[!duplicated(EXP.PD$participant_id),
+                    c('age_imputed','gender','pathogen_vaccine_type','study_accession',
+                      'maxRBA_p30','MFC_p30','participant_id','maxRBA','MFC')]
+
+rownames(PatientInfo)<-PatientInfo$participant_id
+PatientInfo<-as.data.frame(PatientInfo)
+
+save(PatientInfo, file=paste0(dataCacheDir,
+                               "/PD.Master.", 
+                              paste0("D", numbrero, "FCH."), 
+                              inputFeatures, ".rda"))
+
+})
+
+
+```
+
+## Step 1.3: Peak time select data set ##
+
+This chuck will prepare a data set where the time point for each vaccine is based on the timing of the peak anti-body response for that vaccine. 
+
+```{r}
+## list of vaccines that peak at each time point ##
+
+Peak.List <- list(
+  D3FCH=c("Meningococcus_Conjugate"),
+  D7FCH=c("Hepatitis B_Inactivated", 
+          "Influenza_Live attenuated",
+          "Influenza_Inactivated",
+          "Tuberculosis_Recombinant Viral Vector",
+          "Meningococcus_Polysaccharide", 
+          "Pneumococcus_Polysaccharide",
+          "Varicella Zoster_Live attenuated"),
+  D14FCH=c("Yellow Fever_Live attenuated"),
+  D21FCH=c("Smallpox_Live attenuated"))
+
+data.ML.final <- do.call("cbind.data.frame", lapply(names(Peak.List), function(TIME){
+  
+  load(paste0(dataCacheDir,"/ML.Data.",TIME,".BTM.NoFilter.rda"))
+  load(paste0(dataCacheDir,"/PD.Master.",TIME,".BTM.rda"))
+  
+  keep.id<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder") &  
+                    pathogen_vaccine_type%in%Peak.List[[TIME]])$participant_id
+  
+  data.ML.temp<-data.ML[,keep.id]
+  
+  return(data.ML.temp)
+  
+}))
+
+
+PatientInfo.Final <- do.call("rbind.data.frame", lapply(names(Peak.List), function(TIME){
+  
+  load(paste0(dataCacheDir,"/ML.Data.",TIME,".BTM.NoFilter.rda"))
+  load(paste0(dataCacheDir,"/PD.Master.",TIME,".BTM.rda"))
+  
+  keep.id<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder") &  
+                    pathogen_vaccine_type%in%Peak.List[[TIME]])$participant_id
+  
+  data.ML.temp<-PatientInfo[keep.id,]
+  
+  return(data.ML.temp)
+  
+}))
+
+PatientInfo.Final<-droplevels(PatientInfo.Final)
+PatientInfo.Final$MFC_p30<-factor(PatientInfo.Final$MFC_p30, 
+                                  levels = c("highResponder", "lowResponder"))
+
+save(PatientInfo.Final, data.ML.final, 
+     file=paste0(dataCacheDir,"/ML.Data.D7FCH.BTM.SELECT.PEAK.NoFilter.rda"))
+
+```
+
+## Step 2: Peak time select data set ##
+
+```{r}
+
+TIMES<-c("D7FCH.BTM", "D7FCH.BTM.SELECT")
+VERSION<-c(".PEAK")
+
+db.run<-expand.grid(TIMES, VERSION)
+
+MODEL.LIST<-lapply(1:nrow(db.run), function(i){
+
+Time=db.run[i, "Var1"] # eg BL.GENES, BL.BTM
+
+VERSION<-db.run[i, "Var2"]
+
+SEED=42
+
+## ----Load Data--------------------------------------------------------------------------------------------
+# Gene Data
+
+### Get ID with Both ###
+ID.UNIFORM<-get(load(paste0(dataCacheDir,"/ML.Data.D7FCH.BTM.NoFilter.rda")))
+
+load(paste0(dataCacheDir,"/ML.Data.D7FCH.BTM.SELECT.PEAK.NoFilter.rda"))
+
+ID.SELECT <- data.ML.final
+
+dim(ID.UNIFORM); dim(ID.SELECT)
+ID.KEEP<-intersect(colnames(ID.UNIFORM), colnames(ID.SELECT))
+length(ID.KEEP)
+
+if(grepl("SELECT",Time)==FALSE){
+  load(paste0(dataCacheDir,"/ML.Data.",Time,".NoFilter.rda"))
+  load(paste0(dataCacheDir,"/PD.Master.",Time,".rda"))
+  data.ML.filter=data.ML}
+
+if(grepl("SELECT",Time)==TRUE){
+  Time2<-paste0(Time, VERSION)
+  load(paste0(dataCacheDir,"/ML.Data.",Time2,".NoFilter.rda"))
+  data.ML.filter=data.ML.final
+  PatientInfo=PatientInfo.Final}
+
+## ---------------------------------------------------------------------------------------------------------
+PatientInfo<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder"))
+PatientInfo<-droplevels(PatientInfo)
+PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+
+## ---------------------------------------------------------------------------------------------------------
+
+DevID<-rownames(PatientInfo)
+
+DevID<-intersect(DevID, colnames(data.ML.filter))
+X.Dev<-data.ML.filter[,DevID]
+rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+
+Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+names(Y.Dev)<-DevID
+
+## ---------------------------------------------------------------------------------------------------------
+
+#keep.genes<-grep("M156.0|M156.1", rownames(X.Dev), value = T)
+keep.genes<-grep("M156.1", rownames(X.Dev), value = T)
+
+X.Train.t1<-t(X.Dev[keep.genes,])
+
+Y.Train1<-PatientInfo[rownames(X.Train.t1), 'MFC_p30']
+names(Y.Train1)<-rownames(X.Train.t1)
+
+X.Train.t1<-X.Train.t1[intersect(ID.KEEP, rownames(X.Train.t1)),,drop=F]
+
+set.seed(SEED)
+ctrl=trainControl(method = "LGOCV", 
+                  number = 200,
+                  p=0.8,
+                  selectionFunction = 'best',
+                  search="grid",
+                  returnResamp = "final",
+                  classProbs = TRUE,
+                  returnData = F,
+                  verboseIter = F,
+                  summaryFunction = twoClassSummary,
+                  sampling=NULL,
+                  savePredictions = "final")
+
+
+set.seed(SEED)
+model_list <- caret::train(
+  x=X.Train.t1,
+  y=Y.Train1[rownames(X.Train.t1)],
+  trControl=ctrl,
+  method="glm",
+  metric="ROC", 
+  maximize=TRUE,
+  preProcess = c("center", "scale"))
+
+   
+model_list$pred$participant_id<-rownames(X.Train.t1)[model_list$pred$rowIndex]
+model_list$pred$pathogen_vaccine_type=PatientInfo[model_list$pred$participant_id,"pathogen_vaccine_type"]
+
+
+return(model_list)})
+
+names(MODEL.LIST)<-paste0(db.run$Var1, db.run$Var2)
+
+save(MODEL.LIST, file=paste0(dataCacheDir,"/PeakPredictions_Master_ModelList.rda"))
+
+```
+
+## Step 2.1: Calculate bootstrapped weighted ROC ##
+
+```{r}
+
+db.preds.D7FCH <- MODEL.LIST$D7FCH.BTM.PEAK$pred %>%
+  mutate(TIME="D7FCH")
+
+db.preds.PEAK <- MODEL.LIST$D7FCH.BTM.SELECT.PEAK$pred %>%
+  mutate(TIME="PEAK.SELECT")
+
+db.preds.all <- full_join(db.preds.D7FCH, db.preds.PEAK)
+
+db.ROCw<-ddply(db.preds.all,
+               c("Resample", "TIME"),
+               function(df){
+                 
+                 tab1<-table(df$pathogen_vaccine_type)
+                 tab1<-1/tab1
+                 df$WT<-tab1[df$pathogen_vaccine_type]
+                 
+                 ROCw<-WeightedROC(guess=df$highResponder, 
+                                   label=ifelse(df$obs=="highResponder", 1,0),
+                                   weight = df$WT)
+                 
+                 db.res <-data.frame(WeightedAUC=WeightedAUC(ROCw))
+                 
+               })
+
+Fig.D7FCH <- lme(WeightedAUC~1, random = ~1|Resample, data=filter(db.ROCw, TIME=="D7FCH"))
+MEAN.CI.D7FCH <- as.data.frame(emmeans::emmeans(Fig.D7FCH, ~1)) %>%
+  mutate(TIME="D7FCH")
+
+Fig.PEAK.SELECT <- lme(WeightedAUC~1, random = ~1|Resample, data=filter(db.ROCw, TIME=="PEAK.SELECT"))
+MEAN.CI.PEAK.SELECT <- as.data.frame(emmeans::emmeans(Fig.PEAK.SELECT, ~1))  %>%
+  mutate(TIME="PEAK.SELECT")
+
+MEAN.CI <- full_join(MEAN.CI.D7FCH, MEAN.CI.PEAK.SELECT)
+#write.csv(MEAN.CI, file="db.WeightedAUC.csv")
+MEAN.CI
+
+### Weighted ROC ###
+tab1<-table(db.preds.D7FCH$pathogen_vaccine_type)
+tab1<-1/tab1
+db.preds.D7FCH$WT<-tab1[db.preds.D7FCH$pathogen_vaccine_type]
+
+ROC.UNIFORM<-WeightedROC(guess=db.preds.D7FCH$highResponder, 
+                         label=ifelse(db.preds.D7FCH$obs=="highResponder", 1,0),
+                         weight = db.preds.D7FCH$WT)
+              
+print(paste0("Day7 uniform weighted ROC ",WeightedAUC(ROC.UNIFORM)))
+
+              ROC.UNIFORM$TYPE="Day7"
+ROC.UNIFORM$WeightedAUC=WeightedAUC(ROC.UNIFORM)
+
+tab1<-table(db.preds.PEAK$pathogen_vaccine_type)
+tab1<-1/tab1
+db.preds.PEAK$WT<-tab1[db.preds.PEAK$pathogen_vaccine_type]
+
+ROC.PEAK<-WeightedROC(guess=db.preds.PEAK$highResponder, 
+                      label=ifelse(db.preds.PEAK$obs=="highResponder", 1,0),
+                      weight = db.preds.PEAK$WT)
+              
+print(paste0("Peak Ab weighted ROC ",WeightedAUC(ROC.PEAK)))
+      
+ROC.PEAK$TYPE="Peak"
+ROC.PEAK$WeightedAUC=WeightedAUC(ROC.PEAK)
+
+ROC.db<-rbind.data.frame(ROC.PEAK, ROC.UNIFORM)
+
+ggplot(ROC.db, aes(x=FPR, y=TPR, color=TYPE))+
+  geom_path()+
+  scale_color_manual(values=c(Day7="gray60", Peak="black"))+
+  coord_equal() +
+  theme_classic()+
+  theme(legend.position = "bottom")
+
+#ggsave(file="WeightedROC_PEAKvsDay7.pdf",
+#       width = 4, height = 3.5)
+
+### ROC per Vaccine ###
+
+#table(db.preds.all$Resample)
+
+perf.stats.by.vaccine<-ddply(.data=db.preds.all,
+                             .variable=c("pathogen_vaccine_type", "TIME", "Resample"),
+                             .fun=function(df){
+
+                               if(nrow(df)!=0 & length(unique(df$obs))==2){
+
+                                 ROC.OBJ<-pROC::roc(response = df$obs, levels=c("lowResponder", "highResponder"),
+                                                    direction="<", 
+                                                    predictor = df$highResponder)
+                                 
+                                 DB2 <- data.frame(AUC=ROC.OBJ$auc)
+                                 
+                                 return(DB2)}else{return(NULL)}}, .parallel=F)
+
+perf.stats.by.vaccine<-arrange(perf.stats.by.vaccine, desc(AUC))
+
+ddply(perf.stats.by.vaccine,
+      c("TIME", "pathogen_vaccine_type"),
+      function(df){
+        
+        FIT<-lme(AUC~1, random = ~1|Resample, data=df)
+        MEAN.CI <- as.data.frame(emmeans::emmeans(FIT, ~1)) 
+        
+      }) %>% arrange(pathogen_vaccine_type) -> db.plot.ByVac
+
+pd<-position_dodge(0.9)
+
+p<-ggplot(db.plot.ByVac,
+          aes(x=reorder(pathogen_vaccine_type, -emmean), 
+              y=emmean, 
+              fill=TIME))+
+  geom_bar(stat='identity', show.legend = T, position = pd)+
+  scale_fill_brewer(palette = "Set3")+
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.25, position = pd)+
+  labs(y="AUC (CI 95%)", x=NULL)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 60, hjust = 1, size=8))+
+  ylim(0,1)
+
+p
+
+#ggsave(file=paste0(dataCacheDir,"ByVaccinePlotBTMPreSelect.pdf"),
+#       width=8, height=5)
+
+
+
+```
+
+## Step 3: Run leave-one-study-out using Influenza D3FCH ##
+
+```{r}
+
+load(paste0(dataCacheDir,"/ML.Data.D3FCH.BTM.SDFilter75.rda"))
+load(paste0(dataCacheDir,"/PD.Master.D3FCH.BTM.rda"))
+
+## ---------------------------------------------------------------------------------------------------------
+PatientInfo<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder"))
+PatientInfo<-subset(PatientInfo, pathogen_vaccine_type=="Influenza_Inactivated")
+PatientInfo<-droplevels(PatientInfo)
+PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+
+## ---------------------------------------------------------------------------------------------------------
+
+MOD.LIST<-lapply(unique(PatientInfo$study_accession), function(SDY){
+  
+  PatientInfo.Temp<-filter(PatientInfo, study_accession!=SDY)
+  
+  DevID<-rownames(PatientInfo.Temp)
+  DevID<-intersect(DevID, colnames(data.ML.filter))
+  X.Dev<-data.ML.filter[,DevID]
+  rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+  
+  Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+  names(Y.Dev)<-DevID
+  
+  X.Dev <- t(X.Dev)
+  
+  ## ---------------------------------------------------------------------------------------------------------
+  SEED<-1987
+  
+  set.seed(SEED)
+  ctrl=trainControl(method = "cv",
+                    number = 10,
+                    #repeats = 1,
+                    selectionFunction = 'best',
+                    returnResamp = "final",
+                    classProbs = TRUE,
+                    returnData = F,
+                    verboseIter = F,
+                    summaryFunction = twoClassSummary,
+                    savePredictions = "final")
+  
+  
+  #doMC::registerDoMC(6)
+  set.seed(SEED)
+  model_list <- caretList(
+    x=X.Dev,
+    y=Y.Dev[rownames(X.Dev)],
+    trControl=ctrl,
+    methodList=c("glmnet"),
+    metric="ROC", 
+    tuneLength=5,
+    maximize=T,
+    preProc = c("center", "scale"))
+  
+  return(model_list)})
+
+names(MOD.LIST)<-unique(PatientInfo$study_accession)
+
+### Get 10-CV preds ###
+
+db.preds.test<-do.call("rbind.data.frame", lapply(names(MOD.LIST), 
+                                                  function(SDY){
+                                                    
+                                                    MOD.TEMP <- MOD.LIST[[SDY]]
+                                                    
+                                                    PatientInfo.Temp<-subset(PatientInfo, study_accession==SDY)
+                                                    PatientInfo.Temp<-droplevels(PatientInfo.Temp)
+                                                    PatientInfo.Temp$MFC_p30<-factor(PatientInfo.Temp$MFC_p30, levels = c("highResponder", "lowResponder"))
+                                                    
+                                                    DevID<-rownames(PatientInfo.Temp)
+                                                    DevID<-intersect(DevID, colnames(data.ML.filter))
+                                                    
+                                                    X.Dev<-data.ML.filter[, DevID]
+                                                    rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+                                                    
+                                                    Y.Dev<-PatientInfo.Temp[DevID, 'MFC_p30']
+                                                    names(Y.Dev)<-DevID
+                                                    
+                                                    model_preds <- lapply(MOD.TEMP, predict, newdata=t(X.Dev), type="prob")
+                                                    model_preds <- lapply(model_preds, function(x) x[,"highResponder"])
+                                                    model_preds <- data.frame(model_preds)
+                                                    
+                                                    Preds.Test<-mutate(model_preds,
+                                                                       pred=ifelse(glmnet>=0.5, "highResponder", "lowResponder"),
+                                                                       PTID=colnames(X.Dev),
+                                                                       highResponder=glmnet,
+                                                                       obs=as.character(Y.Dev[colnames(X.Dev)]))
+                                                    
+                                                    CONF.MAT<-caret::confusionMatrix(data=factor(Preds.Test$pred, levels = c("highResponder", "lowResponder")),
+                                                                                     reference=factor(Preds.Test$obs, 
+                                                                                                      levels = c("highResponder", "lowResponder")))
+                                                    
+                                                    ROC.OBJ<-pROC::roc(response = Preds.Test$obs, 
+                                                                       levels=c("lowResponder", "highResponder"),
+                                                                       direction="<", 
+                                                                       predictor = Preds.Test$highResponder)
+                                                    
+                                                    AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                                                                                   method="bootstrap", boot.n=2000))
+                                                    names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                                                    
+                                                    N = length(Preds.Test$PTID)
+                                                    
+                                                    VEC=t(as.data.frame(c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, n_vac=N))) %>%
+                                                      as.data.frame() %>%
+                                                      mutate(SDY_OUT=SDY, SET="TEST")
+                                                    rownames(VEC)<-NULL
+                                                    return(VEC)
+                                                    }))
+
+
+db.preds.10CV<-do.call("rbind.data.frame", lapply(names(MOD.LIST), 
+                                                    function(SDY){
+                                                      
+                                                      MOD.TEMP <- MOD.LIST[[SDY]]
+                                                      
+                                                      Preds.CV <- MOD.TEMP$glmnet$pred
+                                                      
+                                                      CONF.MAT<-caret::confusionMatrix(data=factor(Preds.CV$pred, levels = c("highResponder", "lowResponder")),
+                                                                                       reference=factor(Preds.CV$obs, 
+                                                                                                        levels = c("highResponder", "lowResponder")))
+                                                      
+                                                      ROC.OBJ<-pROC::roc(response = Preds.CV$obs, 
+                                                                         levels=c("lowResponder", "highResponder"),
+                                                                         direction="<", 
+                                                                         predictor = Preds.CV$highResponder)
+                                                      
+                                                      AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                                                                                     method="bootstrap", boot.n=2000))
+                                                      names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                                                      
+                                                      N = length(Preds.CV$PTID)
+                                                      
+                                                      VEC=t(as.data.frame(c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, n_vac=N))) %>%
+                                                        as.data.frame() %>%
+                                                        mutate(SDY_OUT=SDY, SET="10-CV")
+                                                      rownames(VEC)<-NULL
+                                                      return(VEC)
+                                                    }))
+
+db.preds.All <- full_join(x=db.preds.test,
+                          y=db.preds.10CV)
+
+pd<-position_dodge(1)
+
+p<-ggplot(db.preds.All, 
+          aes(x=SDY_OUT,
+              y=as.numeric(AUC), 
+              fill=SET,
+              group=interaction(SDY_OUT, SET)))+
+  geom_bar(stat='identity', show.legend = T, position = pd)+
+  scale_fill_brewer(palette = "Set3")+
+  geom_errorbar(aes(ymin = AUC.CI.LOW, ymax = AUC.CI.HIGH), width = 0.25, position = pd)+
+  labs(y="AUC (CI)", x=NULL)+
+  theme_bw()+
+  geom_hline(yintercept = 0.5, linetype="dashed")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
+  geom_label(data=filter(db.preds.All, SET=="TEST"), 
+             aes(y=0.05, label=n_vac), show.legend = F, color="black", size=2)+
+  ylim(0,1)
+
+p
+
+#ggsave(file=paste0("ByVaccinePlotInfTrainD3FCH.pdf"), 
+#       width=5.5, height=4)
+
+
+
+```
+
+## Step 3.2: Run leave-one-study-out using Influenza D7FCH ##
+
+```{r}
+
+load(paste0(dataCacheDir, "/ML.Data.D7FCH.BTM.SDFilter75.rda"))
+load(paste0(dataCacheDir,"/PD.Master.D7FCH.BTM.rda"))
+
+## ---------------------------------------------------------------------------------------------------------
+PatientInfo<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder"))
+PatientInfo<-subset(PatientInfo, pathogen_vaccine_type=="Influenza_Inactivated")
+PatientInfo<-droplevels(PatientInfo)
+PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+
+## ---------------------------------------------------------------------------------------------------------
+
+#SDY="SDY1276"
+
+MOD.LIST<-lapply(unique(PatientInfo$study_accession), function(SDY){
+  
+  PatientInfo.Temp<-filter(PatientInfo, study_accession!=SDY)
+  
+  DevID<-rownames(PatientInfo.Temp)
+  DevID<-intersect(DevID, colnames(data.ML.filter))
+  X.Dev<-data.ML.filter[,DevID]
+  rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+  
+  Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+  names(Y.Dev)<-DevID
+  
+  length(Y.Dev)
+  
+  dim(X.Dev)
+  
+  X.Dev <- t(X.Dev)
+  
+  ## ---------------------------------------------------------------------------------------------------------
+
+  SEED<-1987
+  
+  set.seed(SEED)
+  ctrl=trainControl(method = "cv",
+                    number = 10,
+                    #repeats = 1,
+                    selectionFunction = 'best',
+                    returnResamp = "final",
+                    classProbs = TRUE,
+                    returnData = F,
+                    verboseIter = F,
+                    summaryFunction = twoClassSummary,
+                    savePredictions = "final")
+  
+  
+  set.seed(SEED)
+  model_list <- caretList(
+    x=X.Dev,
+    y=Y.Dev[rownames(X.Dev)],
+    trControl=ctrl,
+    methodList=c("glmnet"),
+    metric="ROC", 
+    tuneLength=5,
+    maximize=T,
+    preProc = c("center", "scale"))
+  
+  return(model_list)})
+
+names(MOD.LIST)<-unique(PatientInfo$study_accession)
+
+### Get 10-CV preds ###
+
+db.preds.test<-do.call("rbind.data.frame", lapply(names(MOD.LIST), 
+                                                  function(SDY){
+                                                    
+                                                    MOD.TEMP <- MOD.LIST[[SDY]]
+                                                    
+                                                    PatientInfo.Temp<-subset(PatientInfo, study_accession==SDY)
+                                                    PatientInfo.Temp<-droplevels(PatientInfo.Temp)
+                                                    PatientInfo.Temp$MFC_p30<-factor(PatientInfo.Temp$MFC_p30, levels = c("highResponder", "lowResponder"))
+                                                    
+                                                    DevID<-rownames(PatientInfo.Temp)
+                                                    DevID<-intersect(DevID, colnames(data.ML.filter))
+                                                    
+                                                    X.Dev<-data.ML.filter[, DevID]
+                                                    rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+                                                    
+                                                    Y.Dev<-PatientInfo.Temp[DevID, 'MFC_p30']
+                                                    names(Y.Dev)<-DevID
+                                                    
+                                                    model_preds <- lapply(MOD.TEMP, predict, newdata=t(X.Dev), type="prob")
+                                                    model_preds <- lapply(model_preds, function(x) x[,"highResponder"])
+                                                    model_preds <- data.frame(model_preds)
+                                                    
+                                                    Preds.Test<-mutate(model_preds,
+                                                                       pred=ifelse(glmnet>=0.5, "highResponder", "lowResponder"),
+                                                                       PTID=colnames(X.Dev),
+                                                                       highResponder=glmnet,
+                                                                       obs=as.character(Y.Dev[colnames(X.Dev)]))
+                                                    
+                                                    CONF.MAT<-caret::confusionMatrix(data=factor(Preds.Test$pred, levels = c("highResponder", "lowResponder")),
+                                                                                     reference=factor(Preds.Test$obs, 
+                                                                                                      levels = c("highResponder", "lowResponder")))
+                                                    
+                                                    ROC.OBJ<-pROC::roc(response = Preds.Test$obs, 
+                                                                       levels=c("lowResponder", "highResponder"),
+                                                                       direction="<", 
+                                                                       predictor = Preds.Test$highResponder)
+                                                    
+                                                    AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                                                                                   method="bootstrap", boot.n=2000))
+                                                    names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                                                    
+                                                    N = length(Preds.Test$PTID)
+                                                    
+                                                    VEC=t(as.data.frame(c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, n_vac=N))) %>%
+                                                      as.data.frame() %>%
+                                                      mutate(SDY_OUT=SDY, SET="TEST")
+                                                    rownames(VEC)<-NULL
+                                                    return(VEC)
+                                                  }))
+
+
+db.preds.10CV<-do.call("rbind.data.frame", lapply(names(MOD.LIST), 
+                                                  function(SDY){
+                                                    
+                                                    MOD.TEMP <- MOD.LIST[[SDY]]
+                                                    
+                                                    Preds.CV <- MOD.TEMP$glmnet$pred
+                                                    
+                                                    CONF.MAT<-caret::confusionMatrix(data=factor(Preds.CV$pred, levels = c("highResponder", "lowResponder")),
+                                                                                     reference=factor(Preds.CV$obs, 
+                                                                                                      levels = c("highResponder", "lowResponder")))
+                                                    
+                                                    ROC.OBJ<-pROC::roc(response = Preds.CV$obs, 
+                                                                       levels=c("lowResponder", "highResponder"),
+                                                                       direction="<", 
+                                                                       predictor = Preds.CV$highResponder)
+                                                    
+                                                    AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                                                                                   method="bootstrap", boot.n=2000))
+                                                    names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                                                    
+                                                    N = length(Preds.CV$PTID)
+                                                    
+                                                    VEC=t(as.data.frame(c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, n_vac=N))) %>%
+                                                      as.data.frame() %>%
+                                                      mutate(SDY_OUT=SDY, SET="10-CV")
+                                                    rownames(VEC)<-NULL
+                                                    return(VEC)
+                                                  }))
+
+db.preds.All <- full_join(x=db.preds.test,
+                          y=db.preds.10CV)
+
+pd<-position_dodge(1)
+
+p<-ggplot(db.preds.All, 
+          aes(x=SDY_OUT,
+              y=as.numeric(AUC), 
+              fill=SET,
+              group=interaction(SDY_OUT, SET)))+
+  geom_bar(stat='identity', show.legend = T, position = pd)+
+  scale_fill_brewer(palette = "Set3")+
+  geom_errorbar(aes(ymin = AUC.CI.LOW, ymax = AUC.CI.HIGH), width = 0.25, position = pd)+
+  labs(y="AUC (CI)", x=NULL)+
+  theme_bw()+
+  geom_hline(yintercept = 0.5, linetype="dashed")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
+  geom_label(data=filter(db.preds.All, SET=="TEST"), 
+             aes(y=0.05, label=n_vac), show.legend = F, color="black", size=2)+
+  ylim(0,1)
+
+p
+
+#ggsave(file=paste0("ByVaccinePlotInfTrainD7FCH.pdf"), 
+ #      width=7.5, height=4)
+
+
+
+```
+
+## Step 4: Train model on Influenza D7FCH, predict on other vaccines ##
+
+```{r}
+
+load(paste0(dataCacheDir, "/ML.Data.D7FCH.BTM.SDFilter75.rda"))
+load(paste0(dataCacheDir ,"/PD.Master.D7FCH.BTM.rda"))
+
+## ---------------------------------------------------------------------------------------------------------
+PatientInfo<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder"))
+PatientInfo<-subset(PatientInfo, pathogen_vaccine_type=="Influenza_Inactivated")
+PatientInfo<-droplevels(PatientInfo)
+PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+
+## ---------------------------------------------------------------------------------------------------------
+DevID<-rownames(PatientInfo)
+DevID<-intersect(DevID, colnames(data.ML.filter))
+X.Dev<-data.ML.filter[,DevID]
+rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+
+Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+names(Y.Dev)<-DevID
+
+X.Dev <- t(X.Dev)
+
+## ---------------------------------------------------------------------------------------------------------
+
+SEED<-1987
+
+set.seed(SEED)
+ctrl=trainControl(method = "cv", 
+                  selectionFunction = 'best',
+                  returnResamp = "final",
+                  classProbs = TRUE,
+                  returnData = F,
+                  verboseIter = F,
+                  summaryFunction = twoClassSummary,
+                  savePredictions = "final")
+
+set.seed(SEED)
+model_list <- caretList(
+  x=X.Dev,
+  y=Y.Dev[rownames(X.Dev)],
+  trControl=ctrl,
+  methodList=c("glmnet"),
+  metric="ROC", 
+  #tuneLength=5,
+  maximize=T,
+  preProc = c("center", "scale"))
+
+whichTwoPct <- best(model_list$glmnet$results,
+                    metric = "ROC",
+                    maximize = TRUE)
+
+model_list$glmnet$results[whichTwoPct,]
+
+# try(dev.off())
+# pdf(file=paste0("CV10_ROC_FluD7FCH_glmnet.pdf"), width=4, height=4)
+# par(pty="s")
+
+ROC.OBJ<-pROC::roc(response = model_list$glmnet$pred$obs, 
+                   levels=c("lowResponder", "highResponder"),
+                   direction="<", 
+                   predictor = model_list$glmnet$pred$highResponder,
+                   plot=TRUE,
+                   print.auc=TRUE, print.auc.x=45, 
+                   ci=F,
+                   auc.polygon=FALSE, 
+                   legacy.axes=FALSE, 
+                   xlab= "Specificity (%) True Neg",
+                   ylab= "Sensitivity (%) True Pos",
+                   percent=TRUE, col="forestgreen", lwd=3)
+
+legend("bottomright", 
+       legend = c("10-CV"),
+       col=c("forestgreen"), lty=c(1),
+       lwd=3, cex=0.8, ncol=1)
+par(pty="m")
+
+AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                               method="bootstrap", boot.n=2000))
+names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+
+#try(dev.off())
+
+#write.csv(AUC.CI, file="D7FCH_10CV_glmnet_ConfInt.csv")
+AUC.CI
+#save(model_list, file="FinalModelD7FCH.rda")
+
+db.imp<-arrange(varImp(model_list$glmnet)$importance, desc(Overall))
+db.imp
+                                                     
+#write.csv(db.imp, file="D7FCH_BTM_VarImp_glmnet.csv")
+
+
+### Test in other vaccines ### 
+
+load(paste0(dataCacheDir,"/PD.Master.D7FCH.BTM.rda"))
+
+#table(PatientInfo$pathogen_vaccine_type)
+
+PatientInfo<-subset(PatientInfo, MFC_p30%in%c("lowResponder","highResponder"))
+PatientInfo<-subset(PatientInfo, pathogen_vaccine_type!="Influenza_Inactivated")
+PatientInfo<-droplevels(PatientInfo)
+PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+
+### DD ply to get preds ###
+
+db.preds.test<-do.call("rbind.data.frame", lapply(unique(PatientInfo$pathogen_vaccine_type), 
+                                                  function(Vaccine){
+                                                    
+                                                    PatientInfo<-subset(PatientInfo, pathogen_vaccine_type==Vaccine)
+                                                    PatientInfo<-droplevels(PatientInfo)
+                                                    PatientInfo$MFC_p30<-factor(PatientInfo$MFC_p30, levels = c("highResponder", "lowResponder"))
+                                                    
+                                                    DevID<-rownames(PatientInfo)
+                                                    DevID<-intersect(DevID, colnames(data.ML.filter))
+                                                    
+                                                    X.Dev<-data.ML.filter[, DevID]
+                                                    rownames(X.Dev)<-strsplit2(rownames(X.Dev), "_")[,1]
+                                                    
+                                                    Y.Dev<-PatientInfo[DevID, 'MFC_p30']
+                                                    names(Y.Dev)<-DevID
+                                                    
+                                                    model_preds <- lapply(model_list, predict, newdata=t(X.Dev), type="prob")
+                                                    model_preds <- lapply(model_preds, function(x) x[,"highResponder"])
+                                                    model_preds <- data.frame(model_preds)
+                                                    
+                                                    Preds.Test<-mutate(model_preds,
+                                                                       pathogen_vaccine_type=Vaccine,
+                                                                       #PredBinary=ifelse(rf>=0.5, "highResponder", "lowResponder"),
+                                                                       PTID=colnames(X.Dev),
+                                                                       Real.Resp=as.character(Y.Dev[colnames(X.Dev)])) 
+                                                    
+                                                    return(Preds.Test)
+                                                    
+                                                  }))
+
+db.preds.test<-melt(db.preds.test, measure.vars = c("glmnet"))
+
+df <- filter(db.preds.test, pathogen_vaccine_type=="Smallpox_Live attenuated", variable=="glmnet") 
+
+perf.stats.by.vaccine.time<-plyr::ddply(.data=db.preds.test,
+                                        .variable=.(pathogen_vaccine_type, variable),
+                                        .fun=function(df){
+                                          
+                                          CONF.MAT<-caret::confusionMatrix(data=factor(ifelse(df$value>=0.5, "highResponder", "lowResponder"),
+                                                                                       levels = c("highResponder", "lowResponder")),
+                                                                           reference=factor(df$Real.Resp, 
+                                                                                            levels = c("highResponder", "lowResponder")))
+                                          
+                                          ROC.OBJ<-pROC::roc(response = df$Real.Resp, 
+                                                             levels=c("lowResponder", "highResponder"),
+                                                             direction="<", 
+                                                             predictor = df$value)
+                                          
+                                          AUC.CI<-as.vector(pROC::ci.auc(ROC.OBJ, 
+                                                                         method="bootstrap", boot.n=2000))
+                                          
+                                          
+                                          names(AUC.CI)<-c("AUC.CI.LOW", "AUC", "AUC.CI.HIGH")
+                                          
+
+                                          N = length(df$pathogen_vaccine_type)
+                                          
+                                          VEC=t(as.data.frame(c(CONF.MAT$overall, CONF.MAT$byClass, AUC.CI, n_vac=N)))
+                                          rownames(VEC)<-NULL
+                                          
+                                          return(VEC)})
+
+perf.stats.by.vaccine.time<-arrange(perf.stats.by.vaccine.time, desc(AUC))
+
+lapply(unique(perf.stats.by.vaccine.time$variable), function(METH){
+  
+  p<-ggplot(subset(perf.stats.by.vaccine.time, variable==METH), 
+            aes(x=pathogen_vaccine_type,
+                y=as.numeric(AUC), 
+                fill=pathogen_vaccine_type))+
+    geom_hline(yintercept = 0.5, linetype="dashed")+
+    geom_bar(stat='identity', show.legend = F)+
+    scale_fill_brewer(palette = "Set3")+
+    geom_errorbar(aes(ymin = AUC.CI.LOW, ymax = AUC.CI.HIGH), width = 0.25)+
+    labs(y="AUC (CI)", title = paste0(METH), x=NULL)+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size=8))+
+    geom_label(aes(y=0.05, label=n_vac), show.legend = F, color="black", size=2)+
+    ylim(0,1)
+  
+  p
+  
+  #ggsave(file=paste0("ByVaccinePlotInfTrainD7FCH",METH,".pdf"), 
+   #      width=4.5, height=4)
+  
+})
+
+```
