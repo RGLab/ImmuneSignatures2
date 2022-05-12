@@ -2,6 +2,7 @@
 
 [![R-CMD-check](https://github.com/RGLab/ImmuneSignatures2/workflows/R-CMD-check/badge.svg)](https://github.com/RGLab/ImmuneSignatures2/actions)
 [![DOI](https://zenodo.org/badge/252603828.svg)](https://zenodo.org/badge/latestdoi/252603828)
+[![docker](https://github.com/RGLab/ImmuneSignatures2/actions/workflows/docker-build.yaml/badge.svg)](https://hub.docker.com/r/rglab/immunesignatures2)
 
 This package provides the code used to generate the expressionSet objects used in the ImmuneSignatures2 analysis by the Human Immunology Project Consortium. Data, as well as replication of all figures, is available on [ImmuneSpace](www.immunespace.org/is2.url)
 

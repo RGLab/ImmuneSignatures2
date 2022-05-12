@@ -62,7 +62,287 @@ options(stringsAsFactors       = FALSE,
 	      width                  = 60,
         dplyr.summarise.inform = FALSE)
 select <- dplyr::select
-source(file = file.path(dataCacheDir, "hipc_fig_s4_helperFunctions.R"))
+```
+
+```{r helpers}
+# Fig S4 helper functions
+
+# function for computing signature p-values for AUC (by permuting class labels)
+calculatePval <- function(labels, # 0 or 1
+                          values, # signature scores
+                          true_value, # AUC from non-permuted data
+                          n_perm = 1000 # number of AUC permutations for calculating p-value
+){
+  aucs <- vector(mode = 'double', length = n_perm)
+  
+  # no NA values 
+  if(sum(is.na(values)) > 0){
+    print('missing scores')
+    return(NA)
+  }
+  
+  for (iteration in 1:n_perm){
+    # if(iteration %% 1000 == 0){
+    #   print(paste0(iteration, '/', n_perm))
+    # }
+    sample_shuffle_ix <- sample(x = 1:length(labels), size = length(labels), replace = F)
+    aucs[iteration] <- calculateROC(labels = labels[sample_shuffle_ix], predictions = values, AUConly = T)
+  }
+  pval <- mean(aucs >= true_value)
+  return(pval)
+}
+
+# remove subjects from MetaIntegrator object
+filterMIobj <- function(MIobj, # MetaIntegrator object
+                        index # logical vector of indices to keep
+){
+  tmpMIobj <- MIobj
+  tmpMIobj$expr <- tmpMIobj$expr[, index]
+  tmpMIobj$pheno <- tmpMIobj$pheno[index, ]
+  tmpMIobj$class <- tmpMIobj$class[index]
+  
+  if(checkDataObject(tmpMIobj, 'Dataset')){
+    return(tmpMIobj)
+  } else {
+    stop()
+  }
+}
+
+# make a list of MetaIntegrator objects from virtualStudy expressionSet
+data2MIobj <- function(data){
+  # split expr object into multiple exprset objects
+  data_list <- list()
+  p <- pData(data)
+  p <- p %>%
+    mutate('study_id' = paste(study_accession, pathogen, vaccine_type, cohort, sep = '_'))
+  p$study_id[grepl(pattern = 'SDY1119', x = p$study_id)] <- 'SDY1119_Influenza_Inactivated_young'
+  
+  # split virtualStudy expressionSet into multiple expressionSets baed on study_id
+  studies <- unique(p$study_id)
+  for (j in 1:length(studies)){
+    print(j)
+    study <- studies[j]
+    current_study_ix <- p$study_id == study
+    current_expr <- data[, current_study_ix]
+    data_list[[study]] <- current_expr
+  }
+  
+  # remove studies with fewer than 5 subjects
+  small_ix <- sapply(data_list, function(x){return(ncol(x) >= 5)})
+  data_list <- data_list[small_ix]
+  studies <- studies[small_ix]
+  studies2 <- studies
+  
+  #turn each exprset object into a MIobj
+  MIobj_list <- list()
+  for (j in 1:length(studies)){
+    study <- studies[j]
+    current_expr <- data_list[[study]]
+    
+    print(study)
+    
+    MIobj <- list()
+    MIobj$expr <- exprs(current_expr)
+    MIobj$pheno <- pData(current_expr)
+    
+    # some SDYs have specific cohort considerations
+    if(grepl(pattern = 'SDY1276', x = study)){
+      sex <- str_extract(pattern = 'Females|Males', string = study)
+      study <- paste0(paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_'), '_', sex)
+    } else if(grepl(pattern = 'SDY1264', x = study)){
+      trialnum <- str_extract(pattern = 'Trial[:digit:]+', string = study)
+      study <- paste0(paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_'), '_', trialnum)
+    } else {
+      study <- paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_')
+    }
+    MIobj$formattedName <- study
+    studies2[j] <- study
+    
+    MIobj$keys <- rownames(MIobj$expr)
+    names(MIobj$keys) <- rownames(MIobj$expr)
+    
+    # assign class based on MFC_p30 response
+    MIobj$class <- as.character(MIobj$pheno$MFC_p30)
+    MIobj$class[MIobj$class == 'lowResponder'] <- '0'
+    MIobj$class[MIobj$class == 'highResponder'] <- '1'
+    MIobj$class[!MIobj$class %in% c('0','1')] <- NA
+    MIobj$class <- as.numeric(MIobj$class)
+    names(MIobj$class) <- rownames(MIobj$pheno)
+    
+    # adjust naming
+    rownames(MIobj$pheno) <- colnames(MIobj$expr)
+    names(MIobj$class) <- rownames(MIobj$pheno)
+    
+    # remove moderate responders (also checks for proper formatting)
+    MIobj <- filterMIobj(MIobj, !is.na(MIobj$class))
+    
+    # filter to baseline expression profiles
+    MIobj <- filterMIobj(MIobj, MIobj$pheno$study_time_collected == 0)
+    
+    # filter to remove genes with missing expression within study
+    missing_value_ix <- rowSums(is.na(MIobj$expr)) > 0
+    MIobj$expr <- MIobj$expr[!missing_value_ix, ]
+    MIobj$keys <- MIobj$keys[!missing_value_ix]
+    
+    MIobj$N <- nrow(MIobj$pheno)
+    
+    
+    MIobj_list[[study]] <- MIobj
+  }
+  return(MIobj_list)
+}
+
+# parse signatures into filterObject format
+signatures2Filters <- function(
+    filtered_resp_sigs # data frame from HIPC Dashboard (manually labeled whether signatures are paired)
+  ){
+  filter_list <- list()
+  for (i in 1:nrow(filtered_resp_sigs)){
+    current_sig <- filtered_resp_sigs[i,]
+    
+    filter_obj <- list()
+    filter_obj$posGeneNames <- ''
+    filter_obj$negGeneNames <- ''
+    
+    
+    # turn gene lists into MetaIntegrator filter objects
+    if(as.logical(current_sig$paired) == T){
+      if(grepl(pattern = 'up|positive', x = current_sig$response.behavior)){ # if sig genes are positive
+        filter_obj$posGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+        current_pmid <- current_sig$`publication.reference.(PMID)`
+        if(i < nrow(filtered_resp_sigs)){ # and there's another row
+          next_sig <- filtered_resp_sigs[i+1,]
+          if(next_sig$`publication.reference.(PMID)` == current_pmid){ # if it's in the same study
+            filter_obj$negGeneNames <- setdiff(sapply(X = unlist(strsplit(x = next_sig$`response.component.(gene.symbol)`, 
+                                                                          split = ';')), 
+                                                      FUN = trimws), '')
+          }
+        }
+        #filter_obj$posGeneNames <- mapIds(x = org.Hs.eg.db, keys = filter_obj$posGeneNames, column = 'SYMBOL', keytype = 'ALIAS')
+      }
+    } else {
+      if(grepl(pattern = 'up|positive', x = current_sig$response.behavior)){ # if sig genes are positive
+        filter_obj$posGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+      }
+      
+      if(grepl(pattern = 'down|negative', x = current_sig$response.behavior)){
+        filter_obj$negGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+        #filter_obj$negGeneNames <- mapIds(x = org.Hs.eg.db, keys = filter_obj$negGeneNames, column = 'SYMBOL', keytype = 'ALIAS')
+      }
+    }
+    
+    
+    filter_obj$paired <- as.logical(current_sig$paired)
+    filter_obj$FDRThresh <- 1
+    filter_obj$effectSizeThresh <- 0
+    filter_obj$numberStudiesThresh <- 0
+    filter_obj$heterogeneityPvalThresh <- 1
+    filter_obj$isLeaveOneOut <- F
+    filter_obj$filterDescription <- paste(current_sig$target.pathogen, 
+                                          current_sig$response.behavior, 
+                                          current_sig$`publication.reference.(PMID)`, 
+                                          sep = '_')
+    filter_obj$timestamp <- Sys.time()
+    #filter_obj$discovery <- current_sig$Accession.from.ImmPort.file.list
+    
+    if(checkDataObject(filter_obj, objectType = 'MetaFilter')){
+      filter_list[[i]] <- filter_obj
+    } else {
+      stop(paste0('error in producing filter obj for ', i))
+    }
+  }
+  
+  # paired negative signatures are replaced by empty set & removed (direction matters for p-value testing)
+  non_empty_list_ix <- lapply(filter_list, function(x){
+    return(!(mean(x$posGeneNames == '') == 1 & mean(x$negGeneNames == '') == 1))
+  })
+  names(non_empty_list_ix) <- sapply(filter_list, function(x){x$filterDescription})
+  non_empty_list_ix <- unlist(non_empty_list_ix)
+  
+  
+  filter_list <- filter_list[non_empty_list_ix]
+  return(filter_list)
+}
+
+
+calculateScoreRobust <- function(filterObject, datasetObject, suppressMessages = F, method = 'geomMean', zScore = T){
+    datasetObjectmin <- min(datasetObject$expr, na.rm = TRUE)
+    if (datasetObjectmin < 0) {
+      datasetObject$expr <- datasetObject$expr + abs(datasetObjectmin) + 1 # shift scale if values < 0
+    }
+    
+    # pull list of genes present in data set
+    expr_genes <- datasetObject$keys
+    filterObject$posGeneNames <- setdiff(filterObject$posGeneNames,'')
+    filterObject$negGeneNames <- setdiff(filterObject$negGeneNames,'')
+    pos_genes = intersect(filterObject$posGeneNames, expr_genes)
+    neg_genes = intersect(filterObject$negGeneNames, expr_genes)
+    
+    # for reporting fraction of genes used
+    if (!suppressMessages){
+      N_pos_str <- paste0(length(pos_genes), ' of ', length(filterObject$posGeneNames))
+      N_neg_str <- paste0(length(neg_genes), ' of ', length(filterObject$negGeneNames))
+      print(paste0('Used ', N_pos_str, ' pos genes and ', N_neg_str, ' neg genes'))
+    }
+    
+    if(length(pos_genes) == 0 & length(neg_genes) == 0){
+      if (!suppressMessages){
+        print('no common genes between data and signature')
+      }
+      return(NA)
+    }
+    
+    posScore = .calculate_scores(datasetObject, pos_genes)
+    negScore = .calculate_scores(datasetObject, neg_genes)
+    
+    if(grepl(pattern = 'exp2', x = method)){
+      totalScore = posScore/negScore
+    } else {
+      totalScore = posScore - negScore
+    }
+    
+    
+    if (sum(abs(totalScore), na.rm = T) != 0){
+      if(zScore){
+        totalScore = as.numeric(scale(totalScore))
+      } else {
+        totalScore = as.numeric(totalScore)
+      }
+      
+    }
+  
+  return(totalScore)
+}
+
+
+.calculate_scores = function(datasetObject, genes){
+  
+  # find the genes to average
+  genes_idx = which(datasetObject$keys %in% genes)
+  
+  # if there aren't any genes, return 0
+  if (length(genes_idx) == 0){
+    output_val = 0
+    return(rep(output_val, ncol(datasetObject$expr)))
+  }
+  
+  # filter expr to sig genes
+  gene_expr = datasetObject$expr[genes_idx,] 
+  
+  #in case only one gene is present, take the vector itself
+  if (is.null(nrow(gene_expr))){
+    sample_scores = gene_expr
+  } else {
+    sample_scores = apply(gene_expr, 2, geom_mean)
+  }
+  
+  return(sample_scores)
+}
+
+geom_mean = function(x){
+  return(exp(mean(log(x), na.rm = T)))
+}
+
 ```
 
 # Setup
