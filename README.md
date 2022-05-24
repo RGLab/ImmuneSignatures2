@@ -12,6 +12,7 @@ Preprocessing is run as a series of 3 R reports, implemented as an ETL in Immune
 
 [_pull_esets.Rmd_](/inst/preprocess/pull_esets.Rmd) 
 Pulls 53 expressionsets from ImmuneSpace and saves them locally in an RDS object. 
+These expressionsets have already been run through the basic ImmuneSpace preprocessing pipeline, and run through some basic normalization steps. The code used for the ImmuneSpace preprocessing is available [here](https://github.com/RGLab/LabKeyModules/blob/b21d1eaf1e67a209ec376ab6ee1a06e04c35aa41/HIPCMatrix/pipeline/tasks/runCreateMx.R#L576), where "NA" plaform corresponds to RNA-seq data. 
 
 [_generate_base_eset.Rmd_](/inst/preprocess/generate_base_eset.Rmd) 
 Constructs a single expressionSet object with transcriptomic data from over twenty public studies held in Immunespace (www.immunespace.org) and also collects immune response data for the same study participants into one list of dataframes.
@@ -25,7 +26,7 @@ Takes the single expressionSet object and immune response data created by `gener
 
 ### Manuscript figures: 
 
-Manuscript figures are reproduced on ImmuneSpace. The source for the Rmarkdown reports is saved in `inst/manuscript_figures`. These reports are run on ImmuneSpace in the docker container defined in this package, and outputs can be seen at ImmuneSpace.com/is2.url
+Manuscript figures are reproduced on ImmuneSpace. The source for the Rmarkdown reports is saved in `inst/manuscript_figures`. These reports are run on ImmuneSpace in the docker container defined in this package, and outputs can be seen on the [ImmuneSignatures page](https://www.immunespace.org/is2.url) on ImmuneSpace. 
 
 ### Supplementary preprocessing
 
@@ -39,7 +40,7 @@ Assay data is available on ImmuneSpace. Some additional datasets used in analysi
 
 ### Docker:
 
-`/inst/docker/` contains a Dockerfile and associated files for building a docker container for reproducible analysis. This is used to create the docker image which all ImmuneSignatures2 code runs in on the ImmuneSpace servers. See the [README](/inst/docker/README.md) in that directory for more info.
+`/inst/docker/` contains a Dockerfile and associated files for building a docker container for reproducible analysis. This is used to create the docker image which all ImmuneSignatures2 code runs in on the ImmuneSpace servers. The docker image is available on [Dockerhub](https://hub.docker.com/r/rglab/immunesignatures2). See the [README](/inst/docker/README.md) in that directory for more info.
 
 ### Data Access
 
