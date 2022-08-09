@@ -348,8 +348,8 @@ generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
   # dt$value_preferred[dt$study_accession == "SDY1260"] <- `^`(2, dt$value_preferred[dt$study_accession == "SDY1260"])
 
   # Corrections for SDY984 and SDY1328
-  dt$value_preferred[dt$study_accession == "SDY1328”] <- log2(dt$value_preferred[dt$study_accession == "SDY1328”])
-  dt$value_preferred[dt$study_accession == "SDY984”] <- log2(dt$value_preferred[dt$study_accession == "SDY984”])
+  dt$value_preferred[dt$study_accession == "SDY1328"] <- log2(dt$value_preferred[dt$study_accession == "SDY1328"])
+  dt$value_preferred[dt$study_accession == "SDY984"] <- log2(dt$value_preferred[dt$study_accession == "SDY984"])
 
   # SDY1328 - ensure day 0 are considered "naive"
   # Standardize the FC for naive subjects that show no change to be 0
