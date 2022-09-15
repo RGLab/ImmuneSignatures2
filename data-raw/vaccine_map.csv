@@ -45,8 +45,8 @@
 44,SDY212_PBMC_Young_geo,TIV (2008),Inactivated,Influenza,None,SDY212,ARM894
 45,SDY212_WholeBlood_Older_Geo,TIV (2008),Inactivated,Influenza,None,SDY212,ARM895
 46,SDY212_PBMC_Older_Geo,TIV (2008),Inactivated,Influenza,None,SDY212,ARM895
-47,SDY1370_PBMC_lc16m8_geo,LC16m8,Live attenuated,Smallpox,Vaccinia,SDY1370,ARM4641
-48,SDY1370_PBMC_dryvax_geo,DryVax,Live attenuated,Smallpox,Vaccinia,SDY1370,ARM4640
+47,SDY1370_PBMC_lc16m8_geo,LC16m8,Live virus,Smallpox,Vaccinia,SDY1370,ARM4641
+48,SDY1370_PBMC_dryvax_geo,DryVax,Live virus,Smallpox,Vaccinia,SDY1370,ARM4640
 49,SDY1368_WholeBlood_Twin_Geo,Zostavax,Live attenuated,Varicella Zoster,VZV,SDY1368,ARM4636
 50,SDY1368_WholeBlood_NonTwin_Geo,Zostavax,Live attenuated,Varicella Zoster,VZV,SDY1368,ARM4635
 51,SDY1119_PBMC_youngHealthy_Geo,TIV (2011),Inactivated,Influenza,None,SDY1119,ARM3952
@@ -58,6 +58,6 @@
 57,SDY520_WholeBlood_Older_Geo,TIV (2013),Inactivated,Influenza,None,SDY520,ARM2620
 58,SDY640_WholeBlood_Young_GEO,TIV (2014),Inactivated,Influenza,None,SDY640,ARM2862
 59,SDY640_WholeBlood_Older_GEO,TIV (2014),Inactivated,Influenza,None,SDY640,ARM2863
-60,SDY1328_WholeBlood_HealthyAldults_Geo,Twinrix,Inactivated,Hepatitis B,None,SDY1328,ARM4537
+60,SDY1328_WholeBlood_HealthyAldults_Geo,Twinrix,Inactivated/Recombinant protein,Hepatitis A/B,None,SDY1328,ARM4537
 61,SDY1529_WholeBlood_HealthyAdults_PreVax_Geo,YF17D,Live attenuated,Yellow Fever,YF17D,SDY1529,ARM5007
 62,SDY1529_WholeBlood_HealthyAdults_PreVax_Geo,YF17D,Live attenuated,Yellow Fever,YF17D,SDY1529,ARM5007
