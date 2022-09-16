@@ -134,7 +134,7 @@ imputeAge <- function(dt){
     }
   }
 
-  dt[, age_imputed := mapply(fixAge, dt$study_accession, dt$age_reported) ]
+  dt[, age_imputed := mapply(fixAge, study_accession, age_reported)]
 
   fixNas <- function(ages){
     naLoc <- which(is.na(ages))
@@ -144,7 +144,7 @@ imputeAge <- function(dt){
     return(ages)
   }
 
-  dt[, age_imputed := fixNas(dt$age_imputed), by = 'study_accession']
+  dt[, age_imputed := fixNas(age_imputed), by = "study_accession"]
 
   return(dt)
 }
