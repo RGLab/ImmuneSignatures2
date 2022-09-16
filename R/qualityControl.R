@@ -221,7 +221,7 @@ qualityControl.failedYchromQC <- function(eset){
 
   plotDF <- colMeans(exprs(eset)[yChromGenes, ], na.rm = TRUE) %>%
     data.frame(chry = .) %>%
-    dplyr::rownames_to_column()
+    tibble::rownames_to_column()
 
   plotDF <- merge(plotDF, pData(eset), by.x = "rowname", by.y = "uid")
 
