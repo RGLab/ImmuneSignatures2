@@ -358,7 +358,7 @@ generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
   dt$value_preferred[ samplesToUpdate ] <- 1
 
   # Only applies to SDY1260 - sum Serotype A and Serotype C
-  dt <- dt[, dt$value_preferred := sum(value_preferred),
+  dt <- dt[, value_preferred := sum(value_preferred),
            by = c("participant_id", "study_time_collected", "vaccine", "vaccine_type", "pathogen")]
 
   colsCreatingDupes <- c("expsample_accession", "value_reported", "unit_reported")
