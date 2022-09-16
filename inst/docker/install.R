@@ -6,5 +6,8 @@ renv::settings$use.cache(FALSE)
 
 # For simplicity, install packages into default site library, so no need to worry about
 # juggling libPaths. Not recommended outside of containerized R installations!
+options(configure.args = c(
+	preprocessCore = "--disable-threading"
+))
 renv::restore(library = "/usr/local/lib/R/site-library")
 remotes::install_github("rglab/immunesignatures2", dependencies = FALSE)
