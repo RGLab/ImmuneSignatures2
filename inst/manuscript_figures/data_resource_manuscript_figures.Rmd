@@ -822,7 +822,7 @@ D0pdatafig <- ggplot(D0pdata, aes(x=pathogen_vaccinetype, y=raptor_age)) +
       	legend.key.width   = unit(0.015, units = "npc")) +
   scale_shape_discrete(name="biological sex\n(Y chrom presence)", labels = c("Female", "Male"))+
   theme(legend.key=element_blank(), legend.key.size=unit(10,"point")) +
-  theme (legend.position = "bottom") +  scale_x_discrete(labels = c("Ebola\n(Recombinant\nViral Vector)", "Hepatitis B\n(Inactivated)", "HIV\n(Recombinant\nViral Vector)", "Influenza\n(Inactivated)", "Influenza\n(Live attenuated)", "Malaria\n(Recombinant\nProtein)", "Meningococcus\n(Conjugate)", "Meningococcus\n(Polysaccharide)","Pneumococcus\n(Polysaccharide)", "Smallpox\n(Live attenuated)", "Tuberculosis\n(Recombinant\nViral Vector)","Varicella Zoster\n(Live attenuated)", "Yellow Fever\n(Live attenuated)")) 
+  theme (legend.position = "bottom") +  scale_x_discrete(labels = c("Ebola\n(Recombinant\nViral Vector)", "Hepatitis A/B\n(Inactivated/Recombinant protein)", "HIV\n(Recombinant\nViral Vector)", "Influenza\n(Inactivated)", "Influenza\n(Live attenuated)", "Malaria\n(Recombinant\nProtein)", "Meningococcus\n(Conjugate)", "Meningococcus\n(Polysaccharide)","Pneumococcus\n(Polysaccharide)", "Smallpox\n(Live virus)", "Tuberculosis\n(Recombinant\nViral Vector)","Varicella Zoster\n(Live attenuated)", "Yellow Fever\n(Live attenuated)")) 
 D0pdatafig + guides(col = guide_legend(ncol = 3))
   
 ```  
