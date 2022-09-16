@@ -208,7 +208,7 @@ qualityControl.genderByMatrix <- function(eset){
     ggplot2::theme_bw() +
     ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5),
                    legend.pos = "none",
-                   strip.text = element_text(size = 5))
+                   strip.text = ggplot2::element_text(size = 5))
 }
 
 #' Generate ychrom box plots after QC
