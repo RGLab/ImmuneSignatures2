@@ -10,25 +10,25 @@ customProcessing <- function(assay, df){
   dt$value_preferred <- as.numeric(dt$value_preferred)
 
   # Fix SDY1276 log scaling - both assays
-  dt <- dt[ dt$study_accession == "SDY1276", value_preferred := 4 ^ dt$value_preferred ]
+  dt <- dt[study_accession == "SDY1276", value_preferred := 4 ^ value_preferred]
 
   if(assay == "neut_ab_titer"){
 
     # Fix baseline values for SDY1289
-    dt <- dt[ dt$study_accession == "SDY1289" &
-                dt$value_preferred == 0 &
-                as.numeric(dt$study_time_collected) == 0,
-              value_preferred := 1]
+    dt <- dt[study_accession == "SDY1289" &
+               value_preferred == 0 &
+               as.numeric(study_time_collected) == 0,
+             value_preferred := 1]
 
     # Create baseline data for SDY1264
-    sdy1264 <- dt[ dt$study_accession == "SDY1264" ]
+    sdy1264 <- dt[study_accession == "SDY1264"]
     dayZero <- copy(sdy1264)
-    dayZero[, dayZero$study_time_collected := '0']
-    dayZero[, dayZero$value_preferred := 1 ]
-    dayZero[, dayZero$value_reported := '1' ]
+    dayZero[, study_time_collected := "0"]
+    dayZero[, value_preferred := 1]
+    dayZero[, value_reported := "1"]
     dupes <- which(duplicated(dayZero$participant_id))
     if (length(dupes) > 0) {
-      dayZero <- dayZero[ -which ]
+      dayZero <- dayZero[-which]
     }
     dt <- rbind(dt, dayZero)
 
