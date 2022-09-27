@@ -322,123 +322,121 @@ generateNAbHAIresponse <- function(assay, df, postVaxDayRange, discretizationVal
 
 #' Generate immune response call for age specific ELISA cohort
 #'
-#' @param dt immdata df
+#' @param dt immdata data.table
 #' @param discretizationValues points to use for cutting of low, mid, high responders
 #' @param postVaxDayRange range of allowable study_time_collected
 #' @export
-#'
 generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
+  dt[grep("IgG_serotype", analyte), analyte := "IgG"] # for SDY1260
+  dt <- dt[grep("^IgG$|^Hepatitis", analyte)]
 
-  dt <- dt[ grep("IgG|^Hepatitis", dt$analyte) ]
-
-  # Filter data down to samples with selected post-baseline or baseline timepoints
-  dt$study_time_collected <- as.numeric(dt$study_time_collected)
+  dt[, study_time_collected := as.numeric(study_time_collected)]
+  dt[, value_preferred := as.numeric(value_preferred)]
 
   # Correct SDY1328 dates per comments of S. Fourati - post-vax in month 2
-  datesToChange <- dt$study_accession == "SDY1328" & dt$study_time_collected == 7
-  dt$study_time_collected[ datesToChange] <- 30
+  dt[study_accession == "SDY1328" & study_time_collected == 7, study_time_collected := 30]
 
-  # Subset
+  # Filter data down to samples with selected post-baseline or baseline timepoints
   postVaxTp <- seq(postVaxDayRange[[1]], postVaxDayRange[[2]])
-  dt <- dt[ dt$study_time_collected %in% c(0, postVaxTp) ]
-  dt$value_preferred <- as.numeric(dt$value_preferred)
-
-  # SDY1260 Corrections
-  dt$analyte[ grep("IgG(\\d|)_serotype", dt$analyte)] <- "IgG"
-  # dt$value_preferred[dt$study_accession == "SDY1260"] <- `^`(2, dt$value_preferred[dt$study_accession == "SDY1260"])
-
-  # Corrections for SDY984 and SDY1328
-  dt$value_preferred[dt$study_accession == "SDY1328"] <- log2(dt$value_preferred[dt$study_accession == "SDY1328"])
-  dt$value_preferred[dt$study_accession == "SDY984"] <- log2(dt$value_preferred[dt$study_accession == "SDY984"])
+  dt <- dt[study_time_collected %in% c(0, postVaxTp)]
 
   # SDY1328 - ensure day 0 are considered "naive"
   # Standardize the FC for naive subjects that show no change to be 0
-  samplesToUpdate <- dt$study_accession == "SDY1328" &
-    ( dt$value_preferred == 2.5 | dt$study_time_collected == 0)
-  dt$value_preferred[ samplesToUpdate ] <- 1
+  dt[
+    study_accession == "SDY1328" & (value_preferred == 2.5 | study_time_collected == 0),
+    value_preferred := 1
+  ]
 
-  # Only applies to SDY1260 - sum Serotype A and Serotype C
-  dt <- dt[, value_preferred := sum(value_preferred),
-           by = c("participant_id", "study_time_collected", "vaccine", "vaccine_type", "pathogen")]
+  # Corrections for SDY984 and SDY1328
+  dt[study_accession %in% c("SDY984", "SDY1328"), value_preferred := log2(value_preferred)]
+
+  # SDY1260 corrections: sum Serotype A and Serotype C
+  dt[study_accession == "SDY1260", value_preferred := `^`(2, value_preferred)]
+  dt <- dt[
+    study_accession == "SDY1260",
+    value_preferred := log2(sum(value_preferred)),
+    by = c("participant_id", "study_time_collected", "vaccine", "vaccine_type", "pathogen")
+  ]
 
   colsCreatingDupes <- c("expsample_accession", "value_reported", "unit_reported")
-  dt <- dt[, c(colsCreatingDupes) := NULL ]
+  dt <- dt[, c(colsCreatingDupes) := NULL]
 
   # De-dupe for SDY1260
   dt <- dt[!duplicated(dt)]
 
   # define type (post-baseline vs baseline)
-  dt$sample_type <- ifelse(dt$study_time_collected == 0, "pre", "post")
+  dt[, sample_type := ifelse(study_time_collected == 0, "pre", "post")]
 
   # Filter baseline samples to Day-0 or closest <0 day
-  pre <- dt[ dt$sample_type == "pre"]
+  pre <- dt[sample_type == "pre"]
 
   # Filter columns to only those needed and rename as necessary
-  pre <- pre[, c("ImmResp_baseline_value_MFC",
-                 "ImmResp_baseline_timepoint_MFC",
-                 "maxStrain_MFC")
-             :=
-               list(value_preferred,
-                    study_time_collected,
-                    analyte)
-             ]
+  pre[, c("ImmResp_baseline_value_MFC",
+          "ImmResp_baseline_timepoint_MFC",
+          "maxStrain_MFC")
+      :=
+        list(value_preferred,
+             study_time_collected,
+             analyte)
+  ]
 
   # Filter the post-baseline samples down to those that have the max value_preferred
-  post <- dt[ sample_type == "post"]
+  post <- dt[sample_type == "post"]
 
   # Filter columns to only those needed and rename as necessary
-  post <- post[, c("ImmResp_postVax_value_MFC",
-                   "ImmResp_postVax_timepoint_MFC",
-                   "maxStrain_MFC")
-               :=
-                 list(value_preferred,
-                      study_time_collected,
-                      analyte)
-               ]
+  post[, c("ImmResp_postVax_value_MFC",
+           "ImmResp_postVax_timepoint_MFC",
+           "maxStrain_MFC")
+       :=
+         list(value_preferred,
+              study_time_collected,
+              analyte)
+  ]
 
-  colsToRm <- c("biosample_accession",
-                "study_time_collected",
-                "value_preferred",
-                "uid",
-                "sample_type",
-                "comments",
-                "description",
-                "phenotype",
-                "unit_preferred")
-
-  pre <- pre[, c(colsToRm) := NULL ]
-  post <- post[, c(colsToRm) := NULL ]
+  colsToRm <- c(
+    "biosample_accession",
+    "study_time_collected",
+    "value_preferred",
+    "uid",
+    "sample_type",
+    "comments",
+    "description",
+    "phenotype",
+    "unit_preferred"
+  )
+  pre[, c(colsToRm) := NULL]
+  post[, c(colsToRm) := NULL]
 
   # Put baseline and post back together - reduces to only those with both pre and post
   sharedCols <- intersect(colnames(post), colnames(pre))
   full <- merge(pre, post, by = sharedCols, all = TRUE)
 
   # only those with both pre and post
-  full <- full[ !is.na(full$ImmResp_postVax_value_MFC) & !is.na(full$ImmResp_baseline_value_MFC) ]
+  full <- full[!is.na(ImmResp_postVax_value_MFC) & !is.na(ImmResp_baseline_value_MFC)]
 
   # add MFC - Actually using baseline as background and subtracting instead of doing proper MFC
-  full$MFC <- as.numeric(full$ImmResp_postVax_value_MFC) - as.numeric(full$ImmResp_baseline_value_MFC)
+  full[, MFC := as.numeric(ImmResp_postVax_value_MFC) - as.numeric(ImmResp_baseline_value_MFC)]
 
   # discretize within study
-  discretize <- function(values, cutPoint){
+  discretize <- function(values, cutPoint) {
     x <- stats::quantile(values, c(cutPoint, 1 - cutPoint))
-    res <- sapply(values, function(y){
-      if(y <= x[[1]]){
+    res <- sapply(values, function(y) {
+      if (y <= x[[1]]) {
         return("lowResponder")
-      }else if(y >= x[[2]]){
+      } else if(y >= x[[2]]) {
         return("highResponder")
-      }else{
+      } else {
         return("moderateResponder")
       }
     })
   }
 
-  for(point in discretizationValues){
+  for (point in discretizationValues) {
     colName <- paste0("MFC_p", gsub("0\\.", "", point), "0")
     full[ , c(colName) := discretize(MFC, point), by = "study_accession"]
   }
 
-  full[, analyte := NULL ]
+  full[, analyte := NULL]
 
   return(full)
 }

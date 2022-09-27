@@ -7,7 +7,7 @@
 generateELISAResponse(dt, discretizationValues, postVaxDayRange)
 }
 \arguments{
-\item{dt}{immdata df}
+\item{dt}{immdata data.table}
 
 \item{discretizationValues}{points to use for cutting of low, mid, high responders}
 
