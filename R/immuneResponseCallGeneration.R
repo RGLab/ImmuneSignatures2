@@ -433,7 +433,10 @@ generateELISAResponse <- function(dt, discretizationValues, postVaxDayRange){
 
   for (point in discretizationValues) {
     colName <- paste0("MFC_p", gsub("0\\.", "", point), "0")
-    full[ , c(colName) := discretize(MFC, point), by = "study_accession"]
+    full[,
+         c(colName) := discretize(MFC, point),
+         by = c("study_accession", "vaccine_type")
+    ]
   }
 
   full[, analyte := NULL]
