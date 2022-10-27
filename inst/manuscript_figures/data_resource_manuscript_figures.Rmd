@@ -191,7 +191,9 @@ Arrays will be excluded if they fail all three criteria above.
   
 [Quality control code](https://github.com/RGLab/ImmuneSignatures2/blob/main/inst/supplementary_preprocessing/arrayquality.rmd) is available in the ImmuneSignatures2 package on github.
   
-<img src="/_webdav/HIPC/IS2/%40files/data/images/Figure3a.jpg" width = "50%">  
+```{r figure3a, echo=FALSE, fig.align='center', out.width='50%'}
+knitr::include_graphics(system.file("manuscript_figures/img/Figure3a.jpg", package = "ImmuneSignatures2"))
+```
   
 ### Figure 3B.	
   
