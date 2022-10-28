@@ -88,9 +88,7 @@ vaccine2color <- getPalette(n = length(vaccines)) %>%
 Systems vaccinology datasets from existing HIPC studies as well as published systems vaccinology papers and databases were submitted to the [ImmPort](https://www.immport.org) database. ImmuneSpace captures these datasets to create a combined compendium dataset. Quality control assessments of these data include array quality checks for microarray studies, batch correction, imputations for missing age and sex/y-chromosome presence information, and normalization per study. The combined virtual study includes transcriptional profiles and antibody response measurements from 1405 participants across 53 cohorts, profiling the response to 24 different vaccines.  
    
   
-```{r hipciof, echo=FALSE, fig.align='center', out.width='90%'}
-knitr::include_graphics(system.file("manuscript_figures/img/HIPCIOF.png", package = "ImmuneSignatures2"))
-```
+<img src="https://github.com/RGLab/ImmuneSignatures2/raw/main/inst/manuscript_figures/img/HIPCIOF.png" width="90%">  
  
 ### Figure 1B  
 Demographic data included sex, race, vaccine, and number of participants.  
@@ -177,9 +175,7 @@ p <- ggplot(total_counts) +
   
 ## Figure 2: Flow chart diagram of the Immune Signatures Project.  
   
-```{r flowdiagramiof, echo=FALSE, fig.align='center', out.width='90%'}
-knitr::include_graphics(system.file("manuscript_figures/img/flowdiagramIOF.png", package = "ImmuneSignatures2"))
-```
+<img src="https://github.com/RGLab/ImmuneSignatures2/raw/main/inst/manuscript_figures/img/flowdiagramIOF.png" width="90%">  
   
 ## Figure 3: Quality control assessments of transcriptomics dataset for Immune Signature study.
 ### Figure 3A.	
@@ -191,9 +187,7 @@ Arrays will be excluded if they fail all three criteria above.
   
 [Quality control code](https://github.com/RGLab/ImmuneSignatures2/blob/main/inst/supplementary_preprocessing/arrayquality.rmd) is available in the ImmuneSignatures2 package on github.
   
-```{r figure3a, echo=FALSE, fig.align='center', out.width='50%'}
-knitr::include_graphics(system.file("manuscript_figures/img/Figure3a.jpg", package = "ImmuneSignatures2"))
-```
+<img src="https://github.com/RGLab/ImmuneSignatures2/raw/main/inst/manuscript_figures/img/Figure3a.jpg" width = "50%"> 
   
 ### Figure 3B.	
   
@@ -757,9 +751,7 @@ ggplot(results_old_tibble) +
 ### Figure 4A.  
 Number of samples for each data type, including transcriptomics (TX), hemagglutination inhibition assay (HAI), neutralizing antibody assay (NAB), and ELISA assays (ELISA).  
   
-```{r summaryiof, echo=FALSE, fig.align='center', out.width='70%'}
-knitr::include_graphics(system.file("manuscript_figures/img/SummaryIOF.png", package = "ImmuneSignatures2"))
-```
+<img src="https://github.com/RGLab/ImmuneSignatures2/raw/main/inst/manuscript_figures/img/SummaryIOF.png" width = "70%">  
   
 ### Figure 4B.  
 Bar plot depicting the number of samples at each time point. The colors within each bar indicate the breakdown for each unique combination of pathogen and vaccine type. Day -7 and day 0 correspond to times pre-vaccination. 
