@@ -1,7 +1,7 @@
 Package: ImmuneSignatures2
 Type: Package
 Title: Pre-Processing for HIPC ImmuneSignatures2 Analysis
-Version: 1.0.17
+Version: 1.0.18
 Authors@R: c(
     person("Ju Yeong", "Kim", email = "jkim2345@fredhutch.org", role = c("aut", "cre")),
     person("Helen", "Miller", role = "aut"),
@@ -38,10 +38,42 @@ Imports:
     patchwork,
     pvca,
     qusage
+Suggests:
+    pheatmap,
+    matrixStats,
+    reshape2,
+    metap,
+    circlize,
+    corrplot,
+    ggpubr,
+    tidyverse,
+    GSVA,
+    rlang,
+    caret,
+    caretEnsembles,
+    WeightedROC,
+    nlme,
+    emmeans,
+    plyr,
+    plotROC,
+    glue,
+    biomaRt,
+    MetaIntegrator,
+    pROC,
+    AnnotationDbi,
+    Seurat,
+    magrittr,
+    ggrepel,
+    colorspace,
+    FSA,
+    BuenColors,
+    presto
 Remotes: 
     helenmiller16/RAPToR, 
     dleelab/pvca,
-    stefanavey/titer
+    stefanavey/titer,
+    caleblareau/BuenColors,
+    immunogenomics/presto
 License: GPL-2
 Encoding: UTF-8
 LazyData: true
