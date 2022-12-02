@@ -1152,10 +1152,12 @@
     },
     "ggplot2": {
       "Package": "ggplot2",
-      "Version": "3.3.3",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "3eb6477d01eb5bbdc03f7d5f70f2733e"
+      "Version": "3.3.5",
+      "Source": "URL",
+      "Repository": "CRAN",
+      "RemoteType": "url",
+      "RemoteUrl": "https://cran.r-project.org/src/contrib/Archive/ggplot2/ggplot2_3.3.5.tar.gz",
+      "Hash": "1a5b555cfebd7e912665f35613a5f685"
     },
     "ggpubr": {
       "Package": "ggpubr",
