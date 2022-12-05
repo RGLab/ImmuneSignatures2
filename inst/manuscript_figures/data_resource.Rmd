@@ -6,11 +6,11 @@ output:
     df_print: "paged"
     code_folding: "hide"
 params:
-  cache.path: "/share/files/HIPC/IS2/@files/data/data_resource/report_cache/"
+  data_dir: "/share/files/HIPC/IS2/@files/data"
+  extra_data_dir: "/share/files/HIPC/IS2/@files/data/data_resource"
+  report_cache_dir: "/share/files/HIPC/IS2/@files/data/data_resource/report_cache/"
   cache: true
-  dataDir: "/share/files/HIPC/IS2/@files/data"
-  dataCacheDir: "/share/files/HIPC/IS2/@files/data/data_resource"
-  datePrefix: ""
+  date_prefix: ""
 ---
 
 ```{r setup, include=FALSE}
@@ -19,7 +19,7 @@ knitr::opts_chunk$set(
   message = FALSE,
   warning = FALSE, 
   cache = params$cache,
-  cache.path = params$cache.path,
+  cache.path = params$report_cache_dir,
   cache.lazy = FALSE
 )
 ```  
@@ -43,10 +43,10 @@ suppressPackageStartupMessages({
 })
 ```  
 ```{r global-variables, echo = TRUE}
-dataDir <- params$dataDir
-dataCacheDir <- params$dataCacheDir
-if (!dir.exists(dataCacheDir)) dir.create(dataCacheDir)
-datePrefix <- params$datePrefix
+data_dir <- params$data_dir
+extra_data_dir <- params$extra_data_dir
+if (!dir.exists(extra_data_dir)) dir.create(extra_data_dir)
+date_prefix <- params$date_prefix
 ```  
   
 These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
@@ -55,19 +55,19 @@ These figures only look at the "Young" cohort that is defined as 18 to 50 years 
 Full codebase for pre-processing can be found in the [ImmuneSignatures2](https://github.com/RGLab/ImmuneSignatures2) package on github. Here, we use the resulting data to reproduce figures from the manuscript.
   
 ```{r, read-esets}
-noRespGEFile <- file.path(dataDir, paste0(datePrefix,"extendedOld_norm_batchCorrectedFromYoung_eset.rds"))
+noRespGEFile <- file.path(data_dir, paste0(date_prefix,"extendedOld_norm_batchCorrectedFromYoung_eset.rds"))
 old.NoResp <- readRDS(file = noRespGEFile)
-noRespGEFile <- file.path(dataDir, paste0(datePrefix,"young_norm_eset.rds"))
+noRespGEFile <- file.path(data_dir, paste0(date_prefix,"young_norm_eset.rds"))
 young.NoResp <- readRDS(file = noRespGEFile)
-withRespGEFile <- file.path(dataDir, paste0(datePrefix,"young_norm_withResponse_eset.rds"))
+withRespGEFile <- file.path(data_dir, paste0(date_prefix,"young_norm_withResponse_eset.rds"))
 young.WithResp <- readRDS(file = withRespGEFile)
-all.noResp <- readRDS(file.path(dataDir, paste0(datePrefix, "all_norm_eset.rds")))
+all.noResp <- readRDS(file.path(data_dir, paste0(date_prefix, "all_norm_eset.rds")))
 all.noResp$featureSetVendor <- ifelse(all.noResp$featureSetVendor == "NA", "RNAseq", all.noResp$featureSetVendor)
-all.noNorm <- readRDS(file.path(dataDir, paste0(datePrefix, "all_noNorm_eset.rds")))
+all.noNorm <- readRDS(file.path(data_dir, paste0(date_prefix, "all_noNorm_eset.rds")))
 all.noNorm$featureSetVendor <- ifelse(all.noNorm$featureSetVendor == "NA", "RNAseq", all.noNorm$featureSetVendor)
-all.immdata <- readRDS(file.path(dataDir, paste0(datePrefix, "all_immdata_with_response.rds")))
-all_noNorm_withResponse <- readRDS(file.path(dataDir, paste0(datePrefix, "all_noNorm_withResponse_eset.rds")))
-immdata <- readRDS(file.path(dataDir, paste0(datePrefix, "immdata_all.rds")))
+all.immdata <- readRDS(file.path(data_dir, paste0(date_prefix, "all_immdata_with_response.rds")))
+all_noNorm_withResponse <- readRDS(file.path(data_dir, paste0(date_prefix, "all_noNorm_withResponse_eset.rds")))
+immdata <- readRDS(file.path(data_dir, paste0(date_prefix, "immdata_all.rds")))
 # Set seed for consistent results
 set.seed(123)
 ```  
@@ -411,7 +411,7 @@ features.pca.0 <- featureNames(eset_noNorm_baseline)[
   which( (rowMeans(is.na(exprs(eset_noNorm_baseline)))==0) &
            (apply(exprs(eset_noNorm_baseline),1,sd)>0) 
   )]
-pca_noNorm_cacheFile <- file.path(dataCacheDir, "pca_noNorm.rds")
+pca_noNorm_cacheFile <- file.path(extra_data_dir, "pca_noNorm.rds")
 if (file.exists(pca_noNorm_cacheFile)) {
   pca_noNorm_baseline <- readRDS(pca_noNorm_cacheFile)
 } else {
@@ -442,7 +442,7 @@ batch.vars <- c('cell_type',
                 'study_accession', 
                 'y_chrom_present',
                 'age_group')
-pvca_noNorm_cacheFile <- file.path(dataCacheDir, "pvca_noNorm_withAge.rds")
+pvca_noNorm_cacheFile <- file.path(extra_data_dir, "pvca_noNorm_withAge.rds")
 if (!file.exists(pvca_noNorm_cacheFile)) {
   eigen_noNorm <- getEigen(eset_noNorm_baseline[features.pca.0,])
   
@@ -484,7 +484,7 @@ features.pca.n0 <- featureNames(eset_norm_baseline)[
   which( (rowMeans(is.na(exprs(eset_norm_baseline)))==0) &
            (apply(exprs(eset_norm_baseline),1,sd)>0) 
   )]
-pca_norm_cacheFile <- file.path(dataCacheDir, "pca_norm.rds")
+pca_norm_cacheFile <- file.path(extra_data_dir, "pca_norm.rds")
 if (file.exists(pca_norm_cacheFile)) {
   pca_norm_baseline <- readRDS(pca_norm_cacheFile)
 } else {
@@ -509,7 +509,7 @@ pcaPlot_norm
 ```
 ```{r pvca-norm, fig.width=8, fig.height = 6}
 # ----- PVCA -----
-pvca_norm_cacheFile <- file.path(dataCacheDir, "pvca_norm_withAge.rds")
+pvca_norm_cacheFile <- file.path(extra_data_dir, "pvca_norm_withAge.rds")
 if (!file.exists(pvca_norm_cacheFile)) {
   eigen_norm <- getEigen(eset_norm_baseline[features.pca.n0,])
   
@@ -659,7 +659,7 @@ get_raptor_results <- function(eset) {
 ```{r raptor, cache = TRUE}
 # Get RAPToR age estimates for young and old age groups
 set.seed(123)
-raptor_young_file <- file.path(dataCacheDir, "raptor_young_results.rds")
+raptor_young_file <- file.path(extra_data_dir, "raptor_young_results.rds")
 if (file.exists(raptor_young_file)) {
   raptor_results_young <- readRDS(raptor_young_file)
 } else {
@@ -667,7 +667,7 @@ if (file.exists(raptor_young_file)) {
   saveRDS(raptor_results_young, raptor_young_file)
   
 }
-raptor_old_file <- file.path(dataCacheDir, "raptor_old_results.rds")
+raptor_old_file <- file.path(extra_data_dir, "raptor_old_results.rds")
 if (file.exists(raptor_old_file)) {
   raptor_results_old <- readRDS(raptor_old_file)
 } else {
@@ -1469,4 +1469,11 @@ finaltable1 <- finaltable %>%
   dplyr::rename ("immune_response_assay"=assay) %>%
   relocate(study_accession)
 finaltable1
+```
+
+
+# Session Info
+
+```{r sessioninfo}
+sessionInfo()
 ```
