@@ -1,0 +1,1796 @@
+---
+title: "Pan-vaccine analysis reveals innate immune endotypes predictive of antibody responses to vaccination"
+output: 
+  html_document:
+    self_contained: true
+    toc: true
+    toc_float: true
+    df_print: "paged"
+    code_folding: "hide"
+params:
+  data_dir: "/share/files/HIPC/IS2/@files/data"
+  extra_data_dir: "/share/files/HIPC/IS2/@files/data/pre_vaccination"
+  report_cache_dir: "/share/files/HIPC/IS2/@files/data/pre_vaccination/report_cache/"
+  cache: true
+  date_prefix: ""
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE,
+  warning = FALSE, 
+  cache = params$cache,
+  cache.path = params$report_cache_dir
+)
+dataDir <- params$data_dir
+dataCacheDir <- params$extra_data_dir
+```
+
+```{r load-packages}
+suppressPackageStartupMessages({
+  library(package = "knitr")
+  library(package = "Biobase")
+  library(package = "RColorBrewer")
+  library(package = "cluster")
+  library(package = "ComplexHeatmap")
+  library(package = "ggbeeswarm")
+  library(package = "circlize")
+  library(package = "glue")
+  library(package = "boot")
+  library(package = "pvca")
+  library(package = "lme4")
+  library(package = "biomaRt")
+  library(package = "ImmuneSignatures2")
+  library(package = "pROC")
+  library(package = "parallel")
+  library(package = "MetaIntegrator")
+  library(package = "AnnotationDbi")
+  library(package = "Seurat")
+  library(package = "magrittr")
+  library(package = "ggrepel")
+  library(package = "colorspace")
+  library(package = "pheatmap")
+  library(package = "FSA")
+  library(package = "tidyverse")
+})
+```
+
+```{r options}
+options(stringsAsFactors       = FALSE,
+	    width                  = 60,
+        dplyr.summarise.inform = FALSE,
+        readr.num_columns      = 0)
+select <- dplyr::select
+```
+
+```{r helpers}
+# Fig S4 helper functions
+
+# function for computing signature p-values for AUC (by permuting class labels)
+calculatePval <- function(labels, # 0 or 1
+                          values, # signature scores
+                          true_value, # AUC from non-permuted data
+                          n_perm = 1000 # number of AUC permutations for calculating p-value
+){
+  aucs <- vector(mode = 'double', length = n_perm)
+  
+  # no NA values 
+  if(sum(is.na(values)) > 0){
+    print('missing scores')
+    return(NA)
+  }
+  
+  for (iteration in 1:n_perm){
+    # if(iteration %% 1000 == 0){
+    #   print(paste0(iteration, '/', n_perm))
+    # }
+    sample_shuffle_ix <- sample(x = 1:length(labels), size = length(labels), replace = F)
+    aucs[iteration] <- calculateROC(labels = labels[sample_shuffle_ix], predictions = values, AUConly = T)
+  }
+  pval <- mean(aucs >= true_value)
+  return(pval)
+}
+
+# remove subjects from MetaIntegrator object
+filterMIobj <- function(MIobj, # MetaIntegrator object
+                        index # logical vector of indices to keep
+){
+  tmpMIobj <- MIobj
+  tmpMIobj$expr <- tmpMIobj$expr[, index]
+  tmpMIobj$pheno <- tmpMIobj$pheno[index, ]
+  tmpMIobj$class <- tmpMIobj$class[index]
+  
+  if(checkDataObject(tmpMIobj, 'Dataset')){
+    return(tmpMIobj)
+  } else {
+    stop()
+  }
+}
+
+# make a list of MetaIntegrator objects from virtualStudy expressionSet
+data2MIobj <- function(data){
+  # split expr object into multiple exprset objects
+  data_list <- list()
+  p <- pData(data)
+  p <- p %>%
+    mutate('study_id' = paste(study_accession, pathogen, vaccine_type, cohort, sep = '_'))
+  p$study_id[grepl(pattern = 'SDY1119', x = p$study_id)] <- 'SDY1119_Influenza_Inactivated_young'
+  
+  # split virtualStudy expressionSet into multiple expressionSets baed on study_id
+  studies <- unique(p$study_id)
+  for (j in 1:length(studies)){
+    print(j)
+    study <- studies[j]
+    current_study_ix <- p$study_id == study
+    current_expr <- data[, current_study_ix]
+    data_list[[study]] <- current_expr
+  }
+  
+  # remove studies with fewer than 5 subjects
+  small_ix <- sapply(data_list, function(x){return(ncol(x) >= 5)})
+  data_list <- data_list[small_ix]
+  studies <- studies[small_ix]
+  studies2 <- studies
+  
+  #turn each exprset object into a MIobj
+  MIobj_list <- list()
+  for (j in 1:length(studies)){
+    study <- studies[j]
+    current_expr <- data_list[[study]]
+    
+    print(study)
+    
+    MIobj <- list()
+    MIobj$expr <- exprs(current_expr)
+    MIobj$pheno <- pData(current_expr)
+    
+    # some SDYs have specific cohort considerations
+    if(grepl(pattern = 'SDY1276', x = study)){
+      sex <- str_extract(pattern = 'Females|Males', string = study)
+      study <- paste0(paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_'), '_', sex)
+    } else if(grepl(pattern = 'SDY1264', x = study)){
+      trialnum <- str_extract(pattern = 'Trial[:digit:]+', string = study)
+      study <- paste0(paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_'), '_', trialnum)
+    } else {
+      study <- paste(strsplit(x = study, split = '_')[[1]][1:3], collapse = '_')
+    }
+    MIobj$formattedName <- study
+    studies2[j] <- study
+    
+    MIobj$keys <- rownames(MIobj$expr)
+    names(MIobj$keys) <- rownames(MIobj$expr)
+    
+    # assign class based on MFC_p30 response
+    MIobj$class <- as.character(MIobj$pheno$MFC_p30)
+    MIobj$class[MIobj$class == 'lowResponder'] <- '0'
+    MIobj$class[MIobj$class == 'highResponder'] <- '1'
+    MIobj$class[!MIobj$class %in% c('0','1')] <- NA
+    MIobj$class <- as.numeric(MIobj$class)
+    names(MIobj$class) <- rownames(MIobj$pheno)
+    
+    # adjust naming
+    rownames(MIobj$pheno) <- colnames(MIobj$expr)
+    names(MIobj$class) <- rownames(MIobj$pheno)
+    
+    # remove moderate responders (also checks for proper formatting)
+    MIobj <- filterMIobj(MIobj, !is.na(MIobj$class))
+    
+    # filter to baseline expression profiles
+    MIobj <- filterMIobj(MIobj, MIobj$pheno$study_time_collected == 0)
+    
+    # filter to remove genes with missing expression within study
+    missing_value_ix <- rowSums(is.na(MIobj$expr)) > 0
+    MIobj$expr <- MIobj$expr[!missing_value_ix, ]
+    MIobj$keys <- MIobj$keys[!missing_value_ix]
+    
+    MIobj$N <- nrow(MIobj$pheno)
+    
+    
+    MIobj_list[[study]] <- MIobj
+  }
+  return(MIobj_list)
+}
+
+# parse signatures into filterObject format
+signatures2Filters <- function(
+    filtered_resp_sigs # data frame from HIPC Dashboard (manually labeled whether signatures are paired)
+  ){
+  filter_list <- list()
+  for (i in 1:nrow(filtered_resp_sigs)){
+    current_sig <- filtered_resp_sigs[i,]
+    
+    filter_obj <- list()
+    filter_obj$posGeneNames <- ''
+    filter_obj$negGeneNames <- ''
+    
+    
+    # turn gene lists into MetaIntegrator filter objects
+    if(as.logical(current_sig$paired) == T){
+      if(grepl(pattern = 'up|positive', x = current_sig$response.behavior)){ # if sig genes are positive
+        filter_obj$posGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+        current_pmid <- current_sig$`publication.reference.(PMID)`
+        if(i < nrow(filtered_resp_sigs)){ # and there's another row
+          next_sig <- filtered_resp_sigs[i+1,]
+          if(next_sig$`publication.reference.(PMID)` == current_pmid){ # if it's in the same study
+            filter_obj$negGeneNames <- setdiff(sapply(X = unlist(strsplit(x = next_sig$`response.component.(gene.symbol)`, 
+                                                                          split = ';')), 
+                                                      FUN = trimws), '')
+          }
+        }
+        #filter_obj$posGeneNames <- mapIds(x = org.Hs.eg.db, keys = filter_obj$posGeneNames, column = 'SYMBOL', keytype = 'ALIAS')
+      }
+    } else {
+      if(grepl(pattern = 'up|positive', x = current_sig$response.behavior)){ # if sig genes are positive
+        filter_obj$posGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+      }
+      
+      if(grepl(pattern = 'down|negative', x = current_sig$response.behavior)){
+        filter_obj$negGeneNames <- setdiff(sapply(X = unlist(strsplit(x = current_sig$`response.component.(gene.symbol)`, split = ';')), FUN = trimws), '')
+        #filter_obj$negGeneNames <- mapIds(x = org.Hs.eg.db, keys = filter_obj$negGeneNames, column = 'SYMBOL', keytype = 'ALIAS')
+      }
+    }
+    
+    
+    filter_obj$paired <- as.logical(current_sig$paired)
+    filter_obj$FDRThresh <- 1
+    filter_obj$effectSizeThresh <- 0
+    filter_obj$numberStudiesThresh <- 0
+    filter_obj$heterogeneityPvalThresh <- 1
+    filter_obj$isLeaveOneOut <- F
+    filter_obj$filterDescription <- paste(current_sig$target.pathogen, 
+                                          current_sig$response.behavior, 
+                                          current_sig$`publication.reference.(PMID)`, 
+                                          sep = '_')
+    filter_obj$timestamp <- Sys.time()
+    #filter_obj$discovery <- current_sig$Accession.from.ImmPort.file.list
+    
+    if(checkDataObject(filter_obj, objectType = 'MetaFilter')){
+      filter_list[[i]] <- filter_obj
+    } else {
+      stop(paste0('error in producing filter obj for ', i))
+    }
+  }
+  
+  # paired negative signatures are replaced by empty set & removed (direction matters for p-value testing)
+  non_empty_list_ix <- lapply(filter_list, function(x){
+    return(!(mean(x$posGeneNames == '') == 1 & mean(x$negGeneNames == '') == 1))
+  })
+  names(non_empty_list_ix) <- sapply(filter_list, function(x){x$filterDescription})
+  non_empty_list_ix <- unlist(non_empty_list_ix)
+  
+  
+  filter_list <- filter_list[non_empty_list_ix]
+  return(filter_list)
+}
+
+
+calculateScoreRobust <- function(filterObject, datasetObject, suppressMessages = F, method = 'geomMean', zScore = T){
+    datasetObjectmin <- min(datasetObject$expr, na.rm = TRUE)
+    if (datasetObjectmin < 0) {
+      datasetObject$expr <- datasetObject$expr + abs(datasetObjectmin) + 1 # shift scale if values < 0
+    }
+    
+    # pull list of genes present in data set
+    expr_genes <- datasetObject$keys
+    filterObject$posGeneNames <- setdiff(filterObject$posGeneNames,'')
+    filterObject$negGeneNames <- setdiff(filterObject$negGeneNames,'')
+    pos_genes = intersect(filterObject$posGeneNames, expr_genes)
+    neg_genes = intersect(filterObject$negGeneNames, expr_genes)
+    
+    # for reporting fraction of genes used
+    if (!suppressMessages){
+      N_pos_str <- paste0(length(pos_genes), ' of ', length(filterObject$posGeneNames))
+      N_neg_str <- paste0(length(neg_genes), ' of ', length(filterObject$negGeneNames))
+      print(paste0('Used ', N_pos_str, ' pos genes and ', N_neg_str, ' neg genes'))
+    }
+    
+    if(length(pos_genes) == 0 & length(neg_genes) == 0){
+      if (!suppressMessages){
+        print('no common genes between data and signature')
+      }
+      return(NA)
+    }
+    
+    posScore = .calculate_scores(datasetObject, pos_genes)
+    negScore = .calculate_scores(datasetObject, neg_genes)
+    
+    if(grepl(pattern = 'exp2', x = method)){
+      totalScore = posScore/negScore
+    } else {
+      totalScore = posScore - negScore
+    }
+    
+    
+    if (sum(abs(totalScore), na.rm = T) != 0){
+      if(zScore){
+        totalScore = as.numeric(scale(totalScore))
+      } else {
+        totalScore = as.numeric(totalScore)
+      }
+      
+    }
+  
+  return(totalScore)
+}
+
+
+.calculate_scores = function(datasetObject, genes){
+  
+  # find the genes to average
+  genes_idx = which(datasetObject$keys %in% genes)
+  
+  # if there aren't any genes, return 0
+  if (length(genes_idx) == 0){
+    output_val = 0
+    return(rep(output_val, ncol(datasetObject$expr)))
+  }
+  
+  # filter expr to sig genes
+  gene_expr = datasetObject$expr[genes_idx,] 
+  
+  #in case only one gene is present, take the vector itself
+  if (is.null(nrow(gene_expr))){
+    sample_scores = gene_expr
+  } else {
+    sample_scores = apply(gene_expr, 2, geom_mean)
+  }
+  
+  return(sample_scores)
+}
+
+geom_mean = function(x){
+  return(exp(mean(log(x), na.rm = T)))
+}
+
+```
+
+# Setup
+These figures only look at the "Young" cohort that is defined as 18 to 50 years old and the "Extended Old" cohort of 50 to 90 years old.  The "Old" cohort (not used here) was 60 to 90 years old.
+```{r read-esets}
+young.NoResp <- readRDS(file = file.path(dataDir, "young_norm_eset.rds"))
+young.WithResp <- readRDS(file = file.path(dataDir, "young_norm_withResponse_eset.rds"))
+```
+
+```{r set-standard-colors}
+# Fig 1
+set3colors <- brewer.pal("Set3", n = 12)
+colors.fig1a <- c(set3colors[c(2, 11, 3, 12, 8)], 
+                  "black", 
+                  set3colors[c(7, 6, 5, 1, 4, 9, 10)])
+# Other Figures
+getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
+				                         brewer.pal(name = "Dark2", n = 4)))
+vaccines <- unique(paste0(young.NoResp$pathogen, 
+                          " (", 
+                          young.NoResp$vaccine_type, 
+                          ")"))
+vaccine2color <- getPalette(n = length(vaccines)) %>%
+  setNames(nm = sort(vaccines))
+```
+
+# Figures
+## Figure 1. Creation of a combined dataset of transcriptional responses to vaccination across diverse vaccine platforms and target pathogens
+### Figure 1b. Histogram of the timepoints pre- (days -7 and 0) and post-vaccination (days > 0) available in the immune signature data resource.
+```{r fig1b, eval=TRUE}
+plotDF <- pData(young.NoResp) %>%
+  select(uid, study_time_collected, pathogen, vaccine_type) %>%
+  arrange(study_time_collected) %>%
+  mutate(study_time_collected = signif(study_time_collected, digits = 3),
+	 # any sampling data after 20 days coded as >20
+	 study_time_collected.factor = ifelse(test = study_time_collected > 20,
+					                              yes  = ">20",
+					                              no   = study_time_collected),
+	 study_time_collected.factor =
+	   factor(study_time_collected.factor,
+		  levels = unique(study_time_collected.factor)),
+	 vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
+  group_by(study_time_collected.factor, vaccine) %>%
+  summarize(n = n())
+# assign each vaccine a color
+getPalette <- colorRampPalette(c(brewer.pal(name = "Set3", n = 10),
+				 brewer.pal(name = "Dark2", n = 4)))
+vaccine2color <- getPalette(n = length(unique(plotDF$vaccine))) %>%
+  setNames(nm = sort(unique(plotDF$vaccine)))
+ggplot(data = plotDF,
+       mapping = aes(x = study_time_collected.factor,
+		     y = n)) +
+  geom_bar(stat = "identity", mapping = aes(fill = vaccine)) +
+  labs(x = "Days post-vaccination", y = "Number of samples") +
+  scale_y_continuous(limits = c(0, 800),
+		     breaks = seq(from = 0, to = 800, by = 100)) + 
+  scale_fill_manual(name   = "Pathogen (Vaccine type)",
+		    values = vaccine2color) +
+  theme_bw() +
+  theme(panel.grid         = element_blank(),
+	panel.grid.major.y = element_line(color = "lightgrey"),
+	axis.text          = element_text(color = "black"),
+	axis.text.x        = element_text(angle = 45, hjust = 1),
+	legend.pos         = "bottom",
+	legend.text        = element_text(size = 7),
+	legend.key.height  = unit(0.02, units = "npc"),
+	legend.key.width   = unit(0.015, units = "npc")) +
+  guides(fill = guide_legend(ncol = 2))
+```
+
+### Figure 1c. Principal variance component analysis used to estimate the proportion of the variance observed in the transcriptomic data that can be attributed to clinical and experimental variables.
+```{r boot-pvca, eval=FALSE}
+mat <- exprs(young.NoResp)
+pdata <- pData(young.NoResp) %>%
+  mutate(Vaccine = paste0(pathogen, " (", vaccine_type, ")")) %>%
+  select(y_chrom_present, ethnicity, Vaccine, study_time_collected,
+	 age_imputed) %>%
+  rename(Gender    = y_chrom_present,
+	 Ethnicity = ethnicity,
+	 Timepoint = study_time_collected,
+	 Age       = age_imputed)
+pdata <- pdata[colnames(mat), ]
+
+B <- 1000
+bootLS <- mclapply(1:B, FUN = function(seed) {
+  set.seed(seed = seed)
+  indices <- sample.int(n = ncol(mat), size = ncol(mat), replace = TRUE)
+                 pdataTemp <- pdata[indices, ]
+                 matTemp <- mat[, indices]
+                 fit <- PVCA(counts    = matTemp,
+                             meta      = pdataTemp,
+                             threshold = 0.6,
+                             inter     = FALSE)
+  return(value = c(seed = seed, fit))
+}, mc.cores = detectCores() - 1)
+# save(bootLS, file = file.path(dataCacheDir, "fig1c.boot.rda"))
+```
+
+```{r fig1c, fig.width=4, fig.height=7, eval=TRUE}
+load(file = file.path(dataCacheDir, "fig1c.boot.rda"))
+plotDF <- bootLS %>%
+  select(-seed) %>%
+  apply(MARGIN = 2, FUN = quantile, probs = c(0.025, 0.5, 0.975)) %>%
+  t() %>%
+  as.data.frame() %>%
+  mutate(effect = names(bootLS)[-1]) %>%
+  arrange(`50%`) %>%
+  mutate(effect = factor(effect, levels = effect))
+
+ggplot(data    = plotDF,
+       mapping = aes(x = effect, y = `50%`)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(mapping = aes(ymin = `2.5%`, ymax = `97.5%`), width = 0.1) +
+  geom_text(aes(label = signif(`50%`, digits = 3)),
+            nudge_y   = 0.03,
+            size      = 3) +
+  labs(x = NULL, y = "Proportion of the variance explained") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   vjust = 1,
+                                   hjust = 1))
+```
+          
+Perform Sample Level Enrichment Analysis on hallmark+BTM genesets
+Pre-Processing:
+Microarray probes may have different affinities for their target mRNA and
+thus the itensities can't be compared between probes inside the same sample.
+A way to correct for that is to scale each probe to a mean of 0 and a standard-
+deviation of 1.
+The following looks only at pre-vaccination timepoints
+```{r, check-cached-slea, eval=TRUE}
+sleaFile <- file.path(dataCacheDir, "sleaSet.rda")
+sleaCached <- file.exists(sleaFile)
+if(sleaCached){
+  load(file = sleaFile)
+}
+```
+
+```{r, slea, eval=FALSE}
+data("all_genesets", package = "ImmuneSignatures2")
+batch <- interaction(young.NoResp$study_accession,
+                     young.NoResp$matrix,
+                     drop = TRUE)
+scaledMat <- by(data = t(exprs(young.NoResp)),
+                INDICES = batch,
+                FUN = function(x) scale(x)) %>%
+  do.call(what = rbind) %>%
+  t()
+scaledMat <- scaledMat[, sampleNames(young.NoResp)]
+# SLEA (Ref: Lopez-Bigas N. et al. (2008) Genome Biol.)
+B=100
+flag <- lapply(all_genesets, FUN = intersect, y = rownames(scaledMat)) %>%
+  sapply(FUN = length)
+zscoreMat <- sapply(all_genesets, FUN = function(gs) {
+  gs <- intersect(gs, rownames(scaledMat))
+  ngenes <- length(gs)
+  mu <- colMeans(scaledMat[gs, , drop = FALSE], na.rm = TRUE)
+  muPermut <- mclapply(1:B, FUN = function(seed) {
+    set.seed(seed = seed)
+    muHat <- colMeans(scaledMat[sample.int(nrow(scaledMat), ngenes), , 
+                                drop = FALSE],
+                      na.rm = TRUE)
+    return(value = muHat)
+  })
+  muPermut <- do.call(what = rbind, args = muPermut)
+  zscore <- (mu - colMeans(muPermut, na.rm = TRUE)) /
+    apply(muPermut, MARGIN = 2, FUN = sd, na.rm = TRUE)
+  return(value = zscore)
+})
+```
+
+```{r, create-slea-eset, eval=FALSE}
+sleaSet <- ExpressionSet(assayData = t(zscoreMat),
+                         phenoData = AnnotatedDataFrame(pData(young.NoResp)))
+save(sleaSet, file = sleaFile)
+```
+
+```{r define-genesets, eval=TRUE}
+inflamGS <- c("HALLMARK_INFLAMMATORY_RESPONSE",
+              "HALLMARK_COMPLEMENT",
+              "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+              "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+```
+
+## Figure 2. Heatmap of SLEA zscore on pre-vaccination samples
+```{r, fig2, fig.width=8, fig.height=6, message=FALSE, eval=TRUE}
+# filter SLEA zscore on pre-vaccination samples
+zscoreTemp <- exprs(sleaSet)[, sleaSet$study_time_collected <= 0]
+# remove genesets with missing symbols in virtual study
+zscoreTemp <- zscoreTemp[rowMeans(is.na(zscoreTemp)) < 1, ]
+# cutree into three groups (see gap statistic analysis
+set.seed(seed = 17)
+tree_col  <- kmeans(x = t(zscoreTemp), centers = 3)
+gr <- tree_col$cluster
+# relabel cluster based on inflammatory genesets
+inflamLS <- c("HALLMARK_INFLAMMATORY_RESPONSE",
+              "HALLMARK_COMPLEMENT",
+              "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+              "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+inflamDF <- data.frame(mu = apply(zscoreTemp[inflamLS, ], MARGIN = 2, FUN = median)) %>%
+  rownames_to_column()
+inflamDF <- data.frame(grn = gr) %>%
+  rownames_to_column() %>%
+  merge(x = inflamDF) %>%
+  merge(y    = select(pData(sleaSet),
+                      setdiff(varLabels(sleaSet), "gr")),
+        by.x = "rowname",
+        by.y = "uid")
+inflamDF %>%
+  group_by(grn) %>%
+  summarize(q2 = median(mu)) %>%
+  ungroup() %>%
+  mutate(gr = ifelse(q2 %in% min(q2),
+                     yes = "low",
+                     no  = NA),
+         gr = ifelse(q2 %in% max(q2) & is.na(gr),
+                     yes = "high",
+                     no  = gr),
+         gr = ifelse(is.na(gr),
+                     yes = "mid",
+                     no  = gr),
+         gr = factor(gr, levels = c("low", "mid", "high"))) %>%
+  merge(x = inflamDF,
+        by = "grn") %>%
+  column_to_rownames(var = "rowname") -> inflamDF
+inflamDF <- inflamDF[colnames(zscoreTemp), ]
+rowLabels <- rownames(zscoreTemp)
+rowLabels[!grepl(pattern = "B.cell|E2F|T.cell|MYC| NK",
+		 rownames(zscoreTemp),
+		 ignore.case = TRUE) &
+	    !grepl(pattern = "Interferon|STAT|migration|Monocytes| DC|Neutrophiles",
+		   rownames(zscoreTemp),
+                 ignore.case = TRUE) &
+            !(rownames(zscoreTemp) %in% inflamLS)] <- ""
+# generate heatmap annotation
+ha <- inflamDF %>%
+  rownames_to_column() %>%
+  mutate(inflam.gs = findInterval(mu,
+				  vec = quantile(mu ,
+						 probs = c(0, 0.33, 0.66, 1)),
+				  rightmost.closed= TRUE),
+	 inflam.gs = paste0("tier", inflam.gs)) %>%
+  select(rowname, inflam.gs) %>%
+  column_to_rownames() %>%
+  .[colnames(zscoreTemp), , drop=FALSE] %>%
+  HeatmapAnnotation(df = ., col = list(inflam.gs = c(tier1 = "yellow",
+tier2 = "orange",
+ tier3 = "red")))
+heat <- Heatmap(matrix                      = zscoreTemp[!(rowLabels %in% ""), 
+                                                         ],
+	row_names_side              = "left", 
+	show_column_names           = FALSE,
+	column_split                = inflamDF$gr,
+	show_row_dend               = FALSE,
+	name                        = "SLEA z-score",
+	#row_labels                  = rowLabels,
+	row_names_gp                = gpar(fontsize = 8),
+	top_annotation              = ha)
+ht <- draw(heat)
+heatColOrder <- column_order(ht)
+```
+
+```{r, append-gr-sleaset, eval=FALSE}
+sleaSet$gr <- inflamDF[match(sleaSet$uid,
+                             table = rownames(inflamDF)), "gr"]
+```
+
+```{r, generate-pts-gr, eval=TRUE}
+inflamGr <- pData(sleaSet) %>%
+  arrange(desc(study_time_collected)) %>%
+  filter(!is.na(gr)) %>%
+  select(participant_id,
+         gr) %>%
+  distinct() %>%
+  filter(!duplicated(participant_id)) %>%
+  mutate(gr = as.vector(gr)) %>%
+  rename(inflam.gr = gr)
+```
+
+Create pathway specific gene-level heatmaps
+```{r, read-generif, eval=TRUE}
+# use generif to select top 10
+generifPath <- file.path(dataCacheDir, "generifs_basic")
+generif <- scan(file = generifPath, what = "raw", sep = "\n")
+generif <- generif %>%
+  strsplit(split = "\t") %>%
+  do.call(what = rbind)
+header <- generif[1, ] %>%
+  gsub(pattern = "#", replacement = "")
+generif <- generif[-1, ] %>%
+  as.data.frame() %>%
+  setNames(header)
+human <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+batch <- interaction(young.NoResp$study_accession,
+                     young.NoResp$matrix,
+                     drop = TRUE)                                                          
+scaledMat <- by(data = t(exprs(young.NoResp)),
+                INDICES = batch,
+                FUN = function(x) scale(x)) %>%
+  do.call(what = rbind) %>%
+  t()                                                                                      
+scaledMat <- scaledMat[, sampleNames(young.NoResp)] 
+```
+
+```{r, fig2.1, eval=TRUE, message=FALSE}
+nkGenes <- all_genesets[grepl(pattern = " NK", names(all_genesets))]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(nkGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = " NK|Natural Killer", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+col_fun = colorRamp2(seq(-3, 3, length.out = 5),
+                     heat@matrix_color_mapping@colors)
+heatNK <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "NK")
+draw(heatNK)
+```
+
+```{r, fig2.2, eval=TRUE}
+tGenes <- all_genesets[grepl(pattern = "T.cell", names(all_genesets))]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(tGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "T.cell|Lymphocytes T", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatT <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "T")
+draw(heatT)
+```
+
+```{r, fig2.3, eval=TRUE}
+meGenes <- all_genesets[grepl(pattern = "E2F|MYC", names(all_genesets))]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(meGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "MYC|E2F", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatE2F <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "MYC|E2F")
+draw(heatE2F)
+```
+
+```{r, fig2.4, eval=TRUE}
+bGenes <- all_genesets[grepl(pattern = "B.cell", names(all_genesets)) &
+              !grepl(pattern = "TBA", names(all_genesets))]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(bGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "B.cell|Lymphocytes B", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatB <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "B")
+draw(heatB)
+```
+
+```{r, fig2.5, eval=TRUE}
+mdGenes <- all_genesets[grepl(pattern = "Monocytes|DC", names(all_genesets), ignore.case = TRUE)]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(mdGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "Monocytes|Dendritic", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatMono <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "Monocytes|DC")
+draw(heatMono)
+```
+
+```{r, fig2.6, eval=TRUE}
+iGenes <- all_genesets[inflamLS]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(iGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "Inflammat", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatInflam <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "Inflammation")
+draw(heatInflam)
+```
+
+```{r, fig2.7, eval=TRUE}
+isgGenes <- all_genesets[grepl(pattern = "Interferon|STAT", names(all_genesets), ignore.case = TRUE)]
+symbol2id <- getBM(attributes  = c("hgnc_symbol", "entrezgene_id"),
+                   filters     = "hgnc_symbol",
+                   values = unique(unlist(isgGenes)),
+                   mart        = human)
+generifTemp <- merge(x = symbol2id,
+      y     = generif,
+      by.x  = "entrezgene_id",
+      by.y = "Gene ID",
+      all.x = TRUE) %>%
+  filter(grepl(pattern = "Interferon", `GeneRIF text`, ignore.case = TRUE)) %>%
+    filter(hgnc_symbol %in% featureNames(young.NoResp)) %>%
+    group_by(hgnc_symbol) %>%
+    summarize(n = n()) %>%
+    arrange(desc(n)) %>%
+    top_n(n = 10, wt = n)
+# draw heatmap column same order as figure 2
+mat <- scaledMat[generifTemp$hgnc_symbol, colnames(zscoreTemp)[unlist(heatColOrder)]]
+heatISG <- Heatmap(matrix = mat, name = "z-score", 
+        col = col_fun,
+        cluster_columns = FALSE,
+        column_split  = factor(rep(names(heatColOrder), sapply(heatColOrder, FUN = length)), levels = names(heatColOrder)),
+        show_row_dend = FALSE,
+        show_column_names = FALSE,
+        row_title = "Interferons")
+draw(heatISG)
+```
+
+## Figure 3. Kinetics of the vaccine response are dictated by the pre-vaccination endotypes
+### Figure 3a. Line plots showing the expression of inflammatory pathways
+Plot SLEA z-score of inflammatory genesets over time
+```{r fig3a, fig.width=6.92, fig.height=2.96, warning=FALSE, eval=TRUE}
+sleaSet$gr <- inflamGr$inflam.gr[match(sleaSet$participant_id,
+                                       table = inflamGr$participant_id)]
+
+plotDF <- data.frame(mu = colMeans(exprs(sleaSet)[inflamGS, ])) %>%
+  rownames_to_column(var = "uid") %>%
+  merge(y = pData(sleaSet), by = "uid") %>%
+  mutate(gr = recode(gr,
+                     "low"  = "inflam.lo",
+                     "mid"  = "inflam.mid",
+                     "high" = "inflam.hi"),
+         gr = factor(gr,
+                     levels = c("inflam.lo",
+                                "inflam.mid",
+                                "inflam.hi"))) %>%
+  filter(!is.na(gr))
+ggplot(data = plotDF,
+       mapping = aes(x = study_time_collected, y = mu, color = gr)) +
+  geom_line(mapping = aes(group = participant_id),
+            alpha = 0.1) +
+  geom_hline(yintercept = 0, color = "grey", size = 2) +
+  geom_smooth(method = "loess", formula = "y~x", color = "black") +
+  facet_wrap(facets = ~gr) +
+  scale_x_continuous(limits = c(0, 28)) +
+  labs(y = "Inflammatory pathways\n(SLEA z-score)",
+       x = "Time after vaccination (days)") +
+  theme_bw() +
+  theme(axis.text    = element_text(size = 15),
+        strip.text   = element_text(size = 20),
+        axis.title.x = element_text(size = 20),
+        legend.pos   = "none",
+        panel.grid  = element_blank())
+```
+
+### Figure 3b. Line plots showing the expression of ISGs
+Plot SLEA z-score of interferon genesets over time
+```{r, fig3b, fig.width=6.92, fig.height=2.96, warning=FALSE, eval=TRUE}
+isgLS  <- c("HALLMARK_INTERFERON_ALPHA_RESPONSE",
+            "HALLMARK_INTERFERON_GAMMA_RESPONSE")
+plotDF <- data.frame(mu = colMeans(exprs(sleaSet)[isgLS, ])) %>%
+  rownames_to_column(var = "uid") %>%
+  merge(y = pData(sleaSet), by = "uid") %>%
+  mutate(gr = recode(gr,
+                     "low"  = "inflam.lo",
+                     "mid"  = "inflam.mid",
+                     "high" = "inflam.hi"),
+         gr = factor(gr,
+                     levels = c("inflam.lo",
+                                "inflam.mid",
+                                "inflam.hi"))) %>%
+  filter(!is.na(gr))
+ggplot(data = plotDF,
+       mapping = aes(x = study_time_collected, y = mu, color = gr)) +
+  geom_line(mapping = aes(group = participant_id),
+            alpha = 0.1) +
+  geom_hline(yintercept = 0, color = "grey", size = 2) +
+  geom_smooth(method = "loess", formula = "y~x", color = "black") +
+  facet_wrap(facets = ~gr) +
+  scale_x_continuous(limits = c(0, 28)) +
+  labs(y = "Interferon-stimulated genes\n(SLEA z-score)",
+       x = "Time after vaccination (days)") +
+  theme_bw() +
+  theme(axis.text    = element_text(size = 15),
+        strip.text   = element_text(size = 20),
+        axis.title.x = element_text(size = 20),
+        legend.pos   = "none",
+        panel.grid  = element_blank())
+```
+
+### Figure 3c. Line plots showing the expression of B cells markers
+Plot SLEA z-score of B cell genesets over time
+```{r, fig3c, fig.width=6.92, fig.height=2.96, warning=FALSE, eval=TRUE}
+bLS <- c("enriched in B cells (I) (M47.0)",
+         "enriched in B cells (V) (M47.4)",
+         "plasma cells & B cells, immunoglobulins (M156.0)")
+plotDF <- data.frame(mu = colMeans(exprs(sleaSet)[bLS, ])) %>%
+  rownames_to_column(var = "uid") %>%
+  merge(y = pData(sleaSet), by = "uid") %>%
+  mutate(gr = recode(gr,
+                     "low"  = "inflam.lo",
+                     "mid"  = "inflam.mid",
+                     "high" = "inflam.hi"),
+         gr = factor(gr,
+                     levels = c("inflam.lo",
+                                "inflam.mid",
+                                "inflam.hi"))) %>%
+  filter(!is.na(gr))
+ggplot(data = plotDF,
+       mapping = aes(x = study_time_collected, y = mu, color = gr)) +
+  geom_line(mapping = aes(group = participant_id),
+            alpha = 0.1) +
+  geom_hline(yintercept = 0, color = "grey", size = 2) +
+  geom_smooth(method = "loess", formula = "y~x", color = "black") +
+  facet_wrap(facets = ~gr) +
+  scale_x_continuous(limits = c(0, 28)) +
+  labs(y = "B cells\n(SLEA z-score)",
+       x = "Time after vaccination (days)") +
+  theme_bw() +
+  theme(axis.text    = element_text(size = 15),
+        strip.text   = element_text(size = 20),
+        axis.title.x = element_text(size = 20),
+        legend.pos   = "none",
+        panel.grid  = element_blank())
+```
+
+## Figure 4. Prediction of the antibody response by the pre-vaccination endotypes
+### Figure 4a. Boxplot of the MFC as a function of the pre-vaccination inflammation endotypes. 
+```{r, fig4a, warning=FALSE, fig.width=4.4, fig.height=4.6, eval=TRUE}
+load(file = sleaFile)
+inflamDF <- pData(sleaSet)[sleaSet$study_time_collected <= 0, ]
+plotDF <- inflamDF %>%
+  merge(y = distinct(select(pData(young.WithResp), 
+                            participant_id, 
+                            MFC,
+                            MFC_p30))) %>%
+  group_by(study_accession) %>%
+  mutate(sMFC = scale(MFC),
+         vaccine = paste0(pathogen,".", vaccine_type))
+ggplot(data = plotDF,
+       mapping = aes(x = factor(gr), y = sMFC)) +
+       geom_beeswarm(cex = 1.1, size = 0.75) +
+       geom_boxplot(outlier.color = "transparent", 
+                    fill = "transparent", 
+                    col = "red") +
+       labs(x = "Prevax inflammatory cluster") +
+       theme_bw()
+kruskal.test(x = plotDF$sMFC, g = plotDF$gr)
+pairwise.wilcox.test(x = plotDF$sMFC, g = plotDF$gr, p.adjust.method = "none") %>%
+    print()
+```
+
+### Figure 4b. ROC curve estimated from the 10-fold CV
+Load predictions
+```{r, load-prediction, eval=TRUE}
+predFile<- file.path(dataCacheDir, "DB.PREDS.rda")
+load(file = predFile)
+```
+
+```{r, fig4b, eval=TRUE}
+par(pty = "s")
+
+### 10-CV 
+ROC.OBJ1 <- roc(response      = db.preds$obs, 
+                predictor     = db.preds$highResponder, 
+                levels        = c("lowResponder", "highResponder"),
+                direction     = "<",
+                plot          = TRUE, 
+                legacy.axes   = TRUE, 
+                percent       = TRUE,
+                xlab          = "False Positive %",
+                ylab          = "True Positive %",
+                identity      = FALSE,
+                col           = "black",
+                lwd           = 4, 
+                lty           = 1, 
+                print.auc.x   = 77,
+                print.auc.y   = 28,
+                print.auc.cex = 0.9,
+                ci            = TRUE, 
+                print.auc     = TRUE)
+
+### Training
+ROC.OBJ2 <- roc(response      = preds.train$obs, 
+                levels        = c("lowResponder", "highResponder"),
+                predictor     = preds.train$highResponder, 
+                direction     = "<",
+                legacy.axes   = TRUE, 
+                percent       = TRUE,
+                ci            = TRUE)
+
+plot.roc(ROC.OBJ2,
+         legacy.axes   = TRUE, 
+         percent       = TRUE,
+         col           = "gray60",
+         lwd           = 4,
+         lty           = 3,
+         print.auc.x   = 85,
+         print.auc.y   = 21,
+         print.auc.cex = 0.9,
+         ci            = TRUE,
+         print.auc     = TRUE, 
+         add           = TRUE)
+
+legend("bottomright", 
+       legend = c("Training", "10-CV"),
+       col    = c("gray60", "black"),
+       lty    = c(3, 1),
+       lwd    = 4,
+       cex    = 0.8,
+       ncol   = 2)
+```
+
+### Figure 4c. Heatmap showing the pre-vaccination expression of the overlapping inflammatory genes
+Read features and importance
+```{r, read-feat-sup, warning=FALSE, message=FALSE, eval=TRUE}
+featFile <- file.path(dataCacheDir,
+                      "Top500_Var_VarImp.csv")
+featDF <- read_csv(file = featFile, 
+                   col_names = c("FEATURE", "IMPORTANCE"),
+                   skip = 1) %>%
+  filter(IMPORTANCE >= 0)
+```
+
+Fisher exact test on hallmark genesets
+```{r, fisher, warning=FALSE, eval=TRUE}
+load(file = file.path(dataCacheDir, "all_genesets.rda"))
+
+# fisher exact test to test overlap
+bg <- featureNames(young.WithResp)
+fisherDF <- mclapply(names(all_genesets), FUN = function(gsName) {
+  gs <- all_genesets[[gsName]]
+  tab <- table(factor(bg %in% gs, levels = c(TRUE, FALSE)),
+               factor(bg %in% featDF$FEATURE, levels = c(TRUE, FALSE)))
+  fit <- fisher.test(tab, alternative = "greater")
+  return(value = data.frame(gsName = gsName,
+         or    = unname(fit$estimate),
+         p     = fit$p.value,
+         inter = paste(intersect(gs, featDF$FEATURE), collapse = ",")))
+}, mc.cores = detectCores() - 1) %>%
+  do.call(what = rbind) %>%
+  mutate(adj.p = p.adjust(p, method = "BH"))
+
+# print only genesets in Figure 2
+filter(fisherDF, 
+       adj.p <= 0.05 &
+        (grepl(pattern     = "B.cell|E2F|T.cell|MYC| NK",
+               gsName,
+               ignore.case = TRUE) |
+         grepl(pattern     = "Interferon|STAT|Inflam|Compl|TNF|NfkB",
+               gsName,
+               ignore.case = TRUE) |
+         grepl(pattern     = "migration|Monocytes| DC|Neutrophiles",
+               gsName,
+               ignore.case = TRUE))) %>%
+  kable()
+```
+
+Heatmap of inflammatory genes
+```{r, fig4c, fig.width=8, fig.height=8, eval=TRUE}
+inflamSigDF<- filter(fisherDF, gsName %in% inflamGS & adj.p <= 0.05)
+
+rowAnnot <- inflamSigDF$inter %>%
+  strsplit(split = ",") %>%
+  setNames(inflamSigDF$gsName) %>%
+  stack() %>%
+  mutate(flag = 1) %>%
+  pivot_wider(names_from = ind, values_from = flag, values_fill = 0) 
+
+# append feature importance
+featDF %>% 
+  group_by(FEATURE) %>% 
+  summarize(IMPORTANCE = mean(IMPORTANCE)) %>%
+  merge(x    = rowAnnot,
+        by.x = "values",
+        by.y = "FEATURE") %>%
+  column_to_rownames(var = "values") %>%
+  arrange(desc(HALLMARK_TNFA_SIGNALING_VIA_NFKB),
+          desc(HALLMARK_INFLAMMATORY_RESPONSE), 
+          desc(HALLMARK_IL6_JAK_STAT3_SIGNALING),
+          desc(IMPORTANCE)) -> rowAnnot
+
+# extract gene expression
+mat <- exprs(young.WithResp)[rownames(rowAnnot),
+             young.WithResp$study_time_collected <= 0 &
+             young.WithResp$MFC_p30 %in% c("lowResponder",
+"highResponder")]
+mat <- t(scale(t(mat)))
+
+colAnnot <- pData(young.WithResp)[, "MFC_p30", drop = FALSE] %>%
+  rename(`Antibody response group` = MFC_p30)
+rownames(colAnnot) <- young.WithResp$uid
+colAnnot <- colAnnot[colnames(mat), , drop = FALSE]
+colOrder <- order(colMeans(mat)) 
+ha <- HeatmapAnnotation(df  = colAnnot[colOrder, , drop= FALSE],
+                        col = list(`Antibody response group` = c(lowResponder  = "black",
+                                                                  highResponder = "red")),
+                        annotation_legend_param = list(title_gp = gpar(fontsize = 8),
+                                    labels_gp = gpar(fontsize = 8)))
+ra <- rowAnnotation(df  = rowAnnot,
+                    col = list(HALLMARK_INFLAMMATORY_RESPONSE =
+                                 c("1" = "black", "0" = "white"),
+                               HALLMARK_TNFA_SIGNALING_VIA_NFKB =
+                                 c("1" = "black", "0" = "white"),
+                               HALLMARK_IL6_JAK_STAT3_SIGNALING =
+                                 c("1" = "black", "0" = "white")),
+                    annotation_legend_param = list(title_gp = gpar(fontsize = 8),
+                                    labels_gp = gpar(fontsize = 8)),
+                    annotation_name_gp = gpar(fontsize = 8))
+ht <- Heatmap(matrix            = mat[rownames(rowAnnot), colOrder],
+        cluster_rows      = FALSE,
+	      row_names_side    = "left", 
+	      show_column_names = FALSE,
+        cluster_columns   = FALSE,
+	      name              = "z-score",
+        row_names_gp      = gpar(fontsize = 6),
+        heatmap_legend_param = list(title_gp = gpar(fontsize = 8),
+                                    labels_gp = gpar(fontsize = 8)),
+	      top_annotation    = ha,
+        left_annotation   = ra)
+print(ht)
+wilcox.test(formula = colOrder~`Antibody response group`,
+            data    = cbind(colAnnot, colOrder = colMeans(mat))) %>%
+  print()
+```
+
+### Figure 4d. Comparison of seven genes contributing the majority of the classifier prediction (importance > 50%) against previously identified pre-vaccination signatures of vaccine response
+Load data and signatures
+```{r, load-dashboard-sig, eval=TRUE}
+# reproducible results for permutation testing
+set.seed(seed = 021093)
+
+# load data
+# data.frame built from ImmPort linking SDY and PMIDs
+train_test_df <- readRDS(file = file.path(dataCacheDir, "ImmPort_PMID2SDY.RDS"))  
+# data frame of HIPC baseline signatures, manually annotated pairing of up/down genes
+filtered_resp_sigs <- readRDS(file = file.path(dataCacheDir, 
+                                               "fig4_response_signatures.RDS")) 
+# read feature from RF model (Fig 4bc)
+featFile <- file.path(dataCacheDir, "Top500_Var_VarImp.csv")
+# use gene feature present in at least 50% of the models obtain by bagging
+geneUp <- read_csv(file = featFile, 
+                   col_names = c("FEATURE", "IMPORTANCE"),
+                   skip = 1) %>%
+  filter(IMPORTANCE >= 50) %>%
+  .$FEATURE %>%
+  paste(collapse = ";")
+# update list of pre-vax signature with the current study
+filtered_resp_sigs$"response.component.(gene.symbol)"[
+  filtered_resp_sigs$"publication.reference.(PMID)" %in% "current study" &
+    filtered_resp_sigs$"response.behavior" %in% "up-regulated for"] <- 
+  geneUp
+filtered_resp_sigs$paired[
+  filtered_resp_sigs$"publication.reference.(PMID)" %in% "current study" &
+    filtered_resp_sigs$"response.behavior" %in% "up-regulated for"] <- "F"
+filtered_resp_sigs <- filtered_resp_sigs[!(
+  filtered_resp_sigs$"publication.reference.(PMID)" %in% "current study" &
+    filtered_resp_sigs$"response.behavior" %in% "down-regulated for"), ]
+```
+
+Prepare data for analysis
+```{r, prep-data, results='hide', eval=TRUE}
+# convert virtualStudy ExpressionSet to MetaIntegrator dataset objects
+MIobj_list <- data2MIobj(data = young.WithResp)
+
+# convert signatures to MetaIntegrator filter objects
+filter_list <- signatures2Filters(filtered_resp_sigs) 
+
+# identify data (SDY) and signature (PMID) pathogens
+study_pathogens <- sapply(MIobj_list, FUN = function(x) {
+  return(value = unique(x$pheno$pathogen))
+  }) %>%
+  unlist() %>%
+  unique()
+filter_pathogens <- sapply(filter_list, FUN = function(x) {
+  strsplit(x$filterDescription, split = '_') %>%
+    unlist() %>%
+    dplyr::first()
+}) %>%
+  unlist() %>%
+  unique()
+
+# remove signatures that don't map onto measured genes or from elderly adults
+filter_remove_ix <- sapply(filter_list, function(x) {
+  # signatures where greater than 50% of genes are mapped in virtualStudy
+  gene_match_ix <- c(x$posGeneNames, x$negGeneNames) %>%
+    setdiff(y = "") %>%
+    (function(x) mean(x %in% featureNames(young.WithResp)) < 0.5)
+  # signatures that are empty
+  length_ix <- length(setdiff(x$posGeneNames, "")) == 0 & 
+    length(setdiff(x$negGeneNames, "")) == 0
+  # signatures identified in seniors
+  age_ix <- grepl(pattern = 'senior', x = x$filterDescription)
+  return(value = gene_match_ix | length_ix | age_ix)
+})
+message("number of signature to be tested:")
+sum(!filter_remove_ix)
+filter_list <- filter_list[!filter_remove_ix]
+```
+
+Evaluate dashboard pre-vax signatures in virtual study
+```{r, eval-dashboard-prevax-sig, eval=TRUE}
+# evaluate signatures in data
+subject_plot_dat_list <- list()
+
+for (j in 1:length(MIobj_list)) {
+  current_study <- MIobj_list[[j]]
+  for (i in 1:length(filter_list)) {
+    message(paste0("study=", 
+                   j, 
+                   "/", 
+                   length(MIobj_list), 
+                   " - sig=", 
+                   i, 
+                   "/", 
+                   length(filter_list)))
+    
+    current_filter <- filter_list[[i]]
+    subject_plot_dat_obj <- data.frame('Study'           = current_study$formattedName,
+                                       'Pathogen'        = current_study$pheno$pathogen,
+                                       'Filter'          = current_filter$filterDescription,
+                                       'Filter_index'    = i,
+                                       'Filter_Pathogen' = strsplit(current_filter$filterDescription, split = '_')[[1]][1],
+                                       'SubjectID' = current_study$pheno$participant_id,
+                                       'Response'  = as.factor(current_study$class),
+                                       'Score'     = calculateScoreRobust(filterObject = current_filter, datasetObject = current_study, suppressMessages = TRUE),
+                                       stringsAsFactors = FALSE)
+    
+    # check number of genes from signature
+    filter_genes <- setdiff(c(current_filter$posGeneNames, current_filter$negGeneNames), '')
+    fraction_matched <- mean(filter_genes %in% current_study$keys)
+    if(fraction_matched >= 0.5){
+      auroc <- calculateROC(labels = as.numeric(subject_plot_dat_obj$Response), 
+                            predictions = subject_plot_dat_obj$Score, 
+                            AUConly = T)[1]
+      pval <- calculatePval(labels = as.numeric(subject_plot_dat_obj$Response), 
+                            values = subject_plot_dat_obj$Score, 
+                            true_value = auroc, n_perm = 1000)
+    } else {
+      auroc <- NA
+      pval <- NA
+    }
+    
+    
+    subject_plot_dat_obj <- subject_plot_dat_obj %>%
+      mutate('AUROC' = auroc, 'P.Value' = pval) 
+    
+    subject_plot_dat_list[[paste0(current_study$formattedName, '_', current_filter$filterDescription, '_', i)]] <- subject_plot_dat_obj
+  }
+}
+```
+
+Plot formatting
+```{r, plot-format, eval=TRUE}
+# get study sizes for plot ordering
+study_sizes <- sapply(MIobj_list, function(x) {
+  return(x$N)
+})
+study_sizes <- sort(study_sizes, decreasing = TRUE)
+
+# make subject-level data frame of all signature scores
+subject_plot_dat <- bind_rows(subject_plot_dat_list) %>%
+  mutate(Study = factor(Study, levels = names(study_sizes), ordered = TRUE)) %>%
+  mutate('Filter.Behavior' = sapply(Filter, function(x){str_split(string = x, pattern = '_')[[1]][2]})) %>%
+  mutate('Filter.Behavior' = gsub(pattern = 'positively', replacement = 'up', x = Filter.Behavior)) %>%
+  mutate('Filter.Behavior' = gsub(pattern = 'negatively', replacement = 'down', x = Filter.Behavior)) %>%
+  mutate(Filter.Behavior = ifelse(grepl(pattern = 'up', x = Filter.Behavior), 'up', Filter.Behavior)) %>%
+  mutate(Filter.Behavior = ifelse(grepl(pattern = 'down', x = Filter.Behavior), 'down', Filter.Behavior)) %>%
+  mutate(Filter = paste0(Filter, '_', Filter_index))
+
+# standardize influenza virus --> influenza
+influenza_ix <- grepl(pattern = 'influenza', x = subject_plot_dat$Filter_Pathogen)
+subject_plot_dat$Filter_Pathogen[influenza_ix] <- 'influenza'
+
+# annotate sdy and pmid
+study_plot_dat <- subject_plot_dat %>%
+  dplyr::select(Study, Pathogen, Filter, Filter_index, AUROC, Filter_Pathogen, P.Value, Filter.Behavior) %>%
+  distinct() %>%
+  mutate('Train' = F) %>%
+  mutate('SDY' = sapply(X = Study, FUN = function(x){str_split(string = x, pattern = '_')[[1]][1]})) %>%
+  mutate('PMID' = sapply(X = Filter, FUN = function(x){str_split(string = x, pattern = '_')[[1]][3]}))
+```
+
+Label signature discovery datasets using ImmPort Data Frame
+```{r, label-sig, results='hide', eval=TRUE}
+# annotate which datasets were used as discovery for each signature
+train_test_vect <- study_plot_dat %>%
+  dplyr::select(SDY, PMID, Train)
+for (i in 1:nrow(train_test_vect)){
+  current_eval <- train_test_vect[i,]
+  relevant_publications <- train_test_df %>% 
+    filter(SDY == current_eval$SDY)
+  # if we find a signature PMID that matches a dataset PMID, mark $Train = T
+  if(nrow(relevant_publications) > 0){
+    if(current_eval$PMID %in% relevant_publications$Publication){
+      current_eval$Train <- T
+      print(paste(current_eval$PMID, relevant_publications$Publication))
+    } else {
+      current_eval$Train <- F
+    }
+  }
+  train_test_vect[i,] <- current_eval
+}
+study_plot_dat$Train <- train_test_vect$Train
+
+# create symbols for train/test & p.value significance plot overlay
+study_plot_dat <- study_plot_dat %>%
+  mutate(Train_Label = ifelse(Train, '○', '')) %>%
+  mutate(Train_Label = ifelse(PMID == 'current study', '○', Train_Label)) %>%
+  mutate(Significance_Label = ifelse(P.Value <= 0.05, '*', ''))
+
+study_plot_dat <- study_plot_dat %>%
+  mutate('Vaccine.Type' = sapply(X = Study, function(x){strsplit(x = as.character(x), split = '_')[[1]][3]}))
+```
+
+Plot label clean-up
+```{r, label-clean-up, results='hide', eval=TRUE}
+# format study names for plot axes
+new_study_names <- as.character(unique(study_plot_dat$Study)) %>%
+  gsub(pattern = paste(paste0('_', c('Influenza', 'Yellow Fever', 'Pneumococcus', 'Smallpox', 'Tuberculosis', 'Hepatitis B', 'Meningococcus', 'Varicella Zoster'), '_'), collapse = '|'), replacement = '') %>%
+  gsub(pattern = paste(c('Inactivated', 'Live attenuated', 'Conjugate', 'Polysaccharide', 'Recombinant Viral Vector'), collapse = '|'), replacement = '') %>%
+  gsub(pattern = '_', replacement = ' ')
+name_swap_df <- data.frame('Study' = unique(as.character(study_plot_dat$Study)), 
+                           'New_Study' = new_study_names,
+                           'Factor_Study' = unique(study_plot_dat$Study)) %>%
+  arrange(Factor_Study) %>%
+  mutate(Study = Factor_Study) %>%
+  dplyr::select(-Factor_Study)
+new_study_levels <- name_swap_df %>%
+  dplyr::select(New_Study) %>%
+  distinct()
+name_swap_df <- name_swap_df %>%
+  mutate(New_Study = factor(New_Study, levels = new_study_levels$New_Study, ordered = T))
+
+# get sample sizes for plot
+sample_N <- subject_plot_dat %>%
+  dplyr::select(Study, SubjectID) %>%
+  distinct() %>%
+  group_by(Study) %>%
+  summarize(N = n()) %>%
+  ungroup() %>%
+  mutate(Study = as.character(Study)) 
+
+# add sample sizes & formatted plot names, reformat PMID 32094927 pathogen (previously overwritten)
+study_plot_dat <- study_plot_dat %>%
+  left_join(sample_N, by = 'Study') %>%
+  left_join(name_swap_df, by = 'Study') %>%
+  mutate(Study = New_Study) %>%
+  mutate(Filter_Pathogen = ifelse(PMID == '32094927', 'influenza & yellow fever', Filter_Pathogen)) 
+
+# re-order pathogens in plot
+extra_paths <- c('Influenza', 'Yellow Fever')
+path_order <- unique(study_plot_dat$Pathogen) %>%
+  sort() %>%
+  setdiff(extra_paths) 
+path_order <- c(extra_paths, path_order)
+
+study_plot_dat <- study_plot_dat %>%
+  filter(!is.na(AUROC)) %>%
+  mutate(PMID = factor(PMID, levels = sort(unique(PMID), decreasing = T), ordered = T),
+         Filter.Behavior = factor(Filter.Behavior, levels = c('up', 'down'), ordered = T),
+         Filter_Pathogen = factor(Filter_Pathogen, levels = c('hepatitis B virus', 'influenza', 'influenza & yellow fever', 'all vaccines'), ordered = T),
+         Vaccine.Type = gsub(pattern = 'Rec', replacement = '        Rec', x = Vaccine.Type),
+         Pathogen = factor(Pathogen, levels = path_order, ordered = T),
+         N_Lab = ifelse(Filter == "hepatitis B virus_up-regulated for_30205979_9", as.character(N), ''))
+# sample size generate label for top row of plot
+label_dat <- study_plot_dat %>%
+  mutate('Lab' = ifelse(Filter == "hepatitis B virus_up-regulated for_30205979_3", as.character(N), ''))
+
+table(label_dat$Lab == '', label_dat$Filter)
+```
+
+Generate plots
+```{r, fig4d, fig.height=8, fig.width=10, eval=TRUE}
+p0 <- ggplot(study_plot_dat, 
+             aes(x = Study, y= Filter, fill = AUROC, label = Significance_Label)) + 
+  geom_tile() +
+  geom_text(aes(label = Significance_Label), position = position_nudge(y = -0.27), size = 8) +
+  geom_text(aes(label = Train_Label), position = position_nudge(y = 0.08), size = 8) + 
+  geom_text(aes(label = N_Lab)) + 
+  scale_fill_gradient2(midpoint = 0.5, low = scales::muted('blue'), high = scales::muted('red')) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  theme(strip.text.y.right = element_text(angle = 0, margin = margin(t = 0, r = 0, b = 0, l = 0) )) +
+  theme(strip.text.x.top = element_text(angle = 90, margin = margin(t = 0, r = 0, b = 0, l = 0))) + 
+  theme(axis.text.y = element_blank()) + 
+  theme(panel.spacing.y = unit(0, 'lines')) +
+  theme(legend.position = 'left') + 
+  facet_grid(Filter_Pathogen + PMID ~ Pathogen + Vaccine.Type, 
+             scales = 'free', 
+             space= 'free') +
+  labs(y = 'Signature')
+print(p0)
+```
+
+## Figure 5. Pre-vaccination endotypes in scRNAseq
+### Figure 5a. UMAP of PBMCs from 20 healthy participants profiled by CITE-seq
+Load CITE-seq data from SDY80 (Kotliarov et. al.) and normalize and denoise protein data with dsb. add adjmfc response data. 
+```{r, load-citeseq, eval=TRUE}
+set.seed(seed = 1234)
+
+# read raw data and dsb norm by batch. 
+h1 <- readRDS(file = file.path(dataCacheDir, "CITEseq_raw_PMID32094927_seurat2.4.rds")) 
+dsb_norm <- readRDS(file = file.path(dataCacheDir, "dsb_norm_counts.rds"))
+
+# make new object 
+s <- CreateSeuratObject(counts = h1@raw.data, meta.data = h1@meta.data, min.cells = 5)
+
+# make assay for protein data 
+adt <- CreateAssayObject(counts = h1@assay$CITE@raw.data)
+s[["CITE"]] <- adt
+   
+# add normalized ADT data 
+s <- SetAssayData(object = s,assay = 'CITE',slot = 'data',new.data = dsb_norm)
+
+# normalize rna 
+s <- NormalizeData(object = s, normalization.method = 'LogNormalize')
+```
+
+Run umap based on normalized protein expression (load pre-computed umap embeddings ; code also provided below) umap was run by calling python via reticulate
+```{r run-umap, eval=FALSE}
+isotypes <- c("Mouse IgG2bkIsotype-PROT", "MouseIgG1kappaisotype-PROT", 
+             "RatIgG2bkIsotype-PROT","MouseIgG2akappaisotype-PROT")
+prots <- rownames(s@assays$CITE@data)
+prots <- prots[!prots %in% isotypes]
+s <- RunUMAP(s, assay = 'CITE', features = prots, 
+            spread = 0.5, min.dist = 0.4, n.neighbors = 40) 
+umap_res <- s$umap@cell.embeddings
+```
+   
+```{r, load-umap, eval=TRUE}
+umap_res <- readRDS(file = file.path(dataCacheDir,
+                                     "umap_embeddings.rds"))
+```
+
+umap plot of protein based cell types
+```{r, fig5a, fig.height=8, fig.width=8, eval=TRUE}
+# combined data frame
+d <- cbind(s@meta.data, umap_res)
+
+# umap labeled. 
+centers <- d %>% 
+  group_by(celltype_label_3) %>% 
+  summarize(UMAP_1 = median(UMAP_1), 
+            UMAP_2 = median(UMAP_2))
+centers$celltype_label_3 <- str_replace_all(string      = centers$celltype_label_3, 
+                                            pattern     = "_",
+                                            replacement = " ")
+centers <- centers %>% 
+  filter(celltype_label_3 != "DOUBLET")
+d$celltype_label_3 <- str_replace_all(string      = d$celltype_label_3, 
+                                      pattern     = "_",
+                                      replacement = " ")
+
+# color vec
+cu <- c(BuenColors::jdb_palette(name = 'lawhoops', 20), rep('pink', 19))
+
+plot_theme <- list(theme_bw(), 
+                   theme(panel.grid.minor = element_blank(),
+                         panel.grid.major = element_blank(),
+                         axis.ticks.y     = element_blank(), 
+                         axis.ticks.x     = element_blank())) 
+
+# plot umap with cluster labels 
+p <- ggplot(d, aes(x = UMAP_1,y =UMAP_2, color = celltype_label_3)) +
+  plot_theme + 
+  geom_point(show.legend = FALSE, size = 0.6, shape = 16,  alpha = 0.8) +
+  scale_color_manual(values = cu) +
+  ggrepel::geom_text_repel(data = centers, seed = 1, color = "black", box.padding = 1,
+                  fontface = "bold", size = 4,
+                  segment.color = "grey", 
+                  segment.size = 0.3,force = 8,
+                  aes(label = celltype_label_3),
+                  show.legend = FALSE) 
+print(p)
+```
+
+### Figure 5b. Single cell CITE-seq deconvolution of inflammatory genes
+Single cell mapping of the ensemble classifier signature.  
+```{r, fig5b, fig.width=8, fig.height=3, eval=TRUE}
+# read feature from RF model (Fig 4bc)
+featFile <- file.path(dataCacheDir,
+                      "Top500_Var_VarImp.csv")
+featDF <- read_csv(file = featFile, 
+                   col_names = c("FEATURE", "IMPORTANCE"),
+                   skip = 1) %>%
+  filter(IMPORTANCE >= 0)
+
+# read inflammatory genes (Fig 2)
+# read hallmark
+inflamLS <- c("HALLMARK_INFLAMMATORY_RESPONSE",
+              # "HALLMARK_COMPLEMENT", complement was not significant in Fig 4
+              "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+              "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+inflamSig<- intersect(featDF$FEATURE, unlist(all_genesets[inflamLS]))
+
+sigsub <- intersect(inflamSig, rownames(s$RNA@counts))
+
+d <- cbind(s@meta.data, 
+          as.data.frame(t(as.matrix(s@assays$RNA@data[sigsub, ]))),
+          as.data.frame(t(s@assays$CITE@data)), 
+          umap_res)
+   
+# normalize rna data with library size scaling factors 
+s <- s %>% 
+  NormalizeData(normalization.method = "LogNormalize") %>% 
+  ScaleData(features = sigsub)
+
+# map to high resolution protein phenotypes 
+dav <- d %>% 
+  group_by(celltype_label_3) %>% 
+  summarize_at(.vars = sigsub, .funs = mean) %>% 
+  `rownames<-`(value = NULL) %>%
+  column_to_rownames("celltype_label_3")
+
+
+cu <- colorspace::diverge_hcl(palette = "Berlin", n = 12)
+  
+xy <- pheatmap(dav, 
+                   color = cu,
+                   scale = "column", 
+                   width = 7,
+                   height = 4, 
+                   border_color = NA,
+                   treeheight_col = 10, 
+                   treeheight_row = 10,
+                   silent = TRUE)
+
+# extract celltype order 
+celltype_order <- xy$tree_row$labels[xy$tree_row$order]
+gene_order <- xy$tree_col$labels[xy$tree_col$order]
+
+# summarize by percent expression 
+gene_index <- sigsub
+index1 <- gene_index[1]
+index2 <- gene_index[length(gene_index)]
+
+# calculate percent of cells with non zero expression 
+pg0 <- function(x){
+ perc(x = x,dir = "gt",val = 0)
+}
+
+# summary stat 
+dsummary <- d %>% 
+  group_by(celltype_label_3) %>% 
+  summarize_at(.vars = sigsub, .funs = pg0) %>% 
+  pivot_longer(cols = -celltype_label_3, names_to = "gene", values_to = "pct_express")
+
+# calculate average normalized expression per cluster 
+q90 <- function(x){
+  quantile(x,probs = 0.95)
+}
+d_av <- 
+  d %>% 
+  group_by(celltype_label_3) %>% 
+  summarize_at(.vars = sigsub, .funs = mean) %>% 
+  pivot_longer(cols = -celltype_label_3, names_to = "gene", values_to = "gene_avg")
+
+# merge summarized data 
+d <- full_join(dsummary, d_av)
+
+d$celltype_label_3 <- factor(d$celltype_label_3, levels = celltype_order)
+d$gene <- factor(d$gene, levels = gene_order)
+p <-
+  ggplot(d %>% filter(pct_express > 0),
+         aes(y = celltype_label_3, x = gene, 
+             color = gene_avg,
+             size = pct_express)) +
+  geom_point() + 
+  scale_color_gradientn(colours = viridis::viridis(n = 10),
+                        limits = c(0,0.25), 
+                        oob = scales::squish,
+                        name = 'avg. expression') + 
+  theme_bw() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, color = 'black')) +
+  theme(axis.text.y = element_text( color = 'black')) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+print(p)
+```
+   
+## Figure 6. Endotypes and microbiome
+### Figure 6a. Boxplot showing the Bacterial/Viral metascore as a function of the pre-vaccination inflammatory endotypes. 
+Read prevax cluster
+```{r, read-slea, eval=TRUE}
+inflamDF <- pData(sleaSet)[sleaSet$study_time_collected <= 0, ]
+```
+   
+Bacterial.viral classifier
+```{r, fig6, fig.height=4.4, fig.width=4.6, eval=TRUE}
+# scale pre-vaccination
+batch <- interaction(young.NoResp$study_accession,
+                     young.NoResp$matrix)
+scaledMat <- by(data    = t(exprs(young.NoResp)),
+                INDICES = batch,
+                FUN     = function(x) scale(x)) %>%
+  do.call(what = rbind) %>%
+  t()
+scaledMat <- scaledMat[, young.NoResp$uid]
+
+# higher in viral infections (IFI27, JUP, and LAX1) and
+# higher in bacterial infections (HK3, TNIP1, GPAA1, and CTSB)
+bvDF <- data.frame(score = colMeans(scaledMat[c("TNIP1", "GPAA1","CTSB"), ],
+				    na.rm = TRUE) -
+		     colMeans(scaledMat[c("IFI27", "JUP", "LAX1"), ],
+				  na.rm = TRUE)) %>%
+  rownames_to_column(var = "uid") %>%
+  merge(y = inflamDF, by = "uid")
+
+ggplot(data    = bvDF,
+       mapping = aes(x = gr, y = score)) +
+  geom_beeswarm(cex = 1.1, size = 0.75) +
+  geom_boxplot(outlier.color = "transparent",
+               fill          = "transparent",
+               mapping       = aes(color = gr)) +
+  labs(y = "Bacterial/Viral metascore", x = "Prevax inflammatory cluster") +
+  theme_bw() +
+  theme(legend.pos = "none")
+
+kruskal.test(formula = score~gr, data = bvDF)
+```
+   
+### Figure 6b. Gene expression of the inflammatory genes in dendritic cells stimulated with five PRR ligands
+Read GSE134874 count file
+```{r, read-counts, eval=TRUE}
+countFile <- file.path(dataCacheDir, 
+                       "GSE134874_Human_umi_counts.tsv.gz")
+suppressWarnings(countDF <- read_tsv(file = countFile))
+
+message("SampleName: Treatment_Donor_Replicate")
+message(paste0("Treatment(n=8): Ctrl, G=cGAMP, H=polyIC, S=SeV, C=CpG-B, Z=Zymosan,",
+               "L=LPS, P=Pam3CSK4"))
+message(paste0("Ligand/Receptor: TLR4_L, TLR2_P, TLR3/MDA5_H, TLR9_C, RIG-I_S,",
+               "Dectin-1_Z, STING-G"))
+message("Donor (n=3): 27, 39, 45")
+message("Replicate (n=3):1, 2, 3")
+warning("no CpG or Pam3CSK4 in human DC experiment")
+countDF <- select(countDF,
+                  `X1`,
+                  matches(match = "^Ctrl_"),
+                  matches(match = "^cG_"),
+                  matches(match = "^H_"),
+                  matches(match = "^S_"),
+                  matches(match = "^Z_"),
+                  matches(match = "^L_"))
+```
+                
+Read Lewis features that are inflammatory markers
+```{r, read-lewis-genes, eval=TRUE}
+featFile <- file.path(dataCacheDir,
+                      "Top500_Var_VarImp.csv")
+featDF <- read_csv(file = featFile, 
+                   col_names = c("FEATURE", "IMPORTANCE"),
+                   skip = 1) %>%
+  filter(IMPORTANCE >= 0)
+
+lewisLS <- featDF$FEATURE
+
+# intersect them with inflammatory genes
+lewisLS <- intersect(lewisLS,
+                     unlist(all_genesets[c("HALLMARK_INFLAMMATORY_RESPONSE", 
+              "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+              "HALLMARK_TNFA_SIGNALING_VIA_NFKB")]))
+``` 
+
+```{r, fig6b, warning=FALSE, fig.width=8, fig.height=8, eval=TRUE}
+mat <- countDF %>%
+    filter(`X1` %in% lewisLS) %>%
+    column_to_rownames(var = "X1")
+mat <- log2(mat + 0.25)
+pdata <- colnames(mat) %>%
+    strsplit(split = "_") %>%
+    do.call(what = rbind) %>%
+    as.data.frame() %>%
+    setNames(nm = c("Treatment", "ParticipantID", "Replicate")) %>%
+    mutate(TreatmentLong = recode(Treatment,
+                                  "Ctrl" = "Ctrl", 
+                                  "cG"   = "cGAMP", 
+                                  "H"    = "polyIC", 
+                                  "S"    = "SeV", 
+                                  "Z"    = "Zymosan", 
+                                  "L"    = "LPS"),
+           TreatmentLong = factor(TreatmentLong,
+                                  levels = unique(TreatmentLong)))           
+rownames(pdata) <- colnames(mat)
+matCtrl <- mat[, pdata$Treatment %in% "Ctrl"] 
+muCtrl <- by(t(matCtrl), 
+   INDICES = pdata[colnames(matCtrl), "ParticipantID"],
+   FUN = colMeans) %>%
+    do.call(what = cbind)
+lfcMat <- mat - muCtrl[, pdata$ParticipantID] %>%
+    as.matrix()
+col_fun <- colorRamp2(colors = c("blue", "white", "red"), 
+                    breaks = c(-5, 0, 5))
+Heatmap(matrix = lfcMat, 
+        col = col_fun,
+        cluster_columns = FALSE,
+        name = "log2FC",
+        column_split = pdata$TreatmentLong)
+```
+                
+### Extended Figure 1. Principal variance component analysis using pre-vaccination transcriptomic expression
+```{r boot-pvca-pre, eval=FALSE}
+young.NoResp.Pre <- young.NoResp.Pre[, young.NoResp.Pre$study_time_collected <= 0]
+mat <- exprs(young.NoResp.Pre)
+pdata <- pData(young.NoResp.Pre) %>%
+  select(y_chrom_present, ethnicity, study_time_collected,
+	 age_imputed) %>%
+  rename(Gender    = y_chrom_present,
+	 Ethnicity = ethnicity,
+	 Timepoint = study_time_collected,
+	 Age       = age_imputed)
+pdata <- pdata[colnames(mat), ]
+
+B <- 1000
+bootLS <- mclapply(1:B, FUN = function(seed) {
+  set.seed(seed = seed)
+  indices <- sample.int(n = ncol(mat), size = ncol(mat), replace = TRUE)
+                 pdataTemp <- pdata[indices, ]
+                 matTemp <- mat[, indices]
+                 fit <- PVCA(counts    = matTemp,
+                             meta      = pdataTemp,
+                             threshold = 0.6,
+                             inter     = FALSE)
+  return(value = c(seed = seed, fit))
+}, mc.cores = detectCores() - 1)
+# save(bootLS, file = file.path(dataCacheDir, "figs1.boot.rda"))
+```
+
+```{r figs1, fig.width=4, fig.height=7, eval=TRUE}
+load(file = file.path(dataCacheDir, "figs1.boot.rda"))
+plotDF <- bootLS %>%
+  select(-seed) %>%
+  apply(MARGIN = 2, FUN = quantile, probs = c(0.025, 0.5, 0.975)) %>%
+  t() %>%
+  as.data.frame() %>%
+  mutate(effect = names(bootLS)[-1]) %>%
+  arrange(`50%`) %>%
+  mutate(effect = factor(effect, levels = effect))
+
+ggplot(data    = plotDF,
+       mapping = aes(x = effect, y = `50%`)) +
+  geom_bar(stat = "identity") +
+  geom_errorbar(mapping = aes(ymin = `2.5%`, ymax = `97.5%`), width = 0.1) +
+  geom_text(aes(label = signif(`50%`, digits = 3)),
+            nudge_y   = 0.03,
+            size      = 3) +
+  labs(x = NULL, y = "Proportion of the variance explained") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   vjust = 1,
+                                   hjust = 1))
+```
+
+
+# Session Info
+
+```{r sessioninfo}
+sessionInfo()
+```
